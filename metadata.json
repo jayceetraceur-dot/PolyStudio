@@ -1,0 +1,6 @@
+{
+  "name": "Low-Poly 3D Colony Game",
+  "description": "A low-poly 3D colony survival game simulator with a dynamic open world, terrain generation, day-night cycle, and RTS-camera navigation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

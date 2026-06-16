@@ -1,0 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;650;750&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Base resets & animations */
+body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #070911;
+  font-family: var(--font-sans);
+}
+
+/* Smoothly transition day-night state changes for all UI panels and containers */
+#clock-widget,
+#tribesman-inspector-panel,
+.backdrop-blur-md,
+.backdrop-blur-sm,
+.rounded-2xl,
+.rounded-xl,
+.rounded-lg,
+.p-2.5,
+.p-2,
+.p-1.5,
+.border {
+  transition-property: background-color, border-color, color, text-shadow, box-shadow;
+  transition-duration: 1000ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+kbd {
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* Custom scrollbars for tidy side list boxes */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Custom animation keyframes */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 20s linear infinite;
+}
+
+.animate-spin-hover:hover {
+  animation: spin-slow 1.6s linear infinite;
+}

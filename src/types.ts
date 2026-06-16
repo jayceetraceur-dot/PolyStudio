@@ -1,0 +1,507 @@
+export type BiomeType = 'grassland' | 'forest' | 'rocky' | 'water' | 'beach' | 'desert';
+
+export interface WorldConfig {
+  size: number; // grid size (e.g., 40 means 40x40)
+  seed: number;
+  roughness: number; // height scalar
+  forestDensity: number; // 0 to 1
+  rockDensity: number; // 0 to 1
+  waterLevel: number; // -1 to 1 (relative)
+}
+
+export type JobCategory =
+  | 'Gather'
+  | 'Hunt'
+  | 'Build'
+  | 'Farm'
+  | 'Scout'
+  | 'Haul'
+  | 'Repair'
+  | 'Sleep'
+  | 'Eat'
+  | 'Drink';
+
+export type JobPriority = 1 | 2 | 3 | 4 | 0; // 1 = Critical, 4 = Low, 0 = Disabled
+
+export interface CellInfo {
+  x: number;
+  z: number;
+  height: number;
+  noiseValue: number;
+  moisture: number;
+  biome: BiomeType;
+  color: string;
+  hasTree: boolean;
+  treeHeight: number;
+  treeRotation: number;
+  hasRock: boolean;
+  rockSize: number;
+  rockRotation: [number, number, number];
+  hasShrub: boolean;
+  inspectableName: string;
+  resources: {
+    wood?: number;
+    stone?: number;
+    water?: number;
+    fertility?: number;
+  };
+  
+  // Custom RTS Autonomy AI extensions
+  scouted?: boolean; // starts false if Fog of War is enabled
+  itemsOnGround?: {
+    type: 'wood' | 'stone' | 'food' | 'meat';
+    amount: number;
+  } | null;
+  construction?: {
+    type: 'Shelter' | 'WaterWell' | 'LogWall' | 'StorageBin' | 'ArtisanBench' | 'ScienceMachine' | 'RuinousAltar' | 'Tent' | 'Shrine' | 'WatchTower' | 'Fireplace' | 'GatherersPantry' | 'HuntersHut' | 'BuildersLodge' | 'FarmersGranary' | 'ScoutsLookout' | 'HealersSanctum' | 'ArtisansWorkshop' | 'PetrifiedGreenhouse' | 'PrecursorGenerator' | 'AegisBeacon' | 'ObservationPlatform' | 'Observatory' | 'RelicArchive' | 'MeditationShrine' | 'MapHall';
+    progress: number;
+    maxProgress: number;
+  } | null;
+  structure?: {
+    type: 'Shelter' | 'WaterWell' | 'LogWall' | 'StorageBin' | 'ArtisanBench' | 'ScienceMachine' | 'RuinousAltar' | 'Tent' | 'Shrine' | 'WatchTower' | 'Fireplace' | 'GatherersPantry' | 'HuntersHut' | 'BuildersLodge' | 'FarmersGranary' | 'ScoutsLookout' | 'HealersSanctum' | 'ArtisansWorkshop' | 'PetrifiedGreenhouse' | 'PrecursorGenerator' | 'AegisBeacon' | 'ObservationPlatform' | 'Observatory' | 'RelicArchive' | 'MeditationShrine' | 'MapHall';
+    condition: number;
+    maxCondition: number;
+    dismantling?: boolean;
+    dismantleProgress?: number;
+  } | null;
+  farmCrop?: {
+    type: 'Wheat' | 'Pumpkin';
+    stage: 'sown' | 'growing' | 'harvestable';
+    progress: number; // 0 to 100
+  } | null;
+  wildAnimal?: {
+    id?: string;
+    type: string;
+    HP: number;
+    maxHP: number;
+    isDead: boolean;
+    isHarvested: boolean;
+    gender?: 'Male' | 'Female';
+    agePhase?: 'Baby' | 'Adult';
+    isTame?: boolean;
+    trustLevel?: number;
+    tameLevel?: number;
+    tameGenerations?: number; // Captive generations (needs multi-gen to be fully quiet/docile)
+  } | null;
+  resourceNode?: {
+    category: 'food' | 'material' | 'water' | 'rare';
+    type: 
+      | 'Berries' | 'Roots' | 'Mushrooms' | 'Meat'
+      | 'Wood' | 'Stone' | 'Fiber' | 'Bone'
+      | 'Dew' | 'ReservoirWater' | 'Rainwater'
+      | 'Relics' | 'AncientMaterials'
+      | 'Copper' | 'Silver' | 'Gold' | 'Iron';
+    amount: number;
+    maxAmount: number;
+    regrowTimer: number; // incremental Days or ticks until regrowing +1 resource
+    regrowRate: number; // speed/scalar of regrowth
+    quality: number; // freshness index for food (100 is pristine, decending)
+  } | null;
+  landmark?: Landmark | null;
+  gatherDesignated?: boolean;
+}
+
+export interface Landmark {
+  id: string;
+  type: 'giant_petrified_tree' | 'ancient_tower' | 'massive_skeleton' | 'abandoned_settlement' | 'buried_machine' | 'crashed_structure' | 'strange_stone_circle';
+  name: string;
+  description: string;
+  storySegment: string; // lore snippet text
+  explored: boolean;
+  rewards: {
+    knowledgePoints?: number;
+    moraleBoost?: number; // can be negative for mass graves, etc.
+    relics?: number;
+    ancientMaterials?: number;
+    unlockRecipeId?: string;
+    unlockBuildingType?: string;
+  };
+}
+
+export interface InventoryItem {
+  id: string;
+  type: string;
+  amount: number;
+  weight: number;      // weight per unit or stack
+  volume: number;      // volume per unit or stack
+  freshness?: number;  // 0-100 freshness index
+}
+
+export interface InventoryStats {
+  maxWeight: number;
+  maxVolume: number;
+  currentWeight: number;
+  currentVolume: number;
+  cleanliness: number; // 0-100 organizational factor mitigating spoilage
+  items?: Record<string, number>;
+}
+
+export interface CraftingJob {
+  id: string;
+  recipeId: string;
+  progress: number;
+  maxProgress: number;
+  workerId?: string; // assigned builder or artisan
+}
+
+export interface MapData {
+  config: WorldConfig;
+  grid: CellInfo[][];
+  researchPoints: number;
+  unlockedRecipes: string[];
+  craftQueue: CraftingJob[];
+  villageInventory: InventoryStats;
+  caravanInventory: InventoryStats;
+  stockpile: {
+    wood: number;
+    stone: number;
+    food: number;
+
+    // Detailed Don't Starve items
+    berries: number;
+    berriesFresh: number; // 0 to 100 freshness %
+    roots: number;
+    rootsFresh: number;
+    mushrooms: number;
+    mushroomsFresh: number;
+    meat: number;
+    meatFresh: number;
+
+    fiber: number;
+    bone: number;
+
+    dew: number;
+    reservoirWater: number;
+    rainwater: number;
+
+    relics: number;
+    ancientMaterials: number;
+
+    // Minerals
+    copper: number;
+    silver: number;
+    gold: number;
+    iron: number;
+
+    // Crafted products
+    stoneAxe: number;
+    flintPickaxe: number;
+    grassBasket: number;
+    spear: number;
+    boiledRoots: number;
+    boiledRootsFresh: number;
+    paddedJerkin: number;
+    saltedMeat: number;
+    saltedMeatFresh: number;
+    steelPickaxe: number;
+    eldritchWard: number;
+    amuletLife: number;
+    thuleciteCore: number;
+
+    // Wildlife and hunting resources
+    hide: number;
+    fat: number;
+    horns: number;
+  };
+  unlockedBuildings?: string[]; // lists of custom unlocked buildings
+  activeLoreLogs?: { id: string; landmarkName: string; text: string; discoveredDay: number }[]; // discovered lore log list
+  tribeCodexLogs?: CodexEvent[]; // Chronicles log of lineage and important events
+  autoGatherThresholds?: Record<string, number>; // auto gather limits for resources
+  animals?: Animal[]; // dynamic wildlife simulation actors
+  activeRelicStudy?: {
+    id: string;
+    relicName: string;
+    totalDaysRequired: number;
+    daysProgress: number;
+    oracleName: string;
+    oracleHealerLevel: number;
+    rewardType: 'rp' | 'resources' | 'healing';
+    decodedMessage: string;
+  };
+}
+
+export type AnimalCategory = 'Herbivore' | 'SmallPredator' | 'ApexPredator' | 'Scavenger';
+
+export interface Animal {
+  id: string;
+  type: string; // e.g. 'Rabbit', 'Deer', 'Sheep', 'WildGoat', 'Cattle', 'PackBird', 'Elk', 'Antelope', 'Fox', 'Wolf', 'WildDog', 'Bear', 'LargeCat', 'DireWolf', 'Vulture', 'Hyena', 'Crow'
+  category: AnimalCategory;
+  x: number;
+  z: number;
+  y: number;
+  targetX: number;
+  targetZ: number;
+  
+  HP: number;
+  maxHP: number;
+  isDead: boolean;
+  isHarvested: boolean;
+  
+  // Demographics & Lifecycle
+  gender: 'Male' | 'Female';
+  agePhase: 'Baby' | 'Adult';
+  ageDays: number;
+  gestationTimer: number; // days pregnant, e.g. 0 to 5 days
+  isPregnant: boolean;
+  
+  // Stats
+  energy: number; // 0 to 100
+  hunger: number; // 0 to 100
+  thirst: number; // 0 to 100
+  fear: number;   // 0 to 100
+  stress: number; // 0 to 100
+  isSleeping: boolean;
+  sleepTimer: number; // dynamic sleeping cooldown or hours
+  
+  // Pack / Herding Behavior
+  herdId?: string; // Links animals into grouped cohesive packs
+  isHerdLeader?: boolean;
+  
+  // Taming & Domestic progression
+  tameLevel: number;        // 0 to 100
+  isTame: boolean;          // true if fully integrated with colony
+  captiveBorn: boolean;     // true if born in captiviity (offspring become fully quiet/tame)
+  trustLevel: number;       // 0 to 100 trust based on active feeding
+  assignedJob?: 'Carrying' | 'Milking' | 'Plowing' | 'HuntingCompanion' | 'Guarding' | 'Wagon' | null;
+  assignedToHandler?: string | null; // tribesperson ID
+  
+  // Carcass Harvest yields
+  meatAmount: number;
+  hideAmount: number;
+  boneAmount: number;
+  fatAmount: number;
+  rareSpecimenAmount: number; // Horns / Feathers
+}
+
+export interface CodexEvent {
+  id: string;
+  type: 'birth' | 'death' | 'marriage' | 'apprenticeship' | 'mastery' | 'succession' | 'monument';
+  title: string;
+  description: string;
+  day: number;
+  year?: number;
+}
+
+export type TimeSpeed = 'paused' | 'normal' | 'fast' | 'super';
+
+export interface GameCalendar {
+  days: number;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  focusX?: number;
+  focusZ?: number;
+}
+
+export type TribespersonRole = 
+  | 'Gatherer' 
+  | 'Hunter' 
+  | 'Farmer' 
+  | 'Builder' 
+  | 'Scout' 
+  | 'Healer' 
+  | 'Artisan'
+  | 'Oracle';
+
+export type TribespersonTrait = 
+  | 'Tireless' 
+  | 'Green Thumb' 
+  | 'Path Finder' 
+  | 'Beast Friend' 
+  | 'Iron Stomach';
+
+export interface TribespersonStats {
+  hunger: number; // 0 (starving) to 100 (full)
+  thirst: number; // 0 (dehydrated) to 100 (hydrated)
+  fatigue: number; // 0 (exhausted) to 100 (fully rested)
+  morale: number; // 0 (broken) to 100 (elated)
+  health: number; // 0 (dead) to 100 (healthy)
+}
+
+export interface TribespersonAttributes {
+  strength: number;     // 1 to 10
+  endurance: number;    // 1 to 10
+  intelligence: number; // 1 to 10
+  perception: number;   // 1 to 10
+  agility: number;      // 1 to 10
+}
+
+export interface SkillProgress {
+  level: number;
+  xp: number;
+  xpToNextLevel: number;
+}
+
+export interface Tribesperson {
+  id: string;
+  name: string;
+  gender: 'Male' | 'Female';
+  ageYears: number;
+  ageDays: number;
+  isAlive: boolean;
+  deathReason?: string;
+  
+  stats: TribespersonStats;
+  attributes: TribespersonAttributes;
+  role: TribespersonRole;
+  traits: TribespersonTrait[];
+  
+  // Skills mapped to roles they represent
+  skills: Record<TribespersonRole, SkillProgress>;
+  
+  // Simulation coordinate/target coordinates for visuals
+  x: number;
+  z: number;
+  y: number;
+  targetX: number;
+  targetZ: number;
+  color: string;
+  
+  statusText: string;
+
+  // RimWorld-style priority queue and cargo additions
+  priorities: Record<JobCategory, JobPriority>;
+  personalInventory: InventoryStats;
+  carriage: {
+    type: string;
+    amount: number;
+  } | null;
+  activeJobType?: JobCategory | null;
+  jobTargetCoords?: { x: number; z: number } | null;
+  workProgress?: number; // active work time accumulation at current node
+  personality?: 'Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy';
+  relationships?: {
+    targetId: string;
+    targetName: string;
+    type: 'Friend' | 'Rival' | 'Mentor' | 'Apprentice' | 'Family';
+    value: number; // -100 to 100
+  }[];
+
+  // Generational & Population simulation
+  familyName?: string;
+  generation?: number;
+  parents?: string[];
+  isTribeBorn?: boolean;
+  agePhase?: 'Child' | 'Teenager' | 'Adult';
+  childUpbringing?: 'Hunter Camp' | 'Builder District' | 'Oracle Enclave' | 'General';
+  apprenticeTo?: string;
+  apprenticeToName?: string;
+  masteryTechniques?: string[];
+  lineagePath?: string;
+  isOracleApprentice?: boolean;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string;
+  tier: 'Primitive' | 'Tribal' | 'Advanced' | 'Relic';
+  workstation: 'None' | 'ArtisanBench' | 'ScienceMachine' | 'RuinousAltar';
+  materials: Record<string, number>;
+  skillsRequired?: { role: string; level: number };
+  researchCost?: number; // point cost to research
+}
+
+export const RECIPE_DATABASE: Record<string, Recipe> = {
+  stoneAxe: {
+    id: 'stoneAxe',
+    name: 'Sharp Flint Axe',
+    description: 'Increases woodcutting efficiency. Decreases gather node efforts by 50%.',
+    tier: 'Primitive',
+    workstation: 'None',
+    materials: { wood: 15, stone: 10, fiber: 5 },
+  },
+  flintPickaxe: {
+    id: 'flintPickaxe',
+    name: 'Flint Mine Pickaxe',
+    description: 'Increases mining efficiency. Decreases rock harvesting time by 50%.',
+    tier: 'Primitive',
+    workstation: 'None',
+    materials: { wood: 10, stone: 20, fiber: 5 },
+  },
+  grassBasket: {
+    id: 'grassBasket',
+    name: 'Handwoven Grass Basket',
+    description: 'Allows haulers and foragers to pack light! Adds +10kg to carrying inventory capacity.',
+    tier: 'Primitive',
+    workstation: 'None',
+    materials: { fiber: 25 },
+  },
+  spear: {
+    id: 'spear',
+    name: 'Bone-Tipped Spear',
+    description: 'Deals 2x damage to animals. Buffs hunter success rate & speeds up slaughter times.',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { wood: 20, bone: 8, fiber: 10 },
+    skillsRequired: { role: 'Artisan', level: 2 },
+    researchCost: 10,
+  },
+  boiledRoots: {
+    id: 'boiledRoots',
+    name: 'Clay-Boiled Roots Medley',
+    description: 'A comforting high-nutrient dish. Retains moisture; restores +40 Hunger and +15 Thirst.',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { roots: 6, reservoirWater: 3, wood: 5 },
+    skillsRequired: { role: 'Farmer', level: 1 },
+    researchCost: 5,
+  },
+  paddedJerkin: {
+    id: 'paddedJerkin',
+    name: 'Reinforced Bone jerkin',
+    description: 'Light padding. Lessens severity of exposure & negative morale events by 35%.',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { fiber: 30, bone: 12 },
+    researchCost: 15,
+  },
+  saltedMeat: {
+    id: 'saltedMeat',
+    name: 'Salty Jerky Strips',
+    description: 'Cured and salted high protein snack. Kept airtight, it NEVER decays or spoils.',
+    tier: 'Advanced',
+    workstation: 'ScienceMachine',
+    materials: { meat: 15, reservoirWater: 5, wood: 5 },
+    skillsRequired: { role: 'Artisan', level: 3 },
+    researchCost: 20,
+  },
+  steelPickaxe: {
+    id: 'steelPickaxe',
+    name: 'Forged Ore Pickaxe',
+    description: 'Superb mining tool. Accelerates rock extraction by 75%.',
+    tier: 'Advanced',
+    workstation: 'ScienceMachine',
+    materials: { ancientMaterials: 3, wood: 15, stone: 25 },
+    researchCost: 30,
+  },
+  eldritchWard: {
+    id: 'eldritchWard',
+    name: 'Ancient Eldritch Ward',
+    description: 'A glowing defensive talisman. Completely blocks decay and contamination effects in warehouse storage (+15 Stockpile Cleanliness).',
+    tier: 'Advanced',
+    workstation: 'ScienceMachine',
+    materials: { relics: 1, bone: 10, fiber: 30 },
+    researchCost: 40,
+  },
+  amuletLife: {
+    id: 'amuletLife',
+    name: 'Red Ruby Vitality Amulet',
+    description: 'Saves a tribe member from death! Automatically shatters to restore 100% heat, hunger, and health.',
+    tier: 'Relic',
+    workstation: 'RuinousAltar',
+    materials: { relics: 3, bone: 15, dew: 10 },
+    researchCost: 60,
+  },
+  thuleciteCore: {
+    id: 'thuleciteCore',
+    name: 'Ruins-Power Thulecite Core',
+    description: 'An ancient heart pulsating with power. Passive morale boost (+20 Morale state colony-wide).',
+    tier: 'Relic',
+    workstation: 'RuinousAltar',
+    materials: { ancientMaterials: 6, relics: 2, dew: 15 },
+    researchCost: 80,
+  },
+};
