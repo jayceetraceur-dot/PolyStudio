@@ -271,6 +271,8 @@ export interface Animal {
   boneAmount: number;
   fatAmount: number;
   rareSpecimenAmount: number; // Horns / Feathers
+  decayTimer?: number;       // Visual death decay tracker
+  killedByPredator?: boolean;// Predator hunting outcome tracker
 }
 
 export interface CodexEvent {
@@ -371,6 +373,7 @@ export interface Tribesperson {
   activeJobType?: JobCategory | null;
   jobTargetCoords?: { x: number; z: number } | null;
   workProgress?: number; // active work time accumulation at current node
+  isManualDirectTask?: boolean;
   personality?: 'Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy';
   relationships?: {
     targetId: string;

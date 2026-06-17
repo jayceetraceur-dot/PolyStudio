@@ -1390,6 +1390,10 @@ export function tickTribeSimulation(
       (agent as any).lastReevalGen = forceGen;
     }
 
+    if (agent.isManualDirectTask) {
+      shouldReevaluate = false;
+    }
+
     if (shouldReevaluate) {
       const available: { type: JobCategory; x: number; z: number; score: number }[] = [];
 
@@ -2597,13 +2601,31 @@ export function tickTribeSimulation(
                       jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
                       workProgress = 0;
                     } else {
-                      // Convert to harvest sub-job
-                      statusText = `🩸 Slaughter complete. Harvest carcass...`;
-                      (agent as any).harvestCarcassId = targetAnimal.id;
-                      (agent as any).huntSubJob = 'harvest';
-                      workProgress = 0;
+                      // Drop meat on ground directly!
+                      const rx = Math.max(0, Math.min(size - 1, Math.round(targetAnimal.x)));
+                      const rz = Math.max(0, Math.min(size - 1, Math.round(targetAnimal.z)));
+                      const targetCell = mapData.grid[rx]?.[rz];
+                      if (targetCell) {
+                        targetCell.itemsOnGround = {
+                          type: 'meat',
+                          amount: Math.round((targetAnimal.meatAmount || 20) * (1 + agent.skills.Hunter.level * 0.1))
+                        };
+                      }
                       
-                      addLog(`🎯 Slain wild ${targetAnimal.type}! Flaying and harvesting carcass...`, 'info');
+                      // Haul hides, brains and bones directly to tribal storage
+                      mapData.stockpile.hide = (mapData.stockpile.hide ?? 0) + (targetAnimal.hideAmount || 2);
+                      mapData.stockpile.bone = (mapData.stockpile.bone ?? 0) + (targetAnimal.boneAmount || 2);
+                      if (targetAnimal.rareSpecimenAmount > 0) {
+                        mapData.stockpile.horns = (mapData.stockpile.horns ?? 0) + targetAnimal.rareSpecimenAmount;
+                      }
+
+                      addLog(`🎯 ${agent.name} slain wild ${targetAnimal.type}! Raw meat dropped on ground. Secured +${targetAnimal.hideAmount || 2} Hides and +${targetAnimal.boneAmount || 2} Bones to storage.`, 'success');
+                      awardSkillXP(agent, 'Hunter', 50, mapData, addLog, hasMentorNearby);
+                      
+                      activeJobType = null;
+                      jobTargetCoords = null;
+                      (agent as any).isManualDirectTask = false;
+                      workProgress = 0;
                     }
                   }
                 }
@@ -3052,6 +3074,7 @@ export function tickTribeSimulation(
       activeJobType,
       jobTargetCoords,
       workProgress,
+      isManualDirectTask: (activeJobType && activeJobType !== 'Haul') ? agent.isManualDirectTask : false,
       carriage,
       personalInventory,
       personality,

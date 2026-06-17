@@ -135,6 +135,7 @@ export default function ControlsOverlay({
   
   const [activeTab, setActiveTab ] = useState<'tribe' | 'work' | 'craft' | 'inventory' | 'lore'>('tribe');
   const [showDetailedRes, setShowDetailedRes] = useState(false);
+  const [isLogHovered, setIsLogHovered] = useState(false);
   
   const [editingThresholdKey, setEditingThresholdKey] = useState<string | null>(null);
   const [editingThresholdLabel, setEditingThresholdLabel] = useState<string>('');
@@ -634,7 +635,7 @@ export default function ControlsOverlay({
         {activeTab === 'tribe' && (
           <div 
             id="tribe-roster-dashboard"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[50vh] overflow-y-auto no-scrollbar ${
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
                 : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
@@ -857,7 +858,7 @@ export default function ControlsOverlay({
         {activeTab === 'work' && (
           <div 
             id="work-priorities-dashboard"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[50vh] overflow-y-auto no-scrollbar ${
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
                 : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
@@ -960,7 +961,7 @@ export default function ControlsOverlay({
         {activeTab === 'lore' && (
           <div 
             id="lore-codex-tab"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[50vh] overflow-y-auto no-scrollbar ${
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/85 border-slate-800 text-slate-150' 
                 : 'bg-white/90 border-slate-200 text-slate-800'
@@ -1061,38 +1062,65 @@ export default function ControlsOverlay({
         )}
 
         {/* CLAN EVENT LOG FEED TICKER CONTAINER (Always visible at the bottom of sidebar) */}
-        {logs.length > 0 && (
-          <div 
-            id="tribal-log-widget" 
-            className={`p-3.5 rounded-2xl border backdrop-blur-md shadow-lg flex flex-col gap-2 ${
-              isNight 
-                ? 'bg-slate-950/80 border-slate-800' 
-                : 'bg-white/80 border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center gap-1.5 border-b pb-1 border-slate-200/10">
-              <MessageSquare size={13} className="text-amber-500" />
-              <span className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-widest block leading-3">Chronos Tribal Dispatch Log</span>
-            </div>
-            <div className="flex flex-col gap-1.5 max-h-24 overflow-y-auto pr-1 text-[10.5px] leading-relaxed no-scrollbar" id="logs-scroller font-mono font-bold">
-              {logs.slice(0, 5).map((log) => {
-                let badgeColor = 'text-indigo-400';
-                if (log.type === 'death') badgeColor = 'text-rose-500 font-extrabold';
-                if (log.type === 'warning') badgeColor = 'text-amber-500';
-                if (log.type === 'level') badgeColor = 'text-emerald-400 font-extrabold';
+      </div>
 
-                return (
-                  <div key={log.id} className="flex items-start gap-1">
-                    <span className="text-[8px] font-mono text-slate-500 shrink-0 select-none mt-0.5">[{log.timeText}]</span>
-                    <span className={`${badgeColor} leading-3.5`}>
-                      {log.text}
-                    </span>
-                  </div>
-                );
-              })}
+      {/* CENTERING WRAPPER FOR CHRONOS LOG (Relocated to Middle/Bottom with Hover Opacity + Stretch Upward + Scrollable) */}
+      <div 
+        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 pointer-events-auto select-none"
+        style={{ width: '450px', maxWidth: '90vw' }}
+      >
+        <div 
+          id="tribal-log-widget-centered"
+          onMouseEnter={() => setIsLogHovered(true)}
+          onMouseLeave={() => setIsLogHovered(false)}
+          className={`p-3.5 rounded-2xl border backdrop-blur-md shadow-xl flex flex-col gap-2 transition-all duration-300 ${
+            isLogHovered ? 'scale-102 opacity-100' : 'scale-100 opacity-25'
+          } ${
+            isNight 
+              ? 'bg-slate-950/85 border-slate-800 text-slate-100' 
+              : 'bg-white/85 border-slate-200 text-slate-800'
+          }`}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between border-b pb-1.5 border-slate-200/10">
+            <div className="flex items-center gap-1.5">
+              <MessageSquare size={13} className="text-amber-500" />
+              <span className="text-[9px] font-mono font-bold uppercase tracking-widest leading-3">Chronos Tribal Dispatch Log</span>
             </div>
+            {isLogHovered && (
+              <span className="text-[8px] font-mono text-slate-450 uppercase animate-pulse">
+                Scroll history ↕️
+              </span>
+            )}
           </div>
-        )}
+
+          {/* Messages list */}
+          <div 
+            className={`flex flex-col gap-1.5 pr-1 text-[10.5px] leading-relaxed overflow-y-auto transition-all duration-300 no-scrollbar ${
+              isLogHovered ? 'max-h-36' : 'max-h-5'
+            }`}
+            id="logs-scroller-centered"
+          >
+            {logs.slice(0, isLogHovered ? 40 : 5).map((log) => {
+              let badgeColor = 'text-indigo-400 dark:text-indigo-300';
+              if (log.type === 'death') badgeColor = 'text-rose-500 font-extrabold';
+              if (log.type === 'warning') badgeColor = 'text-amber-500 font-semibold';
+              if (log.type === 'level') badgeColor = 'text-emerald-400 font-extrabold';
+
+              return (
+                <div key={log.id} className="flex items-start gap-1 font-mono text-left">
+                  <span className="text-[8px] font-mono text-slate-500 shrink-0 select-none">[{log.timeText}]</span>
+                  <span className={`${badgeColor} leading-3.5`}>
+                    {log.text}
+                  </span>
+                </div>
+              );
+            })}
+            {logs.length === 0 && (
+              <span className="text-slate-500 italic text-[10px] text-center block">No messages.</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* BOTTOM ROW: Navigation Instruction / Help legends */}

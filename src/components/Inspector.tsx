@@ -174,10 +174,10 @@ export default function Inspector({
           animate={{ opacity: 1, x: 0, scale: 1 }}
           exit={{ opacity: 0, x: 60, scale: 0.95 }}
           transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-          className={`fixed top-4 right-4 z-40 w-85 p-5 rounded-2xl border backdrop-blur-md shadow-2xl transition-colors duration-500 flex flex-col gap-4 max-h-[calc(100vh-2rem)] overflow-y-auto ${
+          className={`fixed top-4 right-4 z-40 w-80 p-4 rounded-2xl border backdrop-blur-md shadow-xl transition-all duration-300 flex flex-col gap-3 max-h-[calc(100vh-2rem)] overflow-y-auto no-scrollbar ${
             isNight 
-              ? 'bg-slate-950/85 border-slate-800 text-slate-100' 
-              : 'bg-white/85 border-slate-200 text-slate-800'
+              ? 'bg-slate-950/75 border-slate-850 text-slate-100 shadow-black/20' 
+              : 'bg-white/75 border-slate-200/50 text-slate-800 shadow-slate-900/5'
           }`}
         >
           {/* Header */}
@@ -609,10 +609,10 @@ export default function Inspector({
         animate={{ opacity: 1, x: 0, scale: 1 }}
         exit={{ opacity: 0, x: 60, scale: 0.95 }}
         transition={{ type: 'spring', damping: 25, stiffness: 220 }}
-        className={`fixed top-4 right-4 z-40 w-80 p-5 rounded-2xl border backdrop-blur-md shadow-2xl transition-colors duration-500 max-h-[calc(100vh-2rem)] overflow-y-auto ${
+        className={`fixed top-4 right-4 z-40 w-80 p-4 rounded-2xl border backdrop-blur-md shadow-xl transition-all duration-300 max-h-[calc(100vh-2rem)] overflow-y-auto no-scrollbar ${
           isNight 
-            ? 'bg-slate-950/85 border-slate-800 text-slate-100' 
-            : 'bg-white/85 border-slate-200 text-slate-800'
+            ? 'bg-slate-950/75 border-slate-850 text-slate-100 shadow-black/20' 
+            : 'bg-white/75 border-slate-200/50 text-slate-800 shadow-slate-900/5'
         }`}
       >
         {/* Header */}

@@ -72,11 +72,15 @@ export default function GameCanvas({
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Direct fix for duplicates / overlay freeze - completely clear alternative/older elements:
+    container.innerHTML = '';
 
     // --- 1. SETUP THREE.JS SCENE, CAMERA, & RENDERER ---
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
+    const width = container.clientWidth || 800;
+    const height = container.clientHeight || 600;
 
     const scene = new THREE.Scene();
     
@@ -90,7 +94,7 @@ export default function GameCanvas({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    containerRef.current.appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
 
     // --- 2. CAMERA RTS CONTROL STATE ---
     // Camera is styled as a focal-orbiting system.
@@ -1052,6 +1056,7 @@ export default function GameCanvas({
             const sGroup = new THREE.Group();
             if (sType === 'Shelter') {
               sGroup.position.set(x + 0.5, y, z + 0.5);
+              sGroup.scale.set(0.5, 0.5, 0.5);
             } else {
               sGroup.position.set(x, y, z);
             }
@@ -1623,168 +1628,238 @@ export default function GameCanvas({
               decorationMeshes.push(baseMesh);
               cellMeshes.push(baseMesh);
             }
-            else if (sType === 'GatherersPantry') {
-              // Base box
-              const baseGeom = new THREE.BoxGeometry(0.55, 0.25, 0.55);
-              const baseMat = new THREE.MeshStandardMaterial({ color: 0xcd853f, roughness: 0.9, flatShading: true });
-              const baseMesh = new THREE.Mesh(baseGeom, baseMat);
-              baseMesh.position.y = 0.125;
-              baseMesh.castShadow = true;
-              baseMesh.receiveShadow = true;
-              sGroup.add(baseMesh);
+             else if (sType === 'GatherersPantry') {
+               // Green Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              // Gathered baskets / berry spots
-              const berryGeom = new THREE.SphereGeometry(0.08, 4, 4);
-              const berryMat = new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.5 });
-              for (let i = 0; i < 3; i++) {
-                const berry = new THREE.Mesh(berryGeom, berryMat);
-                berry.position.set((i - 1) * 0.15, 0.25, 0.0);
-                sGroup.add(berry);
-              }
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
 
-              baseMesh.userData = { cell };
-              decorationMeshes.push(baseMesh);
-              cellMeshes.push(baseMesh);
-            }
-            else if (sType === 'HuntersHut') {
-              // Hut base
-              const hutGeom = new THREE.CylinderGeometry(0.25, 0.32, 0.44, 5);
-              const hutMat = new THREE.MeshStandardMaterial({ color: 0xa0522d, roughness: 0.95, flatShading: true });
-              const hutMesh = new THREE.Mesh(hutGeom, hutMat);
-              hutMesh.position.y = 0.22;
-              hutMesh.castShadow = true;
-              hutMesh.receiveShadow = true;
-              sGroup.add(hutMesh);
+               // Tiny red berries on the ground next to it
+               const berryGeom = new THREE.SphereGeometry(0.06, 4, 4);
+               const berryMat = new THREE.MeshStandardMaterial({ color: 0xe63946, roughness: 0.5 });
+               for (let i = 0; i < 3; i++) {
+                 const berry = new THREE.Mesh(berryGeom, berryMat);
+                 berry.position.set((i - 1) * 0.15, 0.05, 0.22);
+                 sGroup.add(berry);
+               }
 
-              // Weapon rack spear
-              const spearGeom = new THREE.CylinderGeometry(0.015, 0.015, 0.5, 4);
-              const spearMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.5 });
-              const spear = new THREE.Mesh(spearGeom, spearMat);
-              spear.rotation.z = Math.PI / 6;
-              spear.position.set(-0.16, 0.35, 0.16);
-              sGroup.add(spear);
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'HuntersHut') {
+               // Red Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              hutMesh.userData = { cell };
-              decorationMeshes.push(hutMesh);
-              cellMeshes.push(hutMesh);
-            }
-            else if (sType === 'BuildersLodge') {
-              // Log stack base
-              const baseGeom = new THREE.BoxGeometry(0.6, 0.18, 0.6);
-              const baseMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9, flatShading: true });
-              const baseMesh = new THREE.Mesh(baseGeom, baseMat);
-              baseMesh.position.y = 0.09;
-              baseMesh.castShadow = true;
-              baseMesh.receiveShadow = true;
-              sGroup.add(baseMesh);
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
 
-              // Stacked logs
-              const logGeom = new THREE.CylinderGeometry(0.08, 0.08, 0.55, 6);
-              const logMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
-              
-              const log1 = new THREE.Mesh(logGeom, logMat);
-              log1.rotation.z = Math.PI / 2;
-              log1.position.set(0, 0.22, -0.1);
-              sGroup.add(log1);
+               // Small slanted hunting spear next to tent
+               const spearGeom = new THREE.CylinderGeometry(0.01, 0.01, 0.65, 4);
+               const spearMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.5 });
+               const spear = new THREE.Mesh(spearGeom, spearMat);
+               spear.rotation.z = Math.PI / 6;
+               spear.position.set(-0.16, 0.32, 0.22);
+               sGroup.add(spear);
 
-              const log2 = new THREE.Mesh(logGeom, logMat);
-              log2.rotation.z = Math.PI / 2;
-              log2.position.set(0, 0.22, 0.1);
-              sGroup.add(log2);
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'BuildersLodge') {
+               // Orange Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              const log3 = new THREE.Mesh(logGeom, logMat);
-              log3.rotation.z = Math.PI / 2;
-              log3.position.set(0, 0.32, 0);
-              sGroup.add(log3);
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
 
-              baseMesh.userData = { cell };
-              decorationMeshes.push(baseMesh);
-              cellMeshes.push(baseMesh);
-            }
-            else if (sType === 'FarmersGranary') {
-              // Silo body
-              const siloGeom = new THREE.CylinderGeometry(0.24, 0.24, 0.65, 6);
-              const siloMat = new THREE.MeshStandardMaterial({ color: 0xb22222, roughness: 0.7, flatShading: true });
-              const siloMesh = new THREE.Mesh(siloGeom, siloMat);
-              siloMesh.position.y = 0.325;
-              siloMesh.castShadow = true;
-              siloMesh.receiveShadow = true;
-              sGroup.add(siloMesh);
+               // Stacked logs on the side
+               const logGeom = new THREE.CylinderGeometry(0.06, 0.06, 0.35, 6);
+               const logMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const log1 = new THREE.Mesh(logGeom, logMat);
+               log1.rotation.z = Math.PI / 2;
+               log1.position.set(0.18, 0.05, -0.2);
+               sGroup.add(log1);
 
-              // Conical roof
-              const roofGeom = new THREE.ConeGeometry(0.28, 0.25, 6);
-              const roofMat = new THREE.MeshStandardMaterial({ color: 0x3d3f43, roughness: 0.9 });
-              const roof = new THREE.Mesh(roofGeom, roofMat);
-              roof.position.y = 0.65 + 0.125;
-              sGroup.add(roof);
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'FarmersGranary') {
+               // Yellow/Amber Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              siloMesh.userData = { cell };
-              decorationMeshes.push(siloMesh);
-              cellMeshes.push(siloMesh);
-            }
-            else if (sType === 'ScoutsLookout') {
-              // Lookout post
-              const postGeom = new THREE.CylinderGeometry(0.12, 0.16, 0.85, 4);
-              const postMat = new THREE.MeshStandardMaterial({ color: 0x5a5d64, roughness: 0.9, flatShading: true });
-              const postMesh = new THREE.Mesh(postGeom, postMat);
-              postMesh.position.y = 0.425;
-              postMesh.castShadow = true;
-              postMesh.receiveShadow = true;
-              sGroup.add(postMesh);
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
 
-              // Platform
-              const platGeom = new THREE.BoxGeometry(0.42, 0.05, 0.42);
-              const platMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.9 });
-              const platform = new THREE.Mesh(platGeom, platMat);
-              platform.position.y = 0.85 + 0.025;
-              sGroup.add(platform);
+               // Small grain basket decoration
+               const basketGeom = new THREE.CylinderGeometry(0.08, 0.06, 0.1, 6);
+               const basketMat = new THREE.MeshStandardMaterial({ color: 0xb58900, roughness: 0.95 });
+               const basket = new THREE.Mesh(basketGeom, basketMat);
+               basket.position.set(-0.2, 0.05, 0.2);
+               sGroup.add(basket);
 
-              postMesh.userData = { cell };
-              decorationMeshes.push(postMesh);
-              cellMeshes.push(postMesh);
-            }
-            else if (sType === 'HealersSanctum') {
-              // Sanctuary tent/temple base
-              const baseGeom = new THREE.CylinderGeometry(0.32, 0.35, 0.32, 6);
-              const baseMat = new THREE.MeshStandardMaterial({ color: 0x2e8b57, roughness: 0.8, flatShading: true });
-              const baseMesh = new THREE.Mesh(baseGeom, baseMat);
-              baseMesh.position.y = 0.16;
-              baseMesh.castShadow = true;
-              baseMesh.receiveShadow = true;
-              sGroup.add(baseMesh);
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'ScoutsLookout') {
+               // Purple/Indigo Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0x4f46e5, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              // Glowing healing beacon
-              const healerBeaconGeom = new THREE.SphereGeometry(0.1, 6, 6);
-              const healerBeaconMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x14532d, roughness: 0.1 });
-              const healerBeacon = new THREE.Mesh(healerBeaconGeom, healerBeaconMat);
-              healerBeacon.position.y = 0.32 + 0.08;
-              sGroup.add(healerBeacon);
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
 
-              baseMesh.userData = { cell };
-              decorationMeshes.push(baseMesh);
-              cellMeshes.push(baseMesh);
-            }
-            else if (sType === 'ArtisansWorkshop') {
-              // Industrial base / workbench
-              const baseGeom = new THREE.BoxGeometry(0.62, 0.3, 0.62);
-              const baseMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.8, metalness: 0.5, flatShading: true });
-              const baseMesh = new THREE.Mesh(baseGeom, baseMat);
-              baseMesh.position.y = 0.15;
-              baseMesh.castShadow = true;
-              baseMesh.receiveShadow = true;
-              sGroup.add(baseMesh);
+               // Mini tall signal flag post
+               const poleG = new THREE.CylinderGeometry(0.008, 0.008, 0.55, 4);
+               const poleMesh = new THREE.Mesh(poleG, poleMat);
+               poleMesh.position.set(0.2, 0.275, 0.2);
+               sGroup.add(poleMesh);
+               const flagG = new THREE.BoxGeometry(0.12, 0.08, 0.01);
+               const flagM = new THREE.MeshStandardMaterial({ color: 0xa855f7 });
+               const flagMesh = new THREE.Mesh(flagG, flagM);
+               flagMesh.position.set(0.2, 0.5, 0.25);
+               sGroup.add(flagMesh);
 
-              // Gear or chimney exhaust
-              const chimneyGeom = new THREE.CylinderGeometry(0.04, 0.04, 0.3, 4);
-              const chimneyMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 });
-              const chimney = new THREE.Mesh(chimneyGeom, chimneyMat);
-              chimney.position.set(0.15, 0.45, -0.15);
-              sGroup.add(chimney);
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'HealersSanctum') {
+               // Teal Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0x0d9488, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
 
-              baseMesh.userData = { cell };
-              decorationMeshes.push(baseMesh);
-              cellMeshes.push(baseMesh);
-            }
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
+
+               // Glowing healer crystal beacon on the side
+               const healerBeaconGeom = new THREE.SphereGeometry(0.07, 6, 6);
+               const healerBeaconMat = new THREE.MeshStandardMaterial({ color: 0x22c55e, emissive: 0x14532d, roughness: 0.1 });
+               const healerBeacon = new THREE.Mesh(healerBeaconGeom, healerBeaconMat);
+               healerBeacon.position.set(-0.2, 0.07, -0.2);
+               sGroup.add(healerBeacon);
+
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
+             else if (sType === 'ArtisansWorkshop') {
+               // Blue Pyramid Tent
+               const tentGeom = new THREE.ConeGeometry(0.38, 0.65, 4);
+               tentGeom.rotateY(Math.PI / 4);
+               const tentMat = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.9, flatShading: true });
+               const tentMesh = new THREE.Mesh(tentGeom, tentMat);
+               tentMesh.position.y = 0.325;
+               tentMesh.castShadow = true;
+               tentMesh.receiveShadow = true;
+               sGroup.add(tentMesh);
+
+               // Crossed tribal poles
+               const poleGeom = new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4);
+               const poleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+               const p1 = new THREE.Mesh(poleGeom, poleMat);
+               p1.position.set(0, 0.45, 0); p1.rotation.z = 0.15; p1.rotation.x = 0.15;
+               sGroup.add(p1);
+               const p2 = new THREE.Mesh(poleGeom, poleMat);
+               p2.position.set(0, 0.45, 0); p2.rotation.z = -0.15; p2.rotation.x = -0.15;
+               sGroup.add(p2);
+
+               // Tiny anvil box decoration next to it
+               const anvilGeom = new THREE.BoxGeometry(0.12, 0.08, 0.08);
+               const anvilMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8, roughness: 0.3 });
+               const anvil = new THREE.Mesh(anvilGeom, anvilMat);
+               anvil.position.set(0.2, 0.04, 0.2);
+               sGroup.add(anvil);
+
+               tentMesh.userData = { cell };
+               decorationMeshes.push(tentMesh);
+               cellMeshes.push(tentMesh);
+             }
             else if (sType === 'ObservationPlatform') {
               // Tall wooden platform with a brass cylinder telescope
               const scaffoldGeom = new THREE.CylinderGeometry(0.18, 0.28, 0.6, 5);
@@ -3258,9 +3333,19 @@ export default function GameCanvas({
         // Live coordinate dynamics
         const speedSq = (animal.targetX - animal.x) ** 2 + (animal.targetZ - animal.z) ** 2;
         const isMoving = speedSq > 0.01 && latestProps.timeSpeed !== 'paused';
+        const isDead = animal.isDead;
+        const decayProgress = isDead ? Math.max(0, Math.min(1.0, (animal.decayTimer ?? 0) / 2.5)) : 0;
 
         let rSpeed = 16.0;
         let scaleSize = animal.agePhase === 'Juvenile' ? 0.6 : (animal.agePhase === 'Elder' ? 1.15 : 0.95);
+        
+        let multiplier = 1.0;
+        if (animal.category === 'SmallPredator') {
+          multiplier = 1.5;
+        } else if (animal.category === 'ApexPredator') {
+          multiplier = 2.0;
+        }
+        scaleSize *= multiplier * (1.0 - decayProgress);
         animalMeshGroup.scale.set(scaleSize, scaleSize, scaleSize);
 
         const getDiscreteHeight = (px: number, pz: number) => {
@@ -3276,7 +3361,7 @@ export default function GameCanvas({
 
         const terrainY = getDiscreteHeight(animal.x, animal.z);
 
-        if (isMoving) {
+        if (isMoving && !isDead) {
           const angle = Math.atan2(animal.targetX - animal.x, animal.targetZ - animal.z);
           let diff = angle - animalMeshGroup.rotation.y;
           let diffNormalized = Math.atan2(Math.sin(diff), Math.cos(diff));
@@ -3284,7 +3369,9 @@ export default function GameCanvas({
           animalMeshGroup.rotation.x = 0.06 * Math.sin(elapsed * rSpeed); // forward galloping bob
         } else {
           animalMeshGroup.rotation.x = 0;
-          if (animal.isSleeping) {
+          if (isDead) {
+            animalMeshGroup.rotation.z = Math.PI / 2; // fall over flat!
+          } else if (animal.isSleeping) {
             animalMeshGroup.rotation.z = Math.PI / 2.5; // rotate to lay flat on sleep
             animalMeshGroup.position.y = terrainY - 0.03;
           } else {
@@ -3294,7 +3381,9 @@ export default function GameCanvas({
 
         const targetX = animal.x;
         const targetZ = animal.z;
-        const targetY = animal.isSleeping ? terrainY - 0.01 : terrainY + (isMoving ? Math.abs(Math.sin(elapsed * rSpeed)) * 0.05 : 0);
+        const targetY = isDead 
+          ? terrainY - 0.22 * decayProgress 
+          : (animal.isSleeping ? terrainY - 0.01 : terrainY + (isMoving ? Math.abs(Math.sin(elapsed * rSpeed)) * 0.05 : 0));
 
         const dSq = (animalMeshGroup.position.x - targetX) ** 2 + (animalMeshGroup.position.z - targetZ) ** 2;
         if (dSq > 4.0 || (animalMeshGroup.position.x === 0 && animalMeshGroup.position.z === 0)) {
@@ -3446,16 +3535,19 @@ export default function GameCanvas({
     animateLoop();
 
     // --- 11. CLEANUP ON COMPONENT UNMOUNT OR WORLD CONFIG REMODEL ---
-    const handleResize = () => {
-      if (!containerRef.current) return;
-      const w = containerRef.current.clientWidth;
-      const h = containerRef.current.clientHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    };
-
-    window.addEventListener('resize', handleResize);
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width: w, height: h } = entry.contentRect;
+        if (w > 0 && h > 0) {
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+          renderer.setSize(w, h);
+        }
+      }
+    });
+    if (container) {
+      resizeObserver.observe(container);
+    }
 
     return () => {
       cancelAnimationFrame(frameId);
@@ -3467,24 +3559,61 @@ export default function GameCanvas({
       renderer.domElement.removeEventListener('wheel', handleWheel);
       renderer.domElement.removeEventListener('contextmenu', preventContextMenu);
       renderer.domElement.removeEventListener('click', handleCanvasClick);
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
       
       // Memory cleanup
-      if (containerRef.current && renderer.domElement && containerRef.current.contains(renderer.domElement)) {
-        containerRef.current.removeChild(renderer.domElement);
+      if (container && renderer.domElement && container.contains(renderer.domElement)) {
+        try {
+          container.removeChild(renderer.domElement);
+        } catch (e) {
+          console.warn('Failed to remove child from container during cleanup:', e);
+        }
+      }
+      if (container) {
+        try {
+          container.innerHTML = '';
+        } catch (innerErr) {}
       }
       
-      renderer.dispose();
-      selectorGeom.dispose();
-      selectorMat.dispose();
-      glowLineGeom.dispose();
-      glowLineMat.dispose();
-      starsGeometry.dispose();
-      starMat.dispose();
+      try {
+        renderer.dispose();
+      } catch (err) {}
       
-      disposePoolGeometry();
-      disposeCacheMaterials();
-      ambientAudioEngine.dispose();
+      try {
+        selectorGeom.dispose();
+      } catch (err) {}
+      
+      try {
+        selectorMat.dispose();
+      } catch (err) {}
+      
+      try {
+        glowLineGeom.dispose();
+      } catch (err) {}
+      
+      try {
+        glowLineMat.dispose();
+      } catch (err) {}
+      
+      try {
+        starsGeometry.dispose();
+      } catch (err) {}
+      
+      try {
+        starMat.dispose();
+      } catch (err) {}
+      
+      try {
+        disposePoolGeometry();
+      } catch (err) {}
+      
+      try {
+        disposeCacheMaterials();
+      } catch (err) {}
+      
+      try {
+        ambientAudioEngine.dispose();
+      } catch (err) {}
     };
   }, [mapData.config.size, mapData.config.seed, worldId]); // Remount Three.js scene strictly when world configuration or dimension triggers rebuild
 

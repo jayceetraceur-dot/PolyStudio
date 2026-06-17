@@ -473,12 +473,17 @@ export function tickEcosystemSimulation(
   }
 
   // Loop animals and process behavior trees
+  const survivingAnimals: Animal[] = [];
   for (let idx = 0; idx < animals.length; idx++) {
     const ani = animals[idx];
     if (ani.isDead) {
-      // Scavengers deal with dead corpses
+      ani.decayTimer = (ani.decayTimer ?? 0) + deltaTime;
+      if (ani.decayTimer < 2.5) {
+        survivingAnimals.push(ani);
+      }
       continue;
     }
+    survivingAnimals.push(ani);
 
     // Age progression (extremely slow)
     ani.ageDays += 0.01 * deltaTime;
@@ -738,6 +743,7 @@ export function tickEcosystemSimulation(
             tar.fear = 100;
             if (tar.HP <= 0) {
               tar.isDead = true;
+              (tar as any).killedByPredator = true;
               ani.hunger = Math.max(0, ani.hunger - 60); // Ate and replenished hunger!
               addLog(`🐾 Food Chain: A wild ${ani.type} struck and devoured a ${tar.type}!`, 'combat');
             }
@@ -863,6 +869,8 @@ export function tickEcosystemSimulation(
       ani.z = ani.targetZ;
     }
   }
+
+  mapData.animals = survivingAnimals;
 
   // Final synchronization back to cellular grid for rendering fallback compatibility
   syncAnimalsToGrid(mapData);
