@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;650;750&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import "tailwindcss";
 
-@theme {
+:root {
   --font-sans: "Inter", "Space Grotesk", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
@@ -25,12 +25,12 @@ body {
 .rounded-2xl,
 .rounded-xl,
 .rounded-lg,
-.p-2.5,
+.p-2\.5,
 .p-2,
-.p-1.5,
+.p-1\.5,
 .border {
   transition-property: background-color, border-color, color, text-shadow, box-shadow;
-  transition-duration: 1000ms;
+  transition-duration: 1s;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 

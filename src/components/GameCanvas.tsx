@@ -89,7 +89,7 @@ export default function GameCanvas({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     containerRef.current.appendChild(renderer.domElement);
 
     // --- 2. CAMERA RTS CONTROL STATE ---
@@ -2442,7 +2442,8 @@ export default function GameCanvas({
     setIsReady(true);
 
     // --- 10. ANIMATION & INTEGRATION RENDER LOOP ---
-    const clock = new THREE.Clock();
+    const timer = new THREE.Timer();
+    timer.connect(document);
     let frameId: number;
     let lastRenderedMapDataRef: MapData | null = null;
     let lastGridSignature = '';
@@ -2450,8 +2451,9 @@ export default function GameCanvas({
     const animateLoop = () => {
       frameId = requestAnimationFrame(animateLoop);
       
-      const elapsed = clock.getElapsedTime();
-      const delta = clock.getDelta();
+      timer.update();
+      const elapsed = timer.getElapsed();
+      const delta = timer.getDelta();
 
       const latestProps = propsRef.current;
 
