@@ -1021,14 +1021,21 @@ export default function App() {
         if (ani) {
           if (nextMap.stockpile.berries >= 1) {
             nextMap.stockpile.berries -= 1;
-            ani.trustLevel = Math.min(100, ani.trustLevel + 16);
-            ani.tameLevel = Math.min(100, ani.tameLevel + 12);
-            ani.stress = Math.max(0, ani.stress - 25);
+            
+            // Taming progress depends on hunter skill levels in the tribe
+            const highestHunterLevel = Math.max(1, ...tribe.filter(p => p.isAlive).map(p => p.skills.Hunter?.level || 1));
+            const bonusTrust = highestHunterLevel * 3;
+            const bonusTame = highestHunterLevel * 2;
+            
+            ani.trustLevel = Math.min(100, ani.trustLevel + 16 + bonusTrust);
+            ani.tameLevel = Math.min(100, ani.tameLevel + 12 + bonusTame);
+            ani.stress = Math.max(0, ani.stress - 25 - highestHunterLevel * 4);
+            
             if (ani.tameLevel >= 100) {
               ani.isTame = true;
-              addLog(`💖 SUCCESS! ${ani.type} is now fully DOMESTICATED! You can assign roles and tasks.`, 'success');
+              addLog(`💖 SUCCESS! Mastered by Hunters (Tribe Hunter level: ${highestHunterLevel}): ${ani.type} is now fully DOMESTICATED!`, 'success');
             } else {
-              addLog(`🍎 Fed wild ${ani.type} a sweet berry (-1 Berry)! Trust: ${ani.trustLevel}%, Tame Progress: ${ani.tameLevel}%`, 'success');
+              addLog(`🍎 Fed wild ${ani.type} a sweet berry (-1 Berry)! Hunter Level: ${highestHunterLevel} bonus applied. Trust: ${ani.trustLevel}%, Tame Progress: ${ani.tameLevel}%`, 'success');
             }
             success = true;
           } else {
@@ -1061,8 +1068,57 @@ export default function App() {
       return nextMap;
     });
 
-    if (outputCell) {
+    if (outputCell && success) {
       setSelectedCell(outputCell);
+      
+      // Direct manual assignment trigger
+      if (['gatherWood', 'gatherBerries', 'gatherStone', 'mineOre'].includes(actionId)) {
+        setTribe((prevTribe) => {
+          const living = prevTribe.filter(p => p.isAlive);
+          if (living.length === 0) return prevTribe;
+          const sorted = [...living].sort((a, b) => {
+            const priA = a.priorities.Gather ?? 0;
+            const priB = b.priorities.Gather ?? 0;
+            if (priA !== priB) return priB - priA; // higher priority first
+            return (a.x - x) ** 2 + (a.z - z) ** 2 - ((b.x - x) ** 2 + (b.z - z) ** 2);
+          });
+          const best = sorted[0];
+          addLog(`🏃‍♂️ Dispatch Order: Directing closest Gatherer (${best.name}) to harvest resources at [${x}, ${z}] immediately!`, 'success');
+          return prevTribe.map(p => p.id === best.id ? {
+            ...p,
+            activeJobType: 'Gather' as const,
+            jobTargetCoords: { x, z },
+            targetX: x,
+            targetZ: z,
+            workProgress: 0,
+            isManualDirectTask: true,
+            statusText: `🏃‍♂️ Manual Order: Gathering at [${x}, ${z}]`
+          } : p);
+        });
+      } else if (['designateHunt', 'designateCapture'].includes(actionId)) {
+        setTribe((prevTribe) => {
+          const living = prevTribe.filter(p => p.isAlive);
+          if (living.length === 0) return prevTribe;
+          const sorted = [...living].sort((a, b) => {
+            const priA = a.priorities.Hunt ?? 0;
+            const priB = b.priorities.Hunt ?? 0;
+            if (priA !== priB) return priB - priA; // higher priority first
+            return (a.x - x) ** 2 + (a.z - z) ** 2 - ((b.x - x) ** 2 + (b.z - z) ** 2);
+          });
+          const best = sorted[0];
+          addLog(`🏹 Strike Order: Dispatched closest Hunter (${best.name}) to tackle wild game at [${x}, ${z}] immediately!`, 'success');
+          return prevTribe.map(p => p.id === best.id ? {
+            ...p,
+            activeJobType: 'Hunt' as const,
+            jobTargetCoords: { x, z },
+            targetX: x,
+            targetZ: z,
+            workProgress: 0,
+            isManualDirectTask: true,
+            statusText: `🏹 Manual Order: Hunting/Capturing at [${x}, ${z}]`
+          } : p);
+        });
+      }
     }
   };
 
@@ -1633,26 +1689,6 @@ export default function App() {
             tribe={tribe}
             isCreativeMode={isCreativeMode}
           />
-
-          {/* Cinematic grid selector helper prompt when nothing is focused */}
-          <AnimatePresence>
-            {!selectedCell && !activeInspectedPerson && (
-              <motion.div
-                id="helper-prompt-chip"
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 0.85, y: 0 }}
-                exit={{ opacity: 0, y: 30 }}
-                className={`absolute bottom-6 left-1/2 -translate-x-1/2 z-20 px-3.5 py-2.5 rounded-full border shadow-lg font-mono text-[10px] uppercase font-bold tracking-wider flex items-center gap-2 pointer-events-none ${
-                  isNight
-                    ? 'bg-slate-950/90 border-slate-800 text-slate-400'
-                    : 'bg-white/90 border-slate-150 text-slate-600'
-                }`}
-              >
-                <Sparkles size={11} className="text-amber-500 animate-pulse" />
-                <span>Click any tile or moving tribesperson in the 3D world to inspect details</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Relocation Mode Active Prompt */}
           <AnimatePresence>
