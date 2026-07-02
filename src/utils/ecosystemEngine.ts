@@ -505,6 +505,22 @@ export function tickEcosystemSimulation(
     const currentOnCellZ = Math.round(ani.z);
     const inPen = checkIsWithinPen(mapData, currentOnCellX, currentOnCellZ);
 
+    // Graze on Fiber nodes if present on current cell
+    const cell = mapData.grid[currentOnCellX]?.[currentOnCellZ];
+    if (cell && cell.resourceNode?.type === 'Fiber' && cell.resourceNode.amount > 0) {
+      if (ani.category === 'Herbivore') {
+        const maxEaten = 3.5 * deltaTime;
+        const eaten = Math.min(cell.resourceNode.amount, maxEaten);
+        cell.resourceNode.amount = Math.max(0, cell.resourceNode.amount - eaten);
+        ani.hunger = Math.max(0, ani.hunger - eaten * 15);
+        ani.thirst = Math.max(0, ani.thirst - eaten * 8);
+
+        if (Math.random() < 0.05 * deltaTime) {
+          addLog(`🐏 Grazer Alert: ${ani.isTame ? 'Tame' : 'Wild'} ${ani.type} is grazing on sweet fiber grass at [${currentOnCellX}, ${currentOnCellZ}]!`, 'info');
+        }
+      }
+    }
+
     if (ani.isTame) {
       // Tame animal jobs and upkeep
       ani.hunger = Math.min(100, ani.hunger + 1.2 * deltaTime);
@@ -596,17 +612,20 @@ export function tickEcosystemSimulation(
       }
     }
 
-    // Detect nearby hunter weapons or loud scouts
-    const nearHunter = huntersPos.find(h => {
-      const d = (ani.x - h.x) ** 2 + (ani.z - h.z) ** 2;
-      return d < (5.2) ** 2;
+    // Detect nearby villagers (flee from any villager unless they are a Beast Friend)
+    const nearVillager = tribe.find(v => {
+      if (!v.isAlive) return false;
+      // Do not flee from "Beast Friend"
+      if (v.traits.includes('Beast Friend')) return false;
+      const d = (ani.x - v.x) ** 2 + (ani.z - v.z) ** 2;
+      return d < (4.5) ** 2;
     });
 
-    if (nearHunter && !ani.isTame) {
-      fearSourceX = nearHunter.x;
-      fearSourceZ = nearHunter.z;
+    if (nearVillager && !ani.isTame) {
+      fearSourceX = nearVillager.x;
+      fearSourceZ = nearVillager.z;
       isScared = true;
-      ani.fear = Math.min(100, ani.fear + 60 * deltaTime);
+      ani.fear = Math.min(100, ani.fear + 50 * deltaTime);
     }
 
     // If scared, flee immediately! Run fast in the opposite direction!

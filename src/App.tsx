@@ -916,6 +916,39 @@ export default function App() {
           success = true;
         }
       }
+      else if (actionId === 'studyLandmark') {
+        if (cell.landmark && !cell.landmark.explored) {
+          const lm = cell.landmark;
+          const scholars = tribeRef.current.filter(p => p.isAlive && ['Builder', 'Artisan', 'Oracle'].includes(p.role));
+          if (scholars.length === 0) {
+            addLog(`⚠️ Cannot study! You need an active Builder, Artisan, or Oracle scholar in your tribe. Set a villager to one of these roles first!`, 'warning');
+            return;
+          }
+
+          const chosenScholar = scholars.find(s => s.activeJobType !== 'Sleep' && s.activeJobType !== 'Eat') || scholars[0];
+
+          lm.studyProgress = 0;
+          lm.studyMaxProgress = 100;
+          (lm as any).studyingWorkerId = chosenScholar.id;
+          (lm as any).studyingWorkerName = chosenScholar.name;
+
+          setTribe((prevTribe) => prevTribe.map((p) => {
+            if (p.id === chosenScholar.id) {
+              return {
+                ...p,
+                activeJobType: 'Study',
+                jobTargetCoords: { x, z },
+                isManualDirectTask: true,
+                statusText: `🧐 Travelling to study and decode ancient structure: "${lm.name}"...`
+              };
+            }
+            return p;
+          }));
+
+          addLog(`📜 Scholar ${chosenScholar.name} has been dispatched to study and decode the "${lm.name}"!`, 'info');
+          success = true;
+        }
+      }
       else if (actionId === 'removeFarmCrop') {
         if (cell.farmCrop) {
           const cropName = cell.farmCrop.type;
@@ -986,84 +1019,76 @@ export default function App() {
           nextMap.forceJobReevaluation = (prev.forceJobReevaluation ?? 0) + 1;
         }
       }
-      else if (actionId === 'designateHunt') {
-        const ani = nextMap.animals?.find(a => Math.round(a.x) === x && Math.round(a.z) === z);
-        if (ani) {
-          (ani as any).isCaptureDesignated = false;
-          (ani as any).isHuntDesignated = !(ani as any).isHuntDesignated;
-          if (cell.wildAnimal) {
-            (cell.wildAnimal as any).isCaptureDesignated = false;
-            (cell.wildAnimal as any).isHuntDesignated = (ani as any).isHuntDesignated;
-          }
-          addLog(`🎯 Game Order: Hunt designation on ${ani.type} toggled to ${(ani as any).isHuntDesignated ? 'ACTIVE' : 'CANCELLED'}. Hunters will locate and track.`, 'info');
-          success = true;
-        } else {
-          addLog(`⚠️ No target wild animal located at this tile context.`, 'warning');
-        }
-      }
-      else if (actionId === 'designateCapture') {
-        const ani = nextMap.animals?.find(a => Math.round(a.x) === x && Math.round(a.z) === z);
-        if (ani) {
-          (ani as any).isHuntDesignated = false;
-          (ani as any).isCaptureDesignated = !(ani as any).isCaptureDesignated;
-          if (cell.wildAnimal) {
-            (cell.wildAnimal as any).isHuntDesignated = false;
-            (cell.wildAnimal as any).isCaptureDesignated = (ani as any).isCaptureDesignated;
-          }
-          addLog(`🕸️ Game Order: Capture designation on ${ani.type} toggled to ${(ani as any).isCaptureDesignated ? 'ACTIVE' : 'CANCELLED'}.`, 'success');
-          success = true;
-        } else {
-          addLog(`⚠️ No target wild animal located at this tile context.`, 'warning');
-        }
-      }
-      else if (actionId === 'tameManualPet') {
-        const ani = nextMap.animals?.find(a => Math.round(a.x) === x && Math.round(a.z) === z);
-        if (ani) {
-          if (nextMap.stockpile.berries >= 1) {
-            nextMap.stockpile.berries -= 1;
-            
-            // Taming progress depends on hunter skill levels in the tribe
-            const highestHunterLevel = Math.max(1, ...tribe.filter(p => p.isAlive).map(p => p.skills.Hunter?.level || 1));
-            const bonusTrust = highestHunterLevel * 3;
-            const bonusTame = highestHunterLevel * 2;
-            
-            ani.trustLevel = Math.min(100, ani.trustLevel + 16 + bonusTrust);
-            ani.tameLevel = Math.min(100, ani.tameLevel + 12 + bonusTame);
-            ani.stress = Math.max(0, ani.stress - 25 - highestHunterLevel * 4);
-            
-            if (ani.tameLevel >= 100) {
-              ani.isTame = true;
-              addLog(`💖 SUCCESS! Mastered by Hunters (Tribe Hunter level: ${highestHunterLevel}): ${ani.type} is now fully DOMESTICATED!`, 'success');
-            } else {
-              addLog(`🍎 Fed wild ${ani.type} a sweet berry (-1 Berry)! Hunter Level: ${highestHunterLevel} bonus applied. Trust: ${ani.trustLevel}%, Tame Progress: ${ani.tameLevel}%`, 'success');
+      else if (['designateHunt', 'designateCapture', 'tameManualPet', 'domesticSetJobTransport', 'domesticSetJobGuard'].includes(actionId)) {
+        // Find animal closest to selected tile within 1.5 tile radius
+        const ani = (() => {
+          if (!nextMap.animals) return undefined;
+          let bestA = undefined;
+          let bestD = 2.25; // max distance squared (1.5 * 1.5)
+          for (const a of nextMap.animals) {
+            const d = (a.x - x) ** 2 + (a.z - z) ** 2;
+            if (d < bestD) {
+              bestD = d;
+              bestA = a;
             }
-            success = true;
-          } else {
-            addLog(`⚠️ Feed failed: Need at least 1 Berry in the stockpile as bait/treat.`, 'warning');
           }
-        }
-      }
-      else if (actionId === 'domesticSetJobTransport') {
-        const ani = nextMap.animals?.find(a => Math.round(a.x) === x && Math.round(a.z) === z);
+          return bestA;
+        })();
+
         if (ani) {
-          ani.isTame = true;
-          (ani as any).assignedJobType = (ani as any).assignedJobType === 'transport' ? 'none' : 'transport';
-          addLog(`🐪 Domestic Duty: ${ani.type} set to pull tribal transport wagons!`, 'info');
-          success = true;
-        }
-      }
-      else if (actionId === 'domesticSetJobGuard') {
-        const ani = nextMap.animals?.find(a => Math.round(a.x) === x && Math.round(a.z) === z);
-        if (ani) {
-          ani.isTame = true;
-          (ani as any).assignedJobType = (ani as any).assignedJobType === 'guard' ? 'none' : 'guard';
-          addLog(`🛡️ Domestic Duty: ${ani.type} guardian role set to defend the village!`, 'success');
-          success = true;
+          if (actionId === 'designateHunt') {
+            (ani as any).isCaptureDesignated = false;
+            (ani as any).isHuntDesignated = !(ani as any).isHuntDesignated;
+            if (cell.wildAnimal) {
+              (cell.wildAnimal as any).isCaptureDesignated = false;
+              (cell.wildAnimal as any).isHuntDesignated = (ani as any).isHuntDesignated;
+            }
+            addLog(`🎯 Game Order: Hunt designation on ${ani.type} toggled to ${(ani as any).isHuntDesignated ? 'ACTIVE' : 'CANCELLED'}. Hunters will locate and track.`, 'info');
+            success = true;
+          }
+          else if (actionId === 'designateCapture') {
+            (ani as any).isHuntDesignated = false;
+            (ani as any).isCaptureDesignated = !(ani as any).isCaptureDesignated;
+            if (cell.wildAnimal) {
+              (cell.wildAnimal as any).isHuntDesignated = false;
+              (cell.wildAnimal as any).isCaptureDesignated = (ani as any).isCaptureDesignated;
+            }
+            addLog(`🕸️ Game Order: Capture designation on ${ani.type} toggled to ${(ani as any).isCaptureDesignated ? 'ACTIVE' : 'CANCELLED'}.`, 'success');
+            success = true;
+          }
+          else if (actionId === 'tameManualPet') {
+            if (nextMap.stockpile.berries >= 1) {
+              const currentFlag = !(ani as any).isTameDesignated;
+              (ani as any).isTameDesignated = currentFlag;
+              if (cell.wildAnimal) {
+                (cell.wildAnimal as any).isTameDesignated = currentFlag;
+              }
+              addLog(`🍎 Game Order: Tame designation on wild ${ani.type} toggled to ${currentFlag ? 'ACTIVE' : 'CANCELLED'}. Hunters will approach and feed.`, 'info');
+              success = true;
+            } else {
+              addLog(`⚠️ Tame designation failed: Need at least 1 Berry in the stockpile to use as bait.`, 'warning');
+            }
+          }
+          else if (actionId === 'domesticSetJobTransport') {
+            ani.isTame = true;
+            (ani as any).assignedJobType = (ani as any).assignedJobType === 'transport' ? 'none' : 'transport';
+            addLog(`🐪 Domestic Duty: ${ani.type} set to pull tribal transport wagons!`, 'info');
+            success = true;
+          }
+          else if (actionId === 'domesticSetJobGuard') {
+            ani.isTame = true;
+            (ani as any).assignedJobType = (ani as any).assignedJobType === 'guard' ? 'none' : 'guard';
+            addLog(`🛡️ Domestic Duty: ${ani.type} guardian role set to defend the village!`, 'success');
+            success = true;
+          }
+        } else {
+          addLog(`⚠️ No target wild animal located close to this tile.`, 'warning');
         }
       }
 
       if (success) {
         outputCell = { ...cell };
+        nextMap.forceJobReevaluation = (prev.forceJobReevaluation ?? 0) + 1;
       }
       return nextMap;
     });
@@ -1076,11 +1101,14 @@ export default function App() {
         setTribe((prevTribe) => {
           const living = prevTribe.filter(p => p.isAlive);
           if (living.length === 0) return prevTribe;
-          const sorted = [...living].sort((a, b) => {
-            const priA = a.priorities.Gather ?? 0;
-            const priB = b.priorities.Gather ?? 0;
-            if (priA !== priB) return priB - priA; // higher priority first
-            return (a.x - x) ** 2 + (a.z - z) ** 2 - ((b.x - x) ** 2 + (b.z - z) ** 2);
+          const activeGatherers = living.filter(p => p.priorities.Gather > 0);
+          const candidates = activeGatherers.length > 0 ? activeGatherers : living;
+          const sorted = [...candidates].sort((a, b) => {
+            const priA = a.priorities.Gather || 99;
+            const priB = b.priorities.Gather || 99;
+            const scoreA = priA * 10 + Math.sqrt((a.x - x) ** 2 + (a.z - z) ** 2);
+            const scoreB = priB * 10 + Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
+            return scoreA - scoreB;
           });
           const best = sorted[0];
           addLog(`🏃‍♂️ Dispatch Order: Directing closest Gatherer (${best.name}) to harvest resources at [${x}, ${z}] immediately!`, 'success');
@@ -1099,11 +1127,14 @@ export default function App() {
         setTribe((prevTribe) => {
           const living = prevTribe.filter(p => p.isAlive);
           if (living.length === 0) return prevTribe;
-          const sorted = [...living].sort((a, b) => {
-            const priA = a.priorities.Hunt ?? 0;
-            const priB = b.priorities.Hunt ?? 0;
-            if (priA !== priB) return priB - priA; // higher priority first
-            return (a.x - x) ** 2 + (a.z - z) ** 2 - ((b.x - x) ** 2 + (b.z - z) ** 2);
+          const activeHunters = living.filter(p => p.priorities.Hunt > 0);
+          const candidates = activeHunters.length > 0 ? activeHunters : living;
+          const sorted = [...candidates].sort((a, b) => {
+            const priA = a.priorities.Hunt || 99;
+            const priB = b.priorities.Hunt || 99;
+            const scoreA = priA * 10 + Math.sqrt((a.x - x) ** 2 + (a.z - z) ** 2);
+            const scoreB = priB * 10 + Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
+            return scoreA - scoreB;
           });
           const best = sorted[0];
           addLog(`🏹 Strike Order: Dispatched closest Hunter (${best.name}) to tackle wild game at [${x}, ${z}] immediately!`, 'success');
@@ -1438,6 +1469,62 @@ export default function App() {
     });
   };
 
+  const handleMigrateRegion = () => {
+    const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
+      ani.isTame && 
+      (ani as any).assignedJobType === 'transport' && 
+      !['Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+    ) || [];
+
+    if (bigBeastTamedAndTransport.length === 0) {
+      addLog(`⚠️ Migration blocked: You need at least one big tamed animal (such as an Elk, Boar, PackBird, or Cattle) assigned to "Pull Wagons" role to transport your caravan cart to a new region!`, 'warning');
+      return;
+    }
+
+    const newSeed = Math.floor(Math.random() * 99999) + 1;
+    const newConfig = { ...config, seed: newSeed };
+    const nextMap = generateWorld(newConfig);
+
+    if (mapData.caravanInventory) {
+      nextMap.caravanInventory = { ...mapData.caravanInventory };
+    }
+
+    const size = newConfig.size;
+    const centerX = Math.floor(size / 2);
+    const centerZ = Math.floor(size / 2);
+
+    setTribe((prevTribe) => {
+      return prevTribe.map(agent => ({
+        ...agent,
+        x: centerX + (Math.random() * 2 - 1),
+        z: centerZ + (Math.random() * 2 - 1),
+        activeJobType: null,
+        jobTargetCoords: null,
+        workProgress: 0
+      }));
+    });
+
+    if (!nextMap.animals) nextMap.animals = [];
+    bigBeastTamedAndTransport.forEach(beast => {
+      nextMap.animals.push({
+        ...beast,
+        x: centerX + (Math.random() * 3 - 1.5),
+        z: centerZ + (Math.random() * 3 - 1.5),
+        HP: beast.maxHP || beast.HP,
+        hunger: 20,
+        fear: 0,
+        stress: 10
+      });
+    });
+
+    setConfig(newConfig);
+    setMapData(nextMap);
+    setWorldId(Math.random());
+    setSelectedCell(null);
+
+    addLog(`🚚 MIGRATION SUCCESSFUL! Your tribe and caravan wagon have migrated to a brand-new region (Seed: ${newSeed}). Your ${bigBeastTamedAndTransport.map(b => b.type).join(', ')} successfully pulled the wagons!`, 'success');
+  };
+
   const handleStudyRelic = () => {
     if (mapData.activeRelicStudy) {
       addLog('⚠️ Study Relic: The oracle is already deciphering a relic. Only one relic can be studied at a time!', 'warning');
@@ -1660,6 +1747,7 @@ export default function App() {
             onOrganizeWarehouse={handleOrganizeWarehouse}
             onTransferToCaravan={handleTransferToCaravan}
             onTransferToVillage={handleTransferToVillage}
+            onMigrateRegion={handleMigrateRegion}
             onChangeAutoGatherThreshold={handleChangeAutoGatherThreshold}
             isCreativeMode={isCreativeMode}
             onToggleCreativeMode={toggleCreativeMode}

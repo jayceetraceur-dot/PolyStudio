@@ -12,7 +12,20 @@ export function generateRandomName(gender: 'Male' | 'Female'): string {
 }
 
 export const ROLES: TribespersonRole[] = ['Gatherer', 'Hunter', 'Farmer', 'Builder', 'Scout', 'Healer', 'Artisan', 'Oracle'];
-const TRAITS: TribespersonTrait[] = ['Tireless', 'Green Thumb', 'Path Finder', 'Beast Friend', 'Iron Stomach'];
+const TRAITS: TribespersonTrait[] = [
+  'Tireless', 'Green Thumb', 'Path Finder', 'Beast Friend', 'Iron Stomach',
+  'Storm Listener', 'Sure Hands', 'Strong Back', 'Light Step', 'Stone Eye',
+  'Root Sense', 'Patient Worker', 'Quick Learner', 'Careful Builder',
+  'Fast Hands', 'Tool Wise', 'Silent Hunter', 'Bold Hunter', 'Cautious Soul',
+  'Hardy', 'Deep Sleeper', 'Restless', 'Social Warmth', 'Loner',
+  'Natural Mentor', 'Sharp Memory', 'Far Seer', 'Relic Curious',
+  'Steady Nerves', 'Storm Fearful', 'Night Calm', 'Sun Hungry',
+  'Water Finder', 'Fire Keeper', 'Gentle Hands', 'Tough Skin',
+  'Pack Mind', 'Independent', 'Waste Not', 'Born Trader',
+  'Homebound', 'Wanderheart', 'Soft Heart', 'Iron Focus',
+  'Easily Spooked', 'Sandwise', 'Cliffborn', 'Medicinal Nose',
+  'Caravan Soul'
+];
 
 export const ROLE_COLORS: Record<TribespersonRole, string> = {
   Gatherer: '#e29578', // Peach/Orange
@@ -37,6 +50,28 @@ export function hasStructureInVillage(mapData: any, type: string): boolean {
     }
   }
   return false;
+}
+
+export function findBestStorageDestination(mapData: MapData, fromX: number, fromZ: number): { x: number, z: number } {
+  const size = mapData.grid.length;
+  let bestX = Math.floor(size / 2);
+  let bestZ = Math.floor(size / 2);
+  let bestDist = 9999;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const cell = mapData.grid[r][c];
+      if (cell.structure?.type === 'StorageBin' && !cell.structure.dismantling) {
+        const d = Math.abs(r - fromX) + Math.abs(c - fromZ);
+        if (d < bestDist) {
+          bestDist = d;
+          bestX = r;
+          bestZ = c;
+        }
+      }
+    }
+  }
+  return { x: bestX, z: bestZ };
 }
 
 export function getXPRequirement(level: number): number {
@@ -118,8 +153,8 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
   const gender = Math.random() > 0.5 ? ('Male' as const) : ('Female' as const);
   const name = generateRandomName(gender);
   
-  // Pick 1-2 random traits
-  const numTraits = Math.random() > 0.75 ? 2 : 1;
+  // Pick 1-3 random traits
+  const numTraits = Math.floor(Math.random() * 3) + 1; // 1 to 3 traits
   const shuffledTraits = [...TRAITS].sort(() => 0.5 - Math.random());
   const traits = shuffledTraits.slice(0, numTraits) as TribespersonTrait[];
 
@@ -145,10 +180,33 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
     agility: baseAttr(),
   };
 
-  // Trait bonuses to attributes
+  // Trait bonuses and drawbacks to attributes
   if (traits.includes('Tireless')) attributes.endurance += 2;
   if (traits.includes('Path Finder')) attributes.agility += 2;
   if (traits.includes('Iron Stomach')) attributes.endurance += 1;
+  if (traits.includes('Strong Back')) { attributes.strength += 2; attributes.agility = Math.max(1, attributes.agility - 1); }
+  if (traits.includes('Patient Worker')) { attributes.endurance += 2; attributes.agility = Math.max(1, attributes.agility - 1); }
+  if (traits.includes('Fast Hands')) { attributes.agility += 2; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Quick Learner')) { attributes.intelligence += 2; }
+  if (traits.includes('Careful Builder')) { attributes.strength += 1; attributes.intelligence += 1; attributes.agility = Math.max(1, attributes.agility - 1); }
+  if (traits.includes('Stone Eye')) { attributes.perception += 2; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Root Sense')) { attributes.perception += 2; attributes.endurance = Math.max(1, attributes.endurance - 1); }
+  if (traits.includes('Far Seer')) { attributes.perception += 2; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Hardy')) { attributes.endurance += 2; attributes.intelligence = Math.max(1, attributes.intelligence - 1); }
+  if (traits.includes('Restless')) { attributes.agility += 1; attributes.endurance = Math.max(1, attributes.endurance - 1); }
+  if (traits.includes('Relic Curious')) { attributes.intelligence += 2; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Storm Listener')) { attributes.perception += 2; attributes.agility = Math.max(1, attributes.agility - 1); }
+  if (traits.includes('Sure Hands')) { attributes.agility += 2; attributes.perception = Math.max(1, attributes.perception - 1); }
+  if (traits.includes('Independent')) { attributes.intelligence += 1; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Loner')) { attributes.endurance += 1; attributes.intelligence = Math.max(1, attributes.intelligence - 1); }
+  if (traits.includes('Wanderheart')) { attributes.agility += 2; attributes.endurance = Math.max(1, attributes.endurance - 1); }
+  if (traits.includes('Homebound')) { attributes.strength += 2; attributes.agility = Math.max(1, attributes.agility - 1); }
+  if (traits.includes('Iron Focus')) { attributes.strength += 1; attributes.intelligence += 1; attributes.perception = Math.max(1, attributes.perception - 1); }
+  if (traits.includes('Easily Spooked')) { attributes.agility += 2; attributes.endurance = Math.max(1, attributes.endurance - 2); }
+  if (traits.includes('Sandwise')) { attributes.agility += 1; attributes.endurance += 1; attributes.intelligence = Math.max(1, attributes.intelligence - 1); }
+  if (traits.includes('Cliffborn')) { attributes.strength += 1; attributes.agility += 1; attributes.intelligence = Math.max(1, attributes.intelligence - 1); }
+  if (traits.includes('Medicinal Nose')) { attributes.perception += 2; attributes.strength = Math.max(1, attributes.strength - 1); }
+  if (traits.includes('Caravan Soul')) { attributes.strength += 2; attributes.perception = Math.max(1, attributes.perception - 1); }
 
   const ageYears = 14 + Math.floor(Math.random() * 45); // Starter ages: 14 to 59
   const ageDays = Math.floor(Math.random() * 360);
@@ -261,6 +319,7 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
     Scout: role === 'Scout' ? 1 : 2,
     Haul: 2,
     Repair: role === 'Builder' ? 2 : 3,
+    Study: 2,
   };
 
   const personalities: ('Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy')[] = [
@@ -386,6 +445,7 @@ export function createTribeBornChild(
     Scout: 0,
     Haul: 0,
     Repair: 0,
+    Study: 0,
   };
 
   const child: Tribesperson = {
@@ -764,7 +824,9 @@ export function tickTribeSimulation(
   }
 
   // Spoilage scaling
-  const spoilageMultiplier = 1.0 + (100 - mapData.villageInventory.cleanliness) * 0.05; // 1x to 5.5x speed
+  const activeHaulers = alivePeople.filter(p => p.priorities.Haul > 0).length;
+  const haulerSpoilFactor = Math.max(0.4, 1.0 - activeHaulers * 0.08);
+  const spoilageMultiplier = (1.0 + (100 - mapData.villageInventory.cleanliness) * 0.05) * haulerSpoilFactor; // 1x to 5.5x speed, reduced by active haulers
 
   // Initialize Caravan Storage if not exists
   if (!mapData.caravanInventory) {
@@ -909,18 +971,21 @@ export function tickTribeSimulation(
           // If occupied by a structure or active construction blueprint, it cannot regrow.
           // Reset timer to 0 so it must pass the full regrow time after building is taken out.
           node.regrowTimer = 0;
-        } else if (node.amount < node.maxAmount) {
-          node.regrowTimer += node.regrowRate * deltaTime;
-          if (node.regrowTimer >= 1.0) {
-            const added = Math.min(node.maxAmount - node.amount, Math.floor(node.regrowTimer));
-            node.amount += added;
-            node.regrowTimer = 0;
+        } else {
+          const limitAmount = node.type === 'Fiber' ? node.maxAmount * 2 : node.maxAmount;
+          if (node.amount < limitAmount) {
+            node.regrowTimer += node.regrowRate * deltaTime;
+            if (node.regrowTimer >= 1.0) {
+              const added = Math.min(limitAmount - node.amount, Math.floor(node.regrowTimer));
+              node.amount += added;
+              node.regrowTimer = 0;
 
-            // Soft visual restore
-            if (node.amount > 0) {
-              if (node.type === 'Berries') cell.hasShrub = true;
-              else if (node.type === 'Wood') cell.hasTree = true;
-              else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
+              // Soft visual restore
+              if (node.amount > 0) {
+                if (node.type === 'Berries') cell.hasShrub = true;
+                else if (node.type === 'Wood') cell.hasTree = true;
+                else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
+              }
             }
           }
         }
@@ -1274,6 +1339,7 @@ export function tickTribeSimulation(
           Scout: role === 'Scout' ? 1 : 2,
           Haul: 2,
           Repair: role === 'Builder' ? 2 : 3,
+          Study: 2,
         };
 
         if (!mapData.tribeCodexLogs) mapData.tribeCodexLogs = [];
@@ -1617,103 +1683,193 @@ export function tickTribeSimulation(
       // 5. Gather (Wood logs, rocks, shrubs, and custom Don't Starve resource nodes)
       if (agent.priorities.Gather > 0 && (!carriage || carriage.amount < 30)) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
-        const thresholdMap = mapData.autoGatherThresholds || {};
+        let isDesignatedTarget = false;
+
+        // Step 5a: First, look specifically for scouted, manually designated resource cells
         for (let r = 0; r < size; r++) {
           for (let c = 0; c < size; c++) {
             const cell = mapData.grid[r][c];
-            const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
-            
-            let satisfiesAutoGather = false;
-            if (cell.hasTree) {
-              const limit = thresholdMap['wood'] || 0;
-              if (limit > 0 && mapData.stockpile.wood < limit) {
-                satisfiesAutoGather = true;
-              }
-            }
-            if (cell.hasRock) {
-              const limit = thresholdMap['stone'] || 0;
-              if (limit > 0 && mapData.stockpile.stone < limit) {
-                satisfiesAutoGather = true;
-              }
-            }
-            if (cell.hasShrub) {
-              const limitBerries = thresholdMap['berries'] || 0;
-              const limitFood = thresholdMap['food'] || 0;
-              if ((limitBerries > 0 && (mapData.stockpile as any).berries < limitBerries) ||
-                  (limitFood > 0 && mapData.stockpile.food < limitFood)) {
-                satisfiesAutoGather = true;
-              }
-            }
-            if (hasNodeToGather && cell.resourceNode) {
-              const nodeType = cell.resourceNode.type;
-              const typeMap: Record<string, string> = {
-                Berries: 'berries',
-                Roots: 'roots',
-                Mushrooms: 'mushrooms',
-                Meat: 'meat',
-                Wood: 'wood',
-                Stone: 'stone',
-                Fiber: 'fiber',
-                Bone: 'bone',
-                Dew: 'dew',
-                ReservoirWater: 'reservoirWater',
-                Rainwater: 'rainwater',
-                Relics: 'relics',
-                AncientMaterials: 'ancientMaterials',
-                Copper: 'copper',
-                Silver: 'silver',
-                Gold: 'gold',
-                Iron: 'iron',
-              };
-              const rKey = typeMap[nodeType] || 'wood';
-              const limit = thresholdMap[rKey] || 0;
-              
-              const isFood = ['Berries', 'Roots', 'Mushrooms', 'Meat'].includes(nodeType);
-              const limitFood = thresholdMap['food'] || 0;
-              
-              if ((limit > 0 && ((mapData.stockpile as any)[rKey] ?? 0) < limit) ||
-                  (isFood && limitFood > 0 && mapData.stockpile.food < limitFood)) {
-                satisfiesAutoGather = true;
-              }
-            }
-
-            if ((cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) && cell.scouted && (cell.gatherDesignated || satisfiesAutoGather)) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
+            if (cell.gatherDesignated && cell.scouted) {
+              const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
+              if (cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                  isDesignatedTarget = true;
+                }
               }
             }
           }
         }
+
+        // Step 5b: If no designated target, search for automated threshold-based resource nodes
+        if (bestX === -1) {
+          const thresholdMap = mapData.autoGatherThresholds || {};
+          for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+              const cell = mapData.grid[r][c];
+              const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
+              
+              let satisfiesAutoGather = false;
+              if (cell.hasTree) {
+                const limit = thresholdMap['wood'] || 0;
+                if (limit > 0 && mapData.stockpile.wood < limit) {
+                  satisfiesAutoGather = true;
+                }
+              }
+              if (cell.hasRock) {
+                const limit = thresholdMap['stone'] || 0;
+                if (limit > 0 && mapData.stockpile.stone < limit) {
+                  satisfiesAutoGather = true;
+                }
+              }
+              if (cell.hasShrub) {
+                const limitBerries = thresholdMap['berries'] || 0;
+                const limitFood = thresholdMap['food'] || 0;
+                if ((limitBerries > 0 && (mapData.stockpile as any).berries < limitBerries) ||
+                    (limitFood > 0 && mapData.stockpile.food < limitFood)) {
+                  satisfiesAutoGather = true;
+                }
+              }
+              if (hasNodeToGather && cell.resourceNode) {
+                const nodeType = cell.resourceNode.type;
+                const typeMap: Record<string, string> = {
+                  Berries: 'berries',
+                  Roots: 'roots',
+                  Mushrooms: 'mushrooms',
+                  Meat: 'meat',
+                  Wood: 'wood',
+                  Stone: 'stone',
+                  Fiber: 'fiber',
+                  Bone: 'bone',
+                  Dew: 'dew',
+                  ReservoirWater: 'reservoirWater',
+                  Rainwater: 'rainwater',
+                  Relics: 'relics',
+                  AncientMaterials: 'ancientMaterials',
+                  Copper: 'copper',
+                  Silver: 'silver',
+                  Gold: 'gold',
+                  Iron: 'iron',
+                };
+                const rKey = typeMap[nodeType] || 'wood';
+                const limit = thresholdMap[rKey] || 0;
+                
+                const isFood = ['Berries', 'Roots', 'Mushrooms', 'Meat'].includes(nodeType);
+                const limitFood = thresholdMap['food'] || 0;
+                
+                if ((limit > 0 && ((mapData.stockpile as any)[rKey] ?? 0) < limit) ||
+                    (isFood && limitFood > 0 && mapData.stockpile.food < limitFood)) {
+                  satisfiesAutoGather = true;
+                }
+              }
+
+              if ((cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) && cell.scouted && satisfiesAutoGather) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                }
+              }
+            }
+          }
+        }
+
         if (bestX !== -1) {
-          addCandidate('Gather', bestX, bestZ, agent.priorities.Gather, 0);
+          const isGatherer = agent.role === 'Gatherer';
+          const hasPrimaryRoleWork = (() => {
+            if (agent.role === 'Builder') {
+              for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                  const cell = mapData.grid[r][c];
+                  if (cell.construction || (cell.structure && (cell.structure.dismantling || cell.structure.condition < 95))) {
+                    return true;
+                  }
+                }
+              }
+            }
+            if (agent.role === 'Farmer') {
+              for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                  if (mapData.grid[r][c].farmCrop) return true;
+                }
+              }
+            }
+            if (agent.role === 'Hunter') {
+              if (mapData.animals && mapData.animals.some(a => !a.isDead)) return true;
+            }
+            if (agent.role === 'Scout') {
+              for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                  if (!mapData.grid[r][c].scouted) return true;
+                }
+              }
+            }
+            return false;
+          })();
+
+          // 1. Gatherer role always gathers with high priority boost
+          // 2. Other roles can help if there is no primary role work for them, but with less priority
+          // 3. Builders with pending construction/dismantling/repair work NEVER abandon it to gather
+          if (isGatherer) {
+            const scoreModifier = isDesignatedTarget ? -3.0 : -0.5;
+            addCandidate('Gather', bestX, bestZ, agent.priorities.Gather, scoreModifier);
+          } else if (!hasPrimaryRoleWork) {
+            // Can help as complementary/hauler task if they have nothing else to do of their primary role
+            const scoreModifier = isDesignatedTarget ? 0.5 : 1.5; // less prioritized
+            addCandidate('Gather', bestX, bestZ, agent.priorities.Gather, scoreModifier);
+          }
         }
       }
 
       // 6. Hunt / Fisherman / Water collection (Wild animals & Lake/Well interaction)
       if (agent.priorities.Hunt > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
-        let jobMode: 'hunt' | 'fish' | 'water' = 'hunt';
+        let jobMode: 'hunt' | 'fish' | 'water' | 'tame' = 'hunt';
+        let isDesignatedTarget = false;
 
-        // 6a. Search for wild animals to hunt
+        // 6a. Search first for manually designated wild animal hunt/capture/tame targets
         for (let r = 0; r < size; r++) {
           for (let c = 0; c < size; c++) {
             const cell = mapData.grid[r][c];
             if (cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
-                jobMode = 'hunt';
+              const ani = cell.wildAnimal;
+              if ((ani as any).isHuntDesignated || (ani as any).isCaptureDesignated || (ani as any).isTameDesignated) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                  jobMode = (ani as any).isTameDesignated ? 'tame' : 'hunt';
+                  isDesignatedTarget = true;
+                }
               }
             }
           }
         }
 
-        // 6b. If no game to narrow down, search for lakes or wells to fish/fetch water
+        // 6b. Search for standard (automatic) wild animals to hunt if no designated ones
+        if (bestX === -1) {
+          for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+              const cell = mapData.grid[r][c];
+              if (cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                  jobMode = 'hunt';
+                }
+              }
+            }
+          }
+        }
+
+        // 6c. If no wild game, search for lakes or wells to fish/fetch water
         if (bestX === -1) {
           for (let r = 0; r < size; r++) {
             for (let c = 0; c < size; c++) {
@@ -1766,7 +1922,8 @@ export function tickTribeSimulation(
               }
             }
           }
-          addCandidate('Hunt', walkX, walkZ, agent.priorities.Hunt, -0.05);
+          const scoreModifier = isDesignatedTarget ? -1.8 : -0.05;
+          addCandidate('Hunt', walkX, walkZ, agent.priorities.Hunt, scoreModifier);
           (agent as any).huntSubJob = jobMode;
         }
       }
@@ -2473,12 +2630,102 @@ export function tickTribeSimulation(
           }
         } 
         
+        else if (activeJobType === 'Study') {
+          if (cell?.landmark && !cell.landmark.explored) {
+            const lm = cell.landmark;
+            if (lm.studyProgress === undefined) {
+              lm.studyProgress = 0;
+              lm.studyMaxProgress = 100;
+            }
+
+            const scholarLevel = agent.skills[agent.role]?.level ?? 1;
+            
+            let difficultyFactor = 1.0;
+            if (lm.type === 'giant_petrified_tree') difficultyFactor = 1.6;
+            else if (lm.type === 'abandoned_settlement' || lm.type === 'strange_stone_circle') difficultyFactor = 1.0;
+            else if (lm.type === 'massive_skeleton' || lm.type === 'buried_machine') difficultyFactor = 0.7;
+            else if (lm.type === 'crashed_structure' || lm.type === 'ancient_tower') difficultyFactor = 0.5;
+
+            const speedFactor = 1.0 + (scholarLevel - 1) * 0.15;
+            const progressRate = 120 * speedFactor * difficultyFactor * deltaTime;
+            lm.studyProgress = Math.min(100, lm.studyProgress + progressRate);
+
+            const behaviors = [
+              `🧐 Making calculations and decoding precursor runes of "${lm.name}" (${Math.round(lm.studyProgress)}%)...`,
+              `🧐 Inspecting glyphs and walking around "${lm.name}" to study structural layout (${Math.round(lm.studyProgress)}%)...`,
+              `🧐 Deeply analyzing structural materials of "${lm.name}" and taking notes (${Math.round(lm.studyProgress)}%)...`,
+              `🧐 Translating forgotten symbols on "${lm.name}" to decode its ancient purpose (${Math.round(lm.studyProgress)}%)...`
+            ];
+            statusText = behaviors[Math.floor(agent.x + agent.z + lm.studyProgress / 10) % behaviors.length];
+
+            if (lm.studyProgress >= 100) {
+              lm.explored = true;
+              cell.inspectableName = `✔️ Explored: ${lm.name}`;
+
+              if (lm.rewards.knowledgePoints) {
+                mapData.researchPoints += lm.rewards.knowledgePoints;
+              }
+              if (lm.rewards.relics) {
+                mapData.stockpile.relics = (mapData.stockpile.relics ?? 0) + lm.rewards.relics;
+              }
+              if (lm.rewards.ancientMaterials) {
+                mapData.stockpile.ancientMaterials = (mapData.stockpile.ancientMaterials ?? 0) + lm.rewards.ancientMaterials;
+              }
+              if (lm.rewards.moraleBoost) {
+                const boost = lm.rewards.moraleBoost;
+                stats.morale = Math.min(100, Math.max(0, stats.morale + boost));
+              }
+
+              if (lm.rewards.unlockRecipeId) {
+                if (!mapData.unlockedRecipes) mapData.unlockedRecipes = [];
+                if (!mapData.unlockedRecipes.includes(lm.rewards.unlockRecipeId)) {
+                  mapData.unlockedRecipes = [...mapData.unlockedRecipes, lm.rewards.unlockRecipeId];
+                }
+              }
+              if (lm.rewards.unlockBuildingType) {
+                if (!mapData.unlockedBuildings) mapData.unlockedBuildings = [];
+                if (!mapData.unlockedBuildings.includes(lm.rewards.unlockBuildingType)) {
+                  mapData.unlockedBuildings = [...mapData.unlockedBuildings, lm.rewards.unlockBuildingType];
+                }
+              }
+
+              if (!mapData.activeLoreLogs) {
+                mapData.activeLoreLogs = [];
+              }
+              mapData.activeLoreLogs.push({
+                id: lm.id,
+                landmarkName: lm.name,
+                text: lm.storySegment,
+                discoveredDay: Math.floor(currentDay)
+              });
+
+              let unlockNotify = '';
+              if (lm.rewards.unlockRecipeId) {
+                unlockNotify = ` Unlocked craft recipe: [${lm.rewards.unlockRecipeId}]!`;
+              }
+              if (lm.rewards.unlockBuildingType) {
+                unlockNotify += ` Unlocked custom blueprint: [${lm.rewards.unlockBuildingType}]!`;
+              }
+
+              addLog(`⭐ LANDMARK DECODED! ${agent.name} has successfully studied and decoded the "${lm.name}"! Gained +${lm.rewards.knowledgePoints ?? 0} RP.${unlockNotify}`, 'success');
+
+              awardSkillXP(agent, agent.role, 80, mapData, addLog, hasMentorNearby);
+
+              activeJobType = null;
+              jobTargetCoords = null;
+            }
+          } else {
+            activeJobType = null;
+            jobTargetCoords = null;
+          }
+        }
+        
         else if (activeJobType === 'Farm') {
           if (cell?.farmCrop) {
             const crop = cell.farmCrop;
             if (crop.stage === 'sown') {
               statusText = '🌱 Sowing seeds on field plots...';
-              crop.progress += 25 * speedMultiplier * deltaTime;
+              crop.progress += 10 * speedMultiplier * deltaTime;
               if (crop.progress >= 100) {
                 crop.stage = 'growing';
                 crop.progress = 0;
@@ -2486,7 +2733,7 @@ export function tickTribeSimulation(
               }
             } else if (crop.stage === 'growing') {
               statusText = '🌿 Watering crops, accelerated growth...';
-              crop.progress += 30 * speedMultiplier * deltaTime; // quickening
+              crop.progress += 8 * speedMultiplier * deltaTime; // quickening
               if (crop.progress >= 100) {
                 crop.stage = 'harvestable';
                 crop.progress = 100;
@@ -2696,6 +2943,78 @@ export function tickTribeSimulation(
 
               awardSkillXP(agent, 'Hunter', 30, mapData, addLog, hasMentorNearby);
             }
+          } else if (subJob === 'tame') {
+            let targetAnimal: any = null;
+            if (mapData.animals) {
+              targetAnimal = mapData.animals.find(a => (a as any).isTameDesignated && !a.isDead) || null;
+            }
+            if (!targetAnimal && cell?.wildAnimal && (cell.wildAnimal as any).isTameDesignated && !cell.wildAnimal.isDead) {
+              targetAnimal = cell.wildAnimal;
+            }
+
+            if (targetAnimal) {
+              // Track them on the fly
+              jobTargetCoords = { x: Math.round(targetAnimal.x), z: Math.round(targetAnimal.z) };
+
+              const dx = targetAnimal.x - agent.x;
+              const dz = targetAnimal.z - agent.z;
+              const rangeSq = dx * dx + dz * dz;
+
+              if (rangeSq <= 1.8 * 1.8) {
+                statusText = `🍎 Calming & feeding sweet berries to wild ${targetAnimal.type} (Tame Progress: ${targetAnimal.tameLevel}%)...`;
+                
+                if (workProgress > 2.0) {
+                  workProgress = 0;
+                  if (mapData.stockpile.berries >= 1) {
+                    mapData.stockpile.berries -= 1;
+                    mapData.stockpile.food = Math.max(0, mapData.stockpile.food - 1);
+
+                    const hLevel = agent.skills.Hunter?.level || 1;
+                    const hasBeastFriend = agent.traits.includes('Beast Friend');
+                    const successChance = 0.25 + (hLevel * 0.05) + (hasBeastFriend ? 0.25 : 0);
+                    
+                    const isSuccessful = Math.random() < successChance;
+                    if (isSuccessful) {
+                      targetAnimal.trustLevel = Math.min(100, targetAnimal.trustLevel + 30 + hLevel * 2);
+                      targetAnimal.tameLevel = Math.min(100, targetAnimal.tameLevel + 25 + hLevel * 2);
+                      targetAnimal.stress = Math.max(0, targetAnimal.stress - 30);
+                      
+                      if (targetAnimal.tameLevel >= 100) {
+                        targetAnimal.isTame = true;
+                        targetAnimal.isTameDesignated = false;
+                        if (cell?.wildAnimal) {
+                          cell.wildAnimal.isTame = true;
+                          (cell.wildAnimal as any).isTameDesignated = false;
+                        }
+                        addLog(`💖 DOMESTICATED! ${agent.name} (Hunter Level: ${hLevel}${hasBeastFriend ? ' + Beast Friend' : ''}) successfully domesticated the wild ${targetAnimal.type}!`, 'success');
+                        activeJobType = null;
+                        jobTargetCoords = null;
+                      } else {
+                        addLog(`🍎 Taming Progress: ${agent.name} successfully fed wild ${targetAnimal.type}. Trust increased! Progress: ${targetAnimal.tameLevel}%`, 'success');
+                      }
+                      awardSkillXP(agent, 'Hunter', 45, mapData, addLog, hasMentorNearby);
+                    } else {
+                      targetAnimal.fear = 30; // ran slightly
+                      addLog(`🍎 Startled! ${agent.name} offered a sweet berry, but the wild ${targetAnimal.type} was startled and spit it out. Keep trying!`, 'warning');
+                      awardSkillXP(agent, 'Hunter', 15, mapData, addLog, hasMentorNearby);
+                    }
+                  } else {
+                    addLog(`⚠️ Taming blocked: No berries left in stockpile! Taming order cancelled.`, 'warning');
+                    targetAnimal.isTameDesignated = false;
+                    if (cell?.wildAnimal) {
+                      (cell.wildAnimal as any).isTameDesignated = false;
+                    }
+                    activeJobType = null;
+                    jobTargetCoords = null;
+                  }
+                }
+              } else {
+                statusText = `👣 Pursuit: Quietly approaching wild ${targetAnimal.type} for taming...`;
+              }
+            } else {
+              activeJobType = null;
+              jobTargetCoords = null;
+            }
           }
         } 
         
@@ -2776,8 +3095,8 @@ export function tickTribeSimulation(
               } else {
                 jobTargetCoords = { x: dropX, z: dropZ };
               }
-            } else if (destX === Math.floor(size / 2) && destZ === Math.floor(size / 2)) {
-              statusText = '📦 Stockpiling resources at depot...';
+            } else if (destX === Math.floor(size / 2) && destZ === Math.floor(size / 2) || (mapData.grid[destX]?.[destZ]?.structure?.type === 'StorageBin')) {
+              statusText = '📦 Stockpiling resources at storage bin...';
               if (workProgress > 1.0) {
                 if (rawDropType === 'harvested_beast') {
                   const yields = (carriage as any).yields || { meat: 30, hide: 5, bone: 2, fat: 2, horns: 0 };
@@ -2794,7 +3113,7 @@ export function tickTribeSimulation(
                   }
                   mapData.stockpile.food = mapData.stockpile.berries + mapData.stockpile.roots + mapData.stockpile.mushrooms + mapData.stockpile.meat;
 
-                  addLog(`📦 Depot stash: +${yields.meat} Meat, +${yields.hide} Hide, +${yields.fat} Fat, +${yields.bone} Bones, +${yields.horns} Horns/Feathers!`, 'success');
+                  addLog(`📦 Storage stash: +${yields.meat} Meat, +${yields.hide} Hide, +${yields.fat} Fat, +${yields.bone} Bones, +${yields.horns} Horns/Feathers!`, 'success');
                 } else {
                   let dropType: any = rawDropType;
                   if (rawDropType === 'food') {
@@ -2814,7 +3133,7 @@ export function tickTribeSimulation(
                   }
                   mapData.stockpile.food = mapData.stockpile.berries + mapData.stockpile.roots + mapData.stockpile.mushrooms + mapData.stockpile.meat;
 
-                  addLog(`📦 Hauler stashed +${addedQty} ${dropType} at depot!`, 'info');
+                  addLog(`📦 Hauler stashed +${addedQty} ${dropType} at storage!`, 'info');
                 }
 
                 carriage = null;
@@ -2823,7 +3142,8 @@ export function tickTribeSimulation(
                 workProgress = 0;
               }
             } else {
-              jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+              const bestDest = findBestStorageDestination(mapData, agent.x, agent.z);
+              jobTargetCoords = { x: bestDest.x, z: bestDest.z };
             }
           } else if (cell?.itemsOnGround) {
             statusText = '📦 Lifting supplies...';
@@ -2831,7 +3151,8 @@ export function tickTribeSimulation(
               carriage = { type: cell.itemsOnGround.type, amount: cell.itemsOnGround.amount };
               cell.itemsOnGround = null;
               // immediately return to base
-              jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+              const bestDest = findBestStorageDestination(mapData, agent.x, agent.z);
+              jobTargetCoords = { x: bestDest.x, z: bestDest.z };
               workProgress = 0;
             }
           } else {

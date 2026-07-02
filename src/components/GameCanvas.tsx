@@ -4,6 +4,43 @@ import { CellInfo, MapData, TimeSpeed, Tribesperson } from '../types';
 import { BIOME_COLORS } from '../utils/worldBuilder';
 import { ambientAudioEngine } from '../utils/audioEngine';
 
+function getThoughtEmoji(person: Tribesperson): string {
+  if (!person.isAlive) return '💀';
+  
+  const status = person.statusText?.toLowerCase() || '';
+  
+  // High Priority Status checks
+  if (status.includes('love') || status.includes('flirt')) return '❤️';
+  if (status.includes('argue') || status.includes('mad') || status.includes('angry')) return '😡';
+  if (status.includes('socializ') || status.includes('chat') || status.includes('talk')) {
+    if (person.stats.morale > 75) return '😊';
+    return '💬';
+  }
+  if (person.stats.health < 40) return '🤕';
+  if (person.stats.morale < 25) return '😡';
+  if (person.stats.hunger < 25) return '🍖';
+  if (person.stats.thirst < 25) return '💧';
+  if (person.stats.fatigue < 25) return '🥱';
+
+  // Job checks
+  if (person.activeJobType === 'Sleep') return '💤';
+  if (person.activeJobType === 'Eat') return '🍞';
+  if (person.activeJobType === 'Study') return '🧐';
+  if (person.activeJobType === 'Gather') return '🍎';
+  if (person.activeJobType === 'Hunt') return '🏹';
+  if (person.activeJobType === 'Farm') return '🌾';
+  if (person.activeJobType === 'Build') return '🔨';
+  if (person.activeJobType === 'Repair') return '🔧';
+  if (person.activeJobType === 'Scout') return '👁️';
+  if (person.activeJobType === 'Haul') return '📦';
+
+  // Fallbacks
+  if (status.includes('rest') || status.includes('idle')) return '🍃';
+  if (status.includes('think') || status.includes('analyz') || status.includes('contemplat')) return '💭';
+
+  return '💭'; // default thinking/doing bubble
+}
+
 interface GameCanvasProps {
   mapData: MapData;
   selectedCell: CellInfo | null;
@@ -93,7 +130,7 @@ export default function GameCanvas({
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
 
     // --- 2. CAMERA RTS CONTROL STATE ---
@@ -737,6 +774,12 @@ export default function GameCanvas({
                 flatShading: true,
               });
 
+              // Deterministic tree foliage color jitter based on coordinates x, z
+              const treeJitterH = (Math.sin(x * 15.3 + z * 47.1) * 0.02);
+              const treeJitterS = (Math.cos(x * 25.4 + z * 21.2) * 0.05);
+              const treeJitterL = (Math.sin(x * 55.6 + z * 68.9) * 0.08);
+              foliageMat.color.offsetHSL(treeJitterH, treeJitterS, treeJitterL);
+
               const botConeMesh = new THREE.Mesh(getPineFoliageGeom(cell.treeHeight, 0), foliageMat);
               botConeMesh.position.y = 0.8;
               botConeMesh.castShadow = true;
@@ -856,6 +899,12 @@ export default function GameCanvas({
                   metalness: isAncientMat ? 0.72 : 0.1,
                   flatShading: true
                 });
+
+                const rockJitterH = (Math.sin(x * 17.3 + z * 39.1) * 0.03);
+                const rockJitterS = (Math.cos(x * 21.4 + z * 27.2) * 0.04);
+                const rockJitterL = (Math.sin(x * 43.6 + z * 51.9) * 0.05);
+                scrapMat.color.offsetHSL(rockJitterH, rockJitterS, rockJitterL);
+
                 const scrapMesh = new THREE.Mesh(scrapGeom, scrapMat);
                 scrapMesh.position.set(x, y + cell.rockSize * (isAncientMat ? 0.125 : 0.2), z);
                 scrapMesh.rotation.set(...cell.rockRotation);
@@ -878,6 +927,11 @@ export default function GameCanvas({
                 metalness: 0.25,
                 flatShading: true,
               });
+
+              const rockJitterH = (Math.sin(x * 19.3 + z * 33.1) * 0.02);
+              const rockJitterS = (Math.cos(x * 29.4 + z * 29.2) * 0.03);
+              const rockJitterL = (Math.sin(x * 49.6 + z * 59.9) * 0.06);
+              rockMat.color.offsetHSL(rockJitterH, rockJitterS, rockJitterL);
               const rockMesh = new THREE.Mesh(rockGeom, rockMat);
               rockMesh.position.set(x, y + cell.rockSize * 0.15, z);
               rockMesh.position.x += Math.sin(cell.rockRotation[1] * 3) * 0.12;
@@ -897,7 +951,52 @@ export default function GameCanvas({
 
           // Shrubs
           else if (cell.hasShrub) {
-            if (cell.biome === 'desert') {
+            const isFiber = cell.resourceNode?.type === 'Fiber';
+            if (isFiber) {
+              const fiberGroup = new THREE.Group();
+              fiberGroup.position.set(x, y, z);
+
+              const node = cell.resourceNode!;
+              const amount = node.amount || 0;
+              const maxAmount = node.maxAmount || 10;
+              // Size scales with amount up to 2.0x (double size)
+              const sizeScale = Math.max(0.1, amount / maxAmount);
+
+              const grassColor = new THREE.Color('#7cb342'); // beautiful tall grass color
+              const grassMat = new THREE.MeshStandardMaterial({
+                color: grassColor,
+                roughness: 0.8,
+                flatShading: true,
+              });
+
+              // High density: 14 blades of grass in each fiber tile!
+              const numBlades = 14;
+              const bladeGeom = new THREE.ConeGeometry(0.02, 0.45, 3);
+
+              for (let b = 0; b < numBlades; b++) {
+                const blade = new THREE.Mesh(bladeGeom, grassMat);
+                
+                // deterministic offset per blade
+                const bladeSeed = (cell.moisture * (b + 1) * 31.4159) % 1.0;
+                const ox = (bladeSeed * 0.46) - 0.23;
+                const oz = (((bladeSeed * 7.13) % 1.0) * 0.46) - 0.23;
+                // Height is based on sizeScale, grows up to double!
+                const bHeight = (0.2 + bladeSeed * 0.3) * sizeScale;
+
+                blade.scale.set(1.0 + sizeScale * 0.2, bHeight / 0.45, 1.0 + sizeScale * 0.2);
+                blade.position.set(ox, bHeight / 2, oz);
+                blade.rotation.x = (bladeSeed * 0.3) - 0.15;
+                blade.rotation.z = (((bladeSeed * 4.31) % 1.0) * 0.3) - 0.15;
+                blade.rotation.y = bladeSeed * Math.PI * 2;
+                blade.castShadow = true;
+
+                blade.userData = { cell };
+                fiberGroup.add(blade);
+                decorationMeshes.push(blade);
+              }
+
+              decorationsGroup.add(fiberGroup);
+            } else if (cell.biome === 'desert') {
               const agaveGroup = new THREE.Group();
               agaveGroup.position.set(x, y, z);
 
@@ -2026,63 +2125,178 @@ export default function GameCanvas({
             cropGroup.position.set(x, y, z);
 
             const isHarvestable = stage === 'harvestable';
-            const heightFactor = Math.max(0.08, (progress / 100) * 0.35);
 
-            const stalkColor = isHarvestable ? 0xffcc33 : (stage === 'growing' ? 0x22aa33 : 0x447722);
-            const stalkMat = new THREE.MeshStandardMaterial({ color: stalkColor, roughness: 0.9, flatShading: true });
-            const stalkGeom = new THREE.CylinderGeometry(0.012, 0.02, heightFactor, 4);
+            if (crop.type === 'Wheat') {
+              // Wheat grows from small grass shoots to villager-height (0.85)!
+              let heightFactor = 0.1;
+              if (stage === 'sown') {
+                heightFactor = 0.05 + (progress / 100) * 0.1;
+              } else if (stage === 'growing') {
+                heightFactor = 0.15 + (progress / 100) * 0.7;
+              } else if (stage === 'harvestable') {
+                heightFactor = 0.85;
+              }
 
-            for (let cI = 0; cI < 4; cI++) {
-              const stalk = new THREE.Mesh(stalkGeom, stalkMat);
-              const offsetAngle = cI * (Math.PI / 2) + 0.3;
-              const ox = Math.cos(offsetAngle) * 0.14;
-              const oz = Math.sin(offsetAngle) * 0.14;
-              stalk.position.set(ox, heightFactor / 2, oz);
-              stalk.rotation.x = Math.sin(cI) * 0.08;
-              stalk.rotation.z = Math.cos(cI) * 0.08;
-              stalk.castShadow = true;
-              cropGroup.add(stalk);
+              // Color starts as fresh young grass green, matures into rich green, and turns brilliant gold when ripe
+              let stalkColor = 0x558b2f;
+              if (stage === 'sown') {
+                stalkColor = 0x7cb342; // fresh young shoot
+              } else if (stage === 'growing') {
+                if (progress < 50) {
+                  stalkColor = 0x558b2f; // healthy green grass
+                } else {
+                  stalkColor = 0x9ccc65; // ripening yellowish-green grass
+                }
+              } else if (stage === 'harvestable') {
+                stalkColor = 0xffcc33; // ripe golden wheat
+              }
 
-              // Render golden cluster grain heads at the top of wheat stalks
-              if (isHarvestable || progress > 55) {
-                const grSize = (progress / 100) * 0.035;
-                const headMesh = new THREE.Mesh(
-                  new THREE.ConeGeometry(grSize, grSize * 2.5, 4),
-                  new THREE.MeshStandardMaterial({ color: 0xdfb000, roughness: 0.7, flatShading: true })
+              const stalkMat = new THREE.MeshStandardMaterial({ color: stalkColor, roughness: 0.9, flatShading: true });
+              const stalkGeom = new THREE.CylinderGeometry(0.009, 0.016, heightFactor, 4);
+
+              // Render dense cluster of 8 elegant wheat stalks per tile
+              const numStalks = 8;
+              for (let cI = 0; cI < numStalks; cI++) {
+                const stalk = new THREE.Mesh(stalkGeom, stalkMat);
+                const offsetAngle = cI * (Math.PI * 2 / numStalks) + 0.3;
+                // Distribute stalks inside the tile
+                const ox = Math.cos(offsetAngle) * 0.16;
+                const oz = Math.sin(offsetAngle) * 0.16;
+                
+                stalk.position.set(ox, heightFactor / 2, oz);
+                // Gentle natural bending/swaying angles
+                stalk.rotation.x = Math.sin(cI) * 0.06;
+                stalk.rotation.z = Math.cos(cI) * 0.06;
+                stalk.castShadow = true;
+                cropGroup.add(stalk);
+
+                // Render golden grain seed heads at the top of wheat stalks
+                if (isHarvestable || (stage === 'growing' && progress > 50)) {
+                  const grSize = Math.max(0.012, (progress / 100) * 0.038);
+                  const headMesh = new THREE.Mesh(
+                    new THREE.ConeGeometry(grSize, grSize * 2.8, 4),
+                    new THREE.MeshStandardMaterial({ color: 0xdfb000, roughness: 0.7, flatShading: true })
+                  );
+                  headMesh.position.set(ox, heightFactor, oz);
+                  headMesh.rotation.x = Math.sin(cI) * 0.12;
+                  headMesh.rotation.z = Math.cos(cI) * 0.12;
+                  cropGroup.add(headMesh);
+                }
+              }
+            } else {
+              // Standard fallback crops (e.g. Pumpkins)
+              const heightFactor = Math.max(0.08, (progress / 100) * 0.35);
+              const stalkColor = isHarvestable ? 0xffcc33 : (stage === 'growing' ? 0x22aa33 : 0x447722);
+              const stalkMat = new THREE.MeshStandardMaterial({ color: stalkColor, roughness: 0.9, flatShading: true });
+              const stalkGeom = new THREE.CylinderGeometry(0.012, 0.02, heightFactor, 4);
+
+              for (let cI = 0; cI < 4; cI++) {
+                const stalk = new THREE.Mesh(stalkGeom, stalkMat);
+                const offsetAngle = cI * (Math.PI / 2) + 0.3;
+                const ox = Math.cos(offsetAngle) * 0.14;
+                const oz = Math.sin(offsetAngle) * 0.14;
+                stalk.position.set(ox, heightFactor / 2, oz);
+                stalk.rotation.x = Math.sin(cI) * 0.08;
+                stalk.rotation.z = Math.cos(cI) * 0.08;
+                stalk.castShadow = true;
+                cropGroup.add(stalk);
+
+                // Render golden cluster grain heads at the top of wheat stalks
+                if (isHarvestable || progress > 55) {
+                  const grSize = (progress / 100) * 0.035;
+                  const headMesh = new THREE.Mesh(
+                    new THREE.ConeGeometry(grSize, grSize * 2.5, 4),
+                    new THREE.MeshStandardMaterial({ color: 0xdfb000, roughness: 0.7, flatShading: true })
+                  );
+                  headMesh.position.set(ox, heightFactor, oz);
+                  headMesh.rotation.x = Math.sin(cI) * 0.12;
+                  headMesh.rotation.z = Math.cos(cI) * 0.12;
+                  cropGroup.add(headMesh);
+                }
+              }
+
+              // Draw orange pumpkins on the ground for high progress fields!
+              if (isHarvestable || progress > 40) {
+                const vegSize = (progress / 100) * 0.065;
+                const vegGroup = new THREE.Group();
+                vegGroup.position.set(0, 0.03, 0);
+
+                const pumpkinMesh = new THREE.Mesh(
+                  new THREE.SphereGeometry(vegSize, 6, 6),
+                  new THREE.MeshStandardMaterial({ color: 0xe65c00, roughness: 0.9, flatShading: true })
                 );
-                headMesh.position.set(ox, heightFactor, oz);
-                headMesh.rotation.x = Math.sin(cI) * 0.12;
-                headMesh.rotation.z = Math.cos(cI) * 0.12;
-                cropGroup.add(headMesh);
+                pumpkinMesh.scale.set(1.25, 0.85, 1.25); // flattened pumpkin shape
+                pumpkinMesh.castShadow = true;
+                vegGroup.add(pumpkinMesh);
+
+                const greenStem = new THREE.Mesh(
+                  new THREE.CylinderGeometry(0.01, 0.01, 0.03, 4),
+                  new THREE.MeshStandardMaterial({ color: 0x228822, roughness: 0.9 })
+                );
+                greenStem.position.set(0, vegSize * 0.85, 0);
+                greenStem.rotation.z = 0.2;
+                vegGroup.add(greenStem);
+
+                cropGroup.add(vegGroup);
               }
             }
 
-            // Draw orange pumpkins on the ground for high progress fields!
-            if (isHarvestable || progress > 40) {
-              const vegSize = (progress / 100) * 0.065;
-              const vegGroup = new THREE.Group();
-              vegGroup.position.set(0, 0.03, 0);
-
-              const pumpkinMesh = new THREE.Mesh(
-                new THREE.SphereGeometry(vegSize, 6, 6),
-                new THREE.MeshStandardMaterial({ color: 0xe65c00, roughness: 0.9, flatShading: true })
-              );
-              pumpkinMesh.scale.set(1.25, 0.85, 1.25); // flattened pumpkin shape
-              pumpkinMesh.castShadow = true;
-              vegGroup.add(pumpkinMesh);
-
-              const greenStem = new THREE.Mesh(
-                new THREE.CylinderGeometry(0.01, 0.01, 0.03, 4),
-                new THREE.MeshStandardMaterial({ color: 0x228822, roughness: 0.9 })
-              );
-              greenStem.position.set(0, vegSize * 0.85, 0);
-              greenStem.rotation.z = 0.2;
-              vegGroup.add(greenStem);
-
-              cropGroup.add(vegGroup);
-            }
-
             decorationsGroup.add(cropGroup);
+          }
+
+          // --- BIOME GRASS GENERATOR ---
+          let grassChance = 0.0;
+          let grassColorHex = '#558b2f'; // default green
+
+          if (cell.biome === 'grassland' || cell.biome === 'forest') {
+            grassChance = 0.60;
+            grassColorHex = '#558b2f'; // green
+          } else if (cell.biome === 'desert') {
+            grassChance = 0.35;
+            grassColorHex = '#d89e2b'; // yellow/orange
+          } else if (cell.biome === 'rocky') {
+            grassChance = 0.05;
+            grassColorHex = '#558b2f'; // green
+          }
+
+          if (grassChance > 0 && cell.biome !== 'water' && !cell.structure && !cell.construction) {
+            // Use deterministic seeded random to prevent grass from regenerating randomly
+            const seedSin = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453123;
+            const seededRandom = seedSin - Math.floor(seedSin);
+
+            if (seededRandom < grassChance) {
+              const grassGroup = new THREE.Group();
+              grassGroup.position.set(x, y, z);
+
+              const grassMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color(grassColorHex),
+                roughness: 0.9,
+                flatShading: true,
+              });
+
+              const bladeGeom = new THREE.ConeGeometry(0.015, 0.12, 3);
+              const numBlades = 3;
+              for (let b = 0; b < numBlades; b++) {
+                const blade = new THREE.Mesh(bladeGeom, grassMat);
+                
+                // deterministic offset per blade
+                const bladeSeed = (seededRandom * (b + 1) * 31.4159) % 1.0;
+                const ox = (bladeSeed * 0.4) - 0.2;
+                const oz = (((bladeSeed * 7.13) % 1.0) * 0.4) - 0.2;
+                const bHeight = 0.08 + bladeSeed * 0.12;
+
+                blade.scale.set(1.0, bHeight / 0.12, 1.0);
+                blade.position.set(ox, bHeight / 2, oz);
+                blade.rotation.x = (bladeSeed * 0.2) - 0.1;
+                blade.rotation.z = (((bladeSeed * 4.31) % 1.0) * 0.2) - 0.1;
+                blade.rotation.y = bladeSeed * Math.PI * 2;
+                blade.castShadow = true;
+
+                grassGroup.add(blade);
+              }
+
+              decorationsGroup.add(grassGroup);
+            }
           }
         }
       }
@@ -2145,9 +2359,20 @@ export default function GameCanvas({
 
           // Create standard columnar slice
           // Using a single grouped geometry block per tile to make it selectable
+          const baseMaterial = isBedrockUndersea ? materialCache.waterFloor : materialCache[cell.biome] || materialCache.grassland;
+          const tileMat = baseMaterial.clone() as THREE.MeshStandardMaterial;
+          
+          // Slight deterministic color jitter based on cell coordinates x and z
+          const tileJitterH = (Math.sin(x * 11.3 + z * 31.1) * 0.012);
+          const tileJitterS = (Math.cos(x * 19.4 + z * 13.2) * 0.02);
+          const tileJitterL = (Math.sin(x * 41.6 + z * 73.9) * 0.045);
+          if (tileMat.color) {
+            tileMat.color.offsetHSL(tileJitterH, tileJitterS, tileJitterL);
+          }
+
           const tileMesh = new THREE.Mesh(
             geomPool.tile,
-            isBedrockUndersea ? materialCache.waterFloor : materialCache[cell.biome] || materialCache.grassland
+            tileMat
           );
           
           // Scale block vertically from Y=0 to elevate height
@@ -2517,8 +2742,7 @@ export default function GameCanvas({
     setIsReady(true);
 
     // --- 10. ANIMATION & INTEGRATION RENDER LOOP ---
-    const timer = new THREE.Timer();
-    timer.connect(document);
+    const clock = new THREE.Clock();
     let frameId: number;
     let lastRenderedMapDataRef: MapData | null = null;
     let lastGridSignature = '';
@@ -2526,9 +2750,8 @@ export default function GameCanvas({
     const animateLoop = () => {
       frameId = requestAnimationFrame(animateLoop);
       
-      timer.update();
-      const elapsed = timer.getElapsed();
-      const delta = timer.getDelta();
+      const elapsed = clock.getElapsedTime();
+      const delta = clock.getDelta();
 
       const latestProps = propsRef.current;
 
@@ -3264,6 +3487,39 @@ export default function GameCanvas({
           head.castShadow = true;
           torso.add(head);
 
+          // Add animal eyes
+          const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+          const leftEye = new THREE.Mesh(new THREE.SphereGeometry(w * 0.12, 4, 3), eyeMat);
+          leftEye.position.set(-w * 0.35, w * 0.1, w * 0.35);
+          const rightEye = new THREE.Mesh(new THREE.SphereGeometry(w * 0.12, 4, 3), eyeMat);
+          rightEye.position.set(w * 0.35, w * 0.1, w * 0.35);
+          head.add(leftEye, rightEye);
+
+          // Add animal tail
+          let tailMesh;
+          if (animal.type === 'Rabbit') {
+            tailMesh = new THREE.Mesh(new THREE.SphereGeometry(w * 0.35, 4, 4), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 }));
+            tailMesh.position.set(0, 0, -l / 2 - 0.01);
+          } else if (animal.type === 'Fox') {
+            tailMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.01, w * 0.32, l * 0.55, 4), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, flatShading: true }));
+            tailMesh.position.set(0, -h * 0.1, -l / 2 - l * 0.2);
+            tailMesh.rotation.x = -Math.PI / 4;
+          } else if (animal.type === 'Wolf' || animal.type === 'DireWolf' || animal.type === 'LargeCat') {
+            tailMesh = new THREE.Mesh(new THREE.CylinderGeometry(w * 0.15, w * 0.1, l * 0.5, 4), animalMat);
+            tailMesh.position.set(0, -h * 0.1, -l / 2 - l * 0.2);
+            tailMesh.rotation.x = -Math.PI / 3;
+          } else if (animal.type === 'Deer' || animal.type === 'Elk' || animal.type === 'Sheep' || animal.type === 'WildGoat') {
+            tailMesh = new THREE.Mesh(new THREE.SphereGeometry(w * 0.25, 4, 4), animalMat);
+            tailMesh.position.set(0, h * 0.2, -l / 2 - 0.01);
+          } else {
+            tailMesh = new THREE.Mesh(new THREE.SphereGeometry(w * 0.2, 4, 4), animalMat);
+            tailMesh.position.set(0, 0, -l / 2 - 0.01);
+          }
+          if (tailMesh) {
+            tailMesh.castShadow = true;
+            torso.add(tailMesh);
+          }
+
           // Render species specific visual additions
           if (animal.type === 'Rabbit') {
             const earMat = new THREE.MeshStandardMaterial({ color: 0xffafaf, roughness: 0.9 });
@@ -3529,6 +3785,74 @@ export default function GameCanvas({
         boid.tailMesh.rotation.y = Math.sin(boid.swimOffset) * 0.45;
       });
 
+      // --- UPDATE HTML THOUGHT BUBBLES ---
+      const bubbleContainer = document.getElementById('thought-bubbles-container');
+      const container = containerRef.current;
+      if (bubbleContainer && container) {
+        const activeBubbleIds = new Set<string>();
+
+        latestTribe.forEach((person) => {
+          if (!person.isAlive) return;
+          const actorMeshGroup = actorMeshesMap.get(person.id);
+          if (actorMeshGroup) {
+            const tempV3 = new THREE.Vector3();
+            tempV3.setFromMatrixPosition(actorMeshGroup.matrixWorld);
+            tempV3.y += 0.85; // float above head
+
+            tempV3.project(camera);
+
+            if (tempV3.z <= 1) {
+              const x2D = (tempV3.x * 0.5 + 0.5) * container.clientWidth;
+              const y2D = (-(tempV3.y) * 0.5 + 0.5) * container.clientHeight;
+
+              if (x2D >= -50 && x2D <= container.clientWidth + 50 && y2D >= -50 && y2D <= container.clientHeight + 50) {
+                const bubbleId = `bubble-${person.id}`;
+                activeBubbleIds.add(bubbleId);
+
+                let bubbleEl = document.getElementById(bubbleId);
+                const emoji = getThoughtEmoji(person);
+
+                if (!bubbleEl) {
+                  bubbleEl = document.createElement('div');
+                  bubbleEl.id = bubbleId;
+                  bubbleEl.className = "absolute flex items-center justify-center bg-white border border-slate-900/10 shadow-lg rounded-full w-7 h-7 text-xs select-none transition-transform duration-200 animate-bounce";
+                  bubbleEl.style.transformOrigin = "bottom center";
+                  bubbleEl.style.zIndex = "10";
+                  
+                  const tail = document.createElement('div');
+                  tail.className = "absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white border-b border-r border-slate-900/10 rotate-45 rounded-sm";
+                  bubbleEl.appendChild(tail);
+
+                  const emojiSpan = document.createElement('span');
+                  emojiSpan.className = "z-10 text-[13px] leading-none mb-0.5";
+                  emojiSpan.id = `emoji-${person.id}`;
+                  bubbleEl.appendChild(emojiSpan);
+
+                  bubbleContainer.appendChild(bubbleEl);
+                }
+
+                const emojiSpan = document.getElementById(`emoji-${person.id}`);
+                if (emojiSpan && emojiSpan.textContent !== emoji) {
+                  emojiSpan.textContent = emoji;
+                }
+
+                bubbleEl.style.left = `${x2D - 14}px`;
+                bubbleEl.style.top = `${y2D - 42}px`;
+                bubbleEl.style.display = 'flex';
+              }
+            }
+          }
+        });
+
+        const children = bubbleContainer.children;
+        for (let i = children.length - 1; i >= 0; i--) {
+          const child = children[i];
+          if (!activeBubbleIds.has(child.id)) {
+            bubbleContainer.removeChild(child);
+          }
+        }
+      }
+
       renderer.render(scene, camera);
     };
 
@@ -3629,6 +3953,11 @@ export default function GameCanvas({
         </div>
       )}
       <div id="threejs-canvas-target" ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing block" />
+      {/* Dynamic 2D Speech / Thought Bubbles overlay */}
+      <div 
+        id="thought-bubbles-container" 
+        className="absolute inset-0 pointer-events-none overflow-hidden select-none z-10"
+      />
     </div>
   );
 }

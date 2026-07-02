@@ -57,6 +57,7 @@ interface ControlsOverlayProps {
   onOrganizeWarehouse?: () => void;
   onTransferToCaravan?: (itemKey: string, amount: number) => void;
   onTransferToVillage?: (itemKey: string, amount: number) => void;
+  onMigrateRegion?: () => void;
   onChangeAutoGatherThreshold?: (key: string, value: number) => void;
 
   // Game Mode & Care Package props
@@ -103,6 +104,7 @@ export default function ControlsOverlay({
   onOrganizeWarehouse,
   onTransferToCaravan,
   onTransferToVillage,
+  onMigrateRegion,
   onChangeAutoGatherThreshold,
 
   isCreativeMode,
@@ -955,6 +957,7 @@ export default function ControlsOverlay({
             onOrganizeWarehouse={onOrganizeWarehouse}
             onTransferToCaravan={onTransferToCaravan}
             onTransferToVillage={onTransferToVillage}
+            onMigrateRegion={onMigrateRegion}
           />
         )}
 

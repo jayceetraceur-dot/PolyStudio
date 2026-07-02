@@ -10,6 +10,7 @@ interface InventoryTabProps {
   onOrganizeWarehouse?: () => void;
   onTransferToCaravan?: (itemKey: string, amount: number) => void;
   onTransferToVillage?: (itemKey: string, amount: number) => void;
+  onMigrateRegion?: () => void;
 }
 
 export default function InventoryTab({
@@ -19,6 +20,7 @@ export default function InventoryTab({
   onOrganizeWarehouse,
   onTransferToCaravan,
   onTransferToVillage,
+  onMigrateRegion,
 }: InventoryTabProps) {
   const [cargoSubTab, setCargoSubTab] = useState<'village' | 'caravan' | 'personal'>('village');
   
@@ -87,6 +89,10 @@ export default function InventoryTab({
     { key: 'bone', label: '🦴 Bone Fragments', desc: 'Dead beast skeletons' },
     { key: 'relics', label: '👑 Ancient Relic', desc: 'Extraterrestrial tech shards' },
     { key: 'ancientMaterials', label: '⚙️ Thulecite Alloy', desc: 'Pre-collapse heavy alloy' },
+    { key: 'copper', label: '🧱 Copper Ore', desc: 'Malleable orange metal ore' },
+    { key: 'silver', label: '🪙 Silver Ore', desc: 'Precious shiny silver ore' },
+    { key: 'gold', label: '👑 Gold Ore', desc: 'Royal yellow gold ore' },
+    { key: 'iron', label: '⛓️ Iron Ore', desc: 'Strong structural iron ore' },
     // Crafted items we support
     { key: 'stoneAxe', label: '🪓 Stone Axe', desc: 'Advanced wood cutting' },
     { key: 'flintPickaxe', label: '⛏️ Flint Pickaxe', desc: 'Primitive pickaxe tool' },
@@ -329,6 +335,16 @@ export default function InventoryTab({
                   style={{ width: `${Math.min(100, (mapData.caravanInventory.currentVolume / mapData.caravanInventory.maxVolume) * 100)}%` }}
                 />
               </div>
+            </div>
+
+            {/* Migrate Button */}
+            <div className="pt-1">
+              <button
+                onClick={onMigrateRegion}
+                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-bold rounded-lg border border-indigo-500/30 transition-all shadow-md shadow-indigo-950/40"
+              >
+                🚚 Migrate to New Region
+              </button>
             </div>
 
             <p className="text-[8px] text-slate-500 italic leading-snug">

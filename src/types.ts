@@ -19,7 +19,8 @@ export type JobCategory =
   | 'Repair'
   | 'Sleep'
   | 'Eat'
-  | 'Drink';
+  | 'Drink'
+  | 'Study';
 
 export type JobPriority = 1 | 2 | 3 | 4 | 0; // 1 = Critical, 4 = Low, 0 = Disabled
 
@@ -108,6 +109,8 @@ export interface Landmark {
   description: string;
   storySegment: string; // lore snippet text
   explored: boolean;
+  studyProgress?: number;
+  studyMaxProgress?: number;
   rewards: {
     knowledgePoints?: number;
     moraleBoost?: number; // can be negative for mass graves, etc.
@@ -312,7 +315,51 @@ export type TribespersonTrait =
   | 'Green Thumb' 
   | 'Path Finder' 
   | 'Beast Friend' 
-  | 'Iron Stomach';
+  | 'Iron Stomach'
+  | 'Storm Listener'
+  | 'Sure Hands'
+  | 'Strong Back'
+  | 'Light Step'
+  | 'Stone Eye'
+  | 'Root Sense'
+  | 'Patient Worker'
+  | 'Quick Learner'
+  | 'Careful Builder'
+  | 'Fast Hands'
+  | 'Tool Wise'
+  | 'Silent Hunter'
+  | 'Bold Hunter'
+  | 'Cautious Soul'
+  | 'Hardy'
+  | 'Deep Sleeper'
+  | 'Restless'
+  | 'Social Warmth'
+  | 'Loner'
+  | 'Natural Mentor'
+  | 'Sharp Memory'
+  | 'Far Seer'
+  | 'Relic Curious'
+  | 'Steady Nerves'
+  | 'Storm Fearful'
+  | 'Night Calm'
+  | 'Sun Hungry'
+  | 'Water Finder'
+  | 'Fire Keeper'
+  | 'Gentle Hands'
+  | 'Tough Skin'
+  | 'Pack Mind'
+  | 'Independent'
+  | 'Waste Not'
+  | 'Born Trader'
+  | 'Homebound'
+  | 'Wanderheart'
+  | 'Soft Heart'
+  | 'Iron Focus'
+  | 'Easily Spooked'
+  | 'Sandwise'
+  | 'Cliffborn'
+  | 'Medicinal Nose'
+  | 'Caravan Soul';
 
 export interface TribespersonStats {
   hunger: number; // 0 (starving) to 100 (full)

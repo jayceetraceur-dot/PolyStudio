@@ -50,12 +50,35 @@ interface InspectorProps {
   isCreativeMode?: boolean;
 }
 
-const TRAIT_DATA: Record<TribespersonTrait, { title: string; desc: string; icon: string }> = {
+const TRAIT_DATA: Partial<Record<TribespersonTrait, { title: string; desc: string; icon: string }>> = {
   Tireless: { title: 'Tireless', desc: 'Fatigue drains 45% slower. +2 Endurance.', icon: '⚡' },
   'Green Thumb': { title: 'Green Thumb', desc: 'Gains Farmer xp 50% faster, starts proficient.', icon: '🌾' },
   'Path Finder': { title: 'Path Finder', desc: 'Walks 40% faster in any terrain. +2 Agility.', icon: '🏃' },
   'Beast Friend': { title: 'Beast Friend', desc: 'Gains Hunter xp 50% faster, avoids predator aggro.', icon: '🐺' },
   'Iron Stomach': { title: 'Iron Stomach', desc: 'Needs decays 30% slower. +1 Endurance.', icon: '🍔' },
+  'Strong Back': { title: 'Strong Back', desc: 'Carries heavier loads, tires slower. +2 Strength, -1 Agility.', icon: '💪' },
+  'Quick Learner': { title: 'Quick Learner', desc: 'Gains job experience 30% faster. +2 Intelligence.', icon: '🎓' },
+  'Patient Worker': { title: 'Patient Worker', desc: 'Builds, crafts, and researches steadily. +2 Endurance, -1 Agility.', icon: '⏳' },
+  'Fast Hands': { title: 'Fast Hands', desc: 'Crafts and gathers faster. +2 Agility, -1 Strength.', icon: '💨' },
+  'Careful Builder': { title: 'Careful Builder', desc: 'Produces stronger structures. +1 Strength, +1 Intelligence, -1 Agility.', icon: '🏗️' },
+  'Stone Eye': { title: 'Stone Eye', desc: 'Better at spotting ores and minerals. +2 Perception, -1 Strength.', icon: '💎' },
+  'Root Sense': { title: 'Root Sense', desc: 'Spot medicinal plants easily. +2 Perception, -1 Endurance.', icon: '🌱' },
+  'Far Seer': { title: 'Far Seer', desc: 'Better at scouting distant terrain. +2 Perception, -1 Strength.', icon: '👁️' },
+  'Hardy': { title: 'Hardy', desc: 'Hunger, thirst, fatigue rise slower. +2 Endurance, -1 Intelligence.', icon: '🛡️' },
+  'Restless': { title: 'Restless', desc: 'Needs less sleep but loses morale faster when idle. +1 Agility, -1 Endurance.', icon: '⏰' },
+  'Relic Curious': { title: 'Relic Curious', desc: 'Gains more experience from ruins and study. +2 Intelligence, -1 Strength.', icon: '🏺' },
+  'Storm Listener': { title: 'Storm Listener', desc: 'Better at sensing storm changes. +2 Perception, -1 Agility.', icon: '⛈️' },
+  'Sure Hands': { title: 'Sure Hands', desc: 'Works carefully with fewer mistakes. +2 Agility, -1 Perception.', icon: '🛠️' },
+  'Independent': { title: 'Independent', desc: 'Works better when alone. +1 Intelligence, -1 Strength.', icon: '🧍' },
+  'Loner': { title: 'Loner', desc: 'Loses social need slower, gains less from groups. +1 Endurance, -1 Intelligence.', icon: '🧘' },
+  'Wanderheart': { title: 'Wanderheart', desc: 'Enjoys travelling across biomes. +2 Agility, -1 Endurance.', icon: '🧭' },
+  'Homebound': { title: 'Homebound', desc: 'Works stronger near the home. +2 Strength, -1 Agility.', icon: '🏡' },
+  'Iron Focus': { title: 'Iron Focus', desc: 'Gains high focus during long tasks. +1 Strength, +1 Intelligence, -1 Perception.', icon: '🎯' },
+  'Easily Spooked': { title: 'Easily Spooked', desc: 'Flees dangers sooner. +2 Agility, -2 Endurance.', icon: '🙀' },
+  'Sandwise': { title: 'Sandwise', desc: 'Adapted to desert heat. +1 Agility, +1 Endurance, -1 Intelligence.', icon: '🏜️' },
+  'Cliffborn': { title: 'Cliffborn', desc: 'Moves gracefully over high ground. +1 Strength, +1 Agility, -1 Intelligence.', icon: '⛰️' },
+  'Medicinal Nose': { title: 'Medicinal Nose', desc: 'Spots and harvests herbs perfectly. +2 Perception, -1 Strength.', icon: '👃' },
+  'Caravan Soul': { title: 'Caravan Soul', desc: 'Increases travel barter rewards. +2 Strength, -1 Perception.', icon: '🐫' },
 };
 
 const ROLE_COLORS: Record<TribespersonRole, string> = {
@@ -375,8 +398,11 @@ export default function Inspector({
               </h4>
               <div className="flex flex-col gap-1.5">
                 {person.traits.map((trait) => {
-                  const data = TRAIT_DATA[trait];
-                  if (!data) return null;
+                  const data = TRAIT_DATA[trait] || {
+                    title: trait,
+                    desc: 'Assigns unique tribal capability & personality flavor.',
+                    icon: '📜'
+                  };
                   return (
                     <div key={trait} className={`p-2.5 rounded-xl border text-xs leading-relaxed flex items-center gap-2.5 ${
                       isNight ? 'bg-indigo-950/15 border-indigo-900/10' : 'bg-indigo-50/20 border-indigo-100/40'
@@ -648,9 +674,19 @@ export default function Inspector({
 
         {/* Wildlife Ecosystem & Hunting / Taming Dashboard! */}
         {(() => {
-          const cellAnimal = mapData?.animals?.find(
-            a => Math.round(a.x) === selectedCell.x && Math.round(a.z) === selectedCell.z
-          );
+          const cellAnimal = (() => {
+            if (!mapData?.animals) return null;
+            let bestA = null;
+            let bestD = 2.25; // max distance squared (1.5 * 1.5)
+            for (const a of mapData.animals) {
+              const d = (a.x - selectedCell.x) ** 2 + (a.z - selectedCell.z) ** 2;
+              if (d < bestD) {
+                bestD = d;
+                bestA = a;
+              }
+            }
+            return bestA;
+          })();
           if (!cellAnimal) return null;
           return (
             <div className="mb-4 p-3.5 rounded-xl bg-slate-950/60 border border-indigo-500/30 flex flex-col gap-3 animate-fade-in" id="inspector-animal-details">
@@ -779,9 +815,13 @@ export default function Inspector({
                     </button>
                     <button
                       onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'tameManualPet')}
-                      className="col-span-2 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-extrabold rounded-lg bg-pink-950/40 hover:bg-pink-900/60 text-pink-300 border border-pink-900/30 transition-all font-sans"
+                      className={`col-span-2 flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-extrabold rounded-lg transition-all font-sans ${
+                        (cellAnimal as any).isTameDesignated
+                          ? 'bg-pink-700 text-white border border-pink-500 shadow-md shadow-pink-900/30'
+                          : 'bg-pink-950/40 hover:bg-pink-900/60 text-pink-300 border border-pink-900/30'
+                      }`}
                     >
-                      🍎 Feed Sweet Berries (Costs 1 Berry)
+                      🍎 {(cellAnimal as any).isTameDesignated ? 'Tame Designated' : 'Order Tame (Costs 1 Berry)'}
                     </button>
                   </>
                 ) : (
@@ -906,13 +946,36 @@ export default function Inspector({
             </div>
 
             {!selectedCell.landmark.explored ? (
-              <button
-                onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'exploreLandmark')}
-                className="w-full py-2 bg-[#cfad8c] hover:bg-[#bfa07e] text-slate-950 font-extrabold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex flex-col items-center gap-0.5 shadow-md active:scale-95 cursor-pointer animate-pulse"
-              >
-                <span className="flex items-center gap-1.5 font-bold">🔍 Investigate & Scavenge Core</span>
-                <span className="text-[8px] font-mono opacity-80">(Requires active focus | Expends no material)</span>
-              </button>
+              <div className="flex flex-col gap-2">
+                {selectedCell.landmark.studyProgress !== undefined && selectedCell.landmark.studyProgress > 0 ? (
+                  <div className="flex flex-col gap-1.5 p-3 bg-amber-950/20 border border-amber-500/20 rounded-xl">
+                    <div className="flex justify-between items-center text-[10px] font-mono text-amber-300">
+                      <span className="font-bold flex items-center gap-1.5 animate-pulse">🧐 DECODING PROGRESS...</span>
+                      <span>{Math.round(selectedCell.landmark.studyProgress)}%</span>
+                    </div>
+                    {/* Progress Bar */}
+                    <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-amber-500/10">
+                      <div 
+                        className="h-full bg-gradient-to-r from-amber-500 to-amber-300 transition-all duration-300"
+                        style={{ width: `${selectedCell.landmark.studyProgress}%` }}
+                      />
+                    </div>
+                    {(selectedCell.landmark as any).studyingWorkerName && (
+                      <span className="text-[8.5px] text-amber-400/80 font-mono italic">
+                        Assigned Scholar: {(selectedCell.landmark as any).studyingWorkerName}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'studyLandmark')}
+                    className="w-full py-2 bg-[#cfad8c] hover:bg-[#bfa07e] text-slate-950 font-extrabold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex flex-col items-center gap-0.5 shadow-md active:scale-95 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5 font-bold">🧐 Dispatch Scholar to Study & Decode</span>
+                    <span className="text-[8px] font-mono opacity-80">(Requires active Builder, Artisan, or Oracle)</span>
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col gap-2 p-3 bg-emerald-950/20 border border-emerald-500/10 rounded-xl">
                 <div className="flex items-center gap-1.5 text-emerald-400 text-[10px] font-mono font-bold uppercase">
@@ -948,6 +1011,59 @@ export default function Inspector({
               <span className="font-semibold">{selectedCell.structure.type}</span>
               <span className="text-xs font-mono text-slate-400">Condition: {selectedCell.structure.condition}%</span>
             </div>
+
+            {selectedCell.structure.type === 'StorageBin' && mapData?.stockpile && (
+              <div className="mt-3 p-3 rounded-lg bg-slate-900/60 border border-indigo-500/20 text-slate-200" id="storagebin-stockpile-viewer">
+                <span className="text-[10px] font-mono font-bold tracking-wider text-indigo-300 uppercase block mb-2 border-b border-indigo-900/30 pb-1">
+                  📦 Storage Bin Stockpile Reserves
+                </span>
+                <div className="grid grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1">
+                  {Object.entries(mapData.stockpile)
+                    .filter(([key, val]) => typeof val === 'number' && val > 0)
+                    .map(([key, val]) => {
+                      const labelMap: Record<string, string> = {
+                        wood: '🪵 Wood',
+                        stone: '🪨 Stone',
+                        berries: '🔴 Berries',
+                        roots: '🥔 Roots',
+                        mushrooms: '🍄 Mushrooms',
+                        meat: '🥩 Raw Meat',
+                        dew: '💧 Dew droplets',
+                        reservoirWater: '🏺 Well Water',
+                        rainwater: '🌧️ Rainwater',
+                        fiber: '🌾 Fiber Threads',
+                        bone: '🦴 Bone Fragments',
+                        relics: '👑 Ancient Relic',
+                        ancientMaterials: '⚙️ Thulecite Alloy',
+                        copper: '🧱 Copper Ore',
+                        silver: '🪙 Silver Ore',
+                        gold: '👑 Gold Ore',
+                        iron: '⛓️ Iron Ore',
+                        stoneAxe: '🪓 Stone Axe',
+                        flintPickaxe: '⛏️ Flint Pickaxe',
+                        spear: '🗡️ Combat Spear',
+                        boiledRoots: '🥣 Boiled Roots',
+                        paddedJerkin: '👕 Padded Jerkin',
+                        saltedMeat: '🍖 Salted Jerky',
+                        steelPickaxe: '⚒️ Steel Pick',
+                        eldritchWard: '🛡️ Eldritch Ward',
+                        amuletLife: '❤️ Life Amulet',
+                        thuleciteCore: '🔋 Thulecite Core',
+                        grassBasket: '🧺 Straw Basket',
+                      };
+                      return (
+                        <div key={key} className="flex justify-between items-center text-xs font-mono bg-slate-950/40 px-2 py-1 rounded">
+                          <span className="truncate">{labelMap[key] || key}</span>
+                          <span className="font-bold text-amber-300">{Number(val).toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
+                  {Object.entries(mapData.stockpile).filter(([key, val]) => typeof val === 'number' && val > 0).length === 0 && (
+                    <span className="text-[10px] text-slate-400 font-mono col-span-2 text-center py-2">Stockpile is empty.</span>
+                  )}
+                </div>
+              </div>
+            )}
 
             {selectedCell.structure.dismantling ? (
               <div className="text-[10px] text-amber-400 font-mono italic leading-relaxed bg-amber-950/10 p-2 rounded-lg border border-amber-900/25 flex flex-col gap-1">
