@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { 
   TreePine, 
@@ -42,6 +42,13 @@ interface InspectorProps {
     type: 'Shelter' | 'WaterWell' | 'LogWall' | 'StorageBin' | 'Wheat' | 'Tent' | 'Shrine' | 'WatchTower' | 'ArtisanBench' | 'ScienceMachine' | 'RuinousAltar' | 'Fireplace' | 'PetrifiedGreenhouse' | 'PrecursorGenerator' | 'AegisBeacon' | 'GatherersPantry' | 'HuntersHut' | 'BuildersLodge' | 'FarmersGranary' | 'ScoutsLookout' | 'HealersSanctum' | 'ArtisansWorkshop'
   ) => void;
   onManualAction?: (x: number, z: number, actionId: string) => void;
+  onLaunchExpedition?: (
+    x: number,
+    z: number,
+    scoutId: string,
+    supplies: { item: string; amount: number }[],
+    equipment: string[]
+  ) => void;
   onStartCraft?: (recipeId: string) => void;
   onCancelCraft?: (jobId: string) => void;
   onResearch?: (recipeId: string) => void;
@@ -145,6 +152,7 @@ export default function Inspector({
   mapData,
   onDesignateConstruction,
   onManualAction,
+  onLaunchExpedition,
   onStartCraft,
   onCancelCraft,
   onResearch,
@@ -155,6 +163,14 @@ export default function Inspector({
   const isNight = timeOfDay < 0.25 || timeOfDay > 0.75;
   const [showCrafting, setShowCrafting] = useState(false);
   const [architectTab, setArchitectTab] = useState<'portable' | 'semi' | 'guilds' | 'permanent' | 'tech' | 'oracle'>('portable');
+
+  const [selectedScoutId, setSelectedScoutId] = useState<string>('');
+  const [selectedEq, setSelectedEq] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setSelectedScoutId('');
+    setSelectedEq({});
+  }, [selectedCell?.x, selectedCell?.z]);
 
   const getBiomeLabel = (biome: string) => {
     switch (biome) {
@@ -984,6 +1000,280 @@ export default function Inspector({
                 <div className="text-[11px] leading-relaxed text-slate-200 mt-1 italic font-serif">
                   "{selectedCell.landmark.storySegment}"
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Ancient-Site Expedition Panel */}
+        {!selectedCell.structure && selectedCell.expeditionSite && (
+          <div className="mb-4 p-3 rounded-xl bg-slate-950/80 border border-emerald-500/30 flex flex-col gap-3 animate-fade-in" id="inspector-expedition-panel">
+            <span className="text-[10px] font-mono font-bold tracking-widest text-[#10b981] uppercase flex items-center gap-1.5 animate-pulse">
+              🚪 ANCIENT EXPEDITION ENTRANCE
+            </span>
+
+            <div className="flex flex-col gap-1 bg-slate-900/60 p-3 rounded-lg border border-emerald-900/20 text-xs text-slate-200">
+              <div className="flex justify-between items-center">
+                <span className="font-sans font-extrabold text-[#10b981] text-sm">
+                  {selectedCell.expeditionSite.name}
+                </span>
+                <span className="px-1.5 py-0.5 bg-emerald-950/40 text-emerald-400 font-mono text-[9px] font-bold rounded uppercase border border-emerald-500/20">
+                  {selectedCell.expeditionSite.category}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-normal font-sans mt-1">
+                {selectedCell.expeditionSite.description}
+              </p>
+
+              <div className="border-t border-slate-800 my-2 pt-2 text-[10px] font-mono grid grid-cols-2 gap-2 text-slate-400">
+                <div>🎯 <span className="text-slate-300">Tier:</span> {selectedCell.expeditionSite.tier}</div>
+                <div>⚔️ <span className="text-slate-300">Danger:</span> {selectedCell.expeditionSite.risk}</div>
+                <div>⏱️ <span className="text-slate-300">Duration:</span> {selectedCell.expeditionSite.typicalDuration}</div>
+                <div>🎓 <span className="text-slate-300">Scout Lvl:</span> {selectedCell.expeditionSite.recommendedScoutLevel}</div>
+              </div>
+
+              <div className="border-t border-slate-800 pt-2 text-[10px] font-mono">
+                <span className="text-[8px] uppercase font-bold text-[#10b981] block mb-1">Clues & Loot Potential</span>
+                <div className="text-[10.5px] text-slate-300 leading-relaxed italic mb-1">
+                  🔍 "{selectedCell.expeditionSite.clues}"
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {selectedCell.expeditionSite.finds.slice(0, 5).map((f: string) => (
+                    <span key={f} className="px-1 py-0.5 bg-slate-900 text-slate-300 rounded border border-slate-800 text-[9px]">
+                      💎 {f}
+                    </span>
+                  ))}
+                  {selectedCell.expeditionSite.uniqueDiscoveries?.map((u: any) => (
+                    <span key={u.name} className="px-1 py-0.5 bg-amber-950/20 text-amber-400 rounded border border-amber-500/20 text-[9px] font-bold">
+                      ⭐ {u.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Check for active scouts inside */}
+            {(() => {
+              const scoutsInside = tribe?.filter(p => p.isAlive && p.expeditionState && p.expeditionState !== 'none' && p.expeditionSiteType === selectedCell.expeditionSite?.templateId) || [];
+              if (scoutsInside.length > 0) {
+                return (
+                  <div className="flex flex-col gap-2.5 p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-xl">
+                    <span className="text-[10px] font-mono font-bold text-emerald-400 flex items-center gap-1.5 animate-pulse">
+                      📻 LIVE TRANSMISSION DETECTED ({scoutsInside.length} scout inside)
+                    </span>
+                    {scoutsInside.map(scout => {
+                      const hp = scout.stats?.health ?? 100;
+                      const progress = scout.expeditionTimer && scout.expeditionDuration 
+                        ? Math.max(0, Math.min(100, Math.round((1 - (scout.expeditionTimer / scout.expeditionDuration)) * 100))) 
+                        : 0;
+                      return (
+                        <div key={scout.id} className="bg-slate-900/60 p-2.5 rounded-lg border border-emerald-900/40 text-xs">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="font-bold text-slate-200">🕵️ {scout.name}</span>
+                            <span className="text-[10px] text-emerald-400 font-bold uppercase">{scout.expeditionState}</span>
+                          </div>
+                          
+                          {/* HP Bar */}
+                          <div className="flex items-center gap-2 mb-1.5 text-[9px] font-mono text-slate-300">
+                            <span className="w-12">Health: {hp}%</span>
+                            <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                              <div 
+                                className={`h-full ${hp < 40 ? 'bg-rose-500' : 'bg-emerald-500'}`} 
+                                style={{ width: `${hp}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Progress Bar */}
+                          <div className="flex items-center gap-2 mb-2 text-[9px] font-mono text-slate-300">
+                            <span className="w-12">Progress: {progress}%</span>
+                            <div className="flex-1 h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                              <div 
+                                className="h-full bg-indigo-500" 
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Radio log transcript */}
+                          <div className="bg-slate-950 p-2 rounded border border-emerald-950 max-h-24 overflow-y-auto font-mono text-[9px] text-emerald-500/90 leading-tight">
+                            <div className="text-[8px] uppercase font-bold text-emerald-600 border-b border-emerald-950 pb-0.5 mb-1">Journal Feeds</div>
+                            {scout.expeditionLogs?.slice(-3).map((l: string, idx: number) => (
+                              <div key={idx} className="mb-1">{l}</div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
+            {/* If site has dead scout corpse */}
+            {selectedCell.expeditionSite && (selectedCell.expeditionSite as any).deadScoutCorpse && (
+              <div className="p-2.5 rounded-xl bg-rose-950/20 border border-rose-500/30 text-xs text-rose-300 animate-pulse flex flex-col gap-1 font-mono">
+                <span className="font-bold text-[10px] text-rose-400 flex items-center gap-1">⚠️ DECEASED COMRADE SIGNALS DETECTED</span>
+                <span>The biological beacon of <b>{(selectedCell.expeditionSite as any).deadScoutCorpse.name}</b> lies static inside. A successful expedition will recover their equipment and journal!</span>
+              </div>
+            )}
+
+            {/* Expedition Launcher UI (Only show if not exhausted) */}
+            {selectedCell.expeditionSite.exhausted ? (
+              <div className="p-3 bg-slate-900 border border-slate-800 text-slate-400 text-center font-mono text-[10px] rounded-xl">
+                🔒 SITE FULLY EXHAUSTED & SALVAGED
+                <p className="text-[9px] mt-1 text-slate-500 italic">No remaining valuables can be excavated here.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2.5 p-2.5 bg-slate-900/40 border border-slate-800 rounded-xl">
+                <span className="text-[9px] font-mono uppercase font-bold text-[#10b981] tracking-wider">EXPEDITION LAUNCH CONTROL</span>
+
+                {/* Scout Selector */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-mono text-slate-400">1. Select Adult Scout:</label>
+                  {(() => {
+                    const availableScouts = tribe?.filter(p => p.isAlive && p.agePhase !== 'Child' && (!p.expeditionState || p.expeditionState === 'none')) || [];
+                    if (availableScouts.length === 0) {
+                      return <span className="text-[10px] text-amber-500 font-mono italic">⚠️ No available adult scouts! Set role to Scout first.</span>;
+                    }
+                    return (
+                      <select 
+                        value={selectedScoutId}
+                        onChange={(e) => setSelectedScoutId(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 text-slate-200 text-xs py-1.5 px-2 rounded-lg font-mono focus:outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="">-- Choose Scout --</option>
+                        {availableScouts.map(scout => {
+                          const lvl = scout.skills?.['Scout']?.level || 1;
+                          return (
+                            <option key={scout.id} value={scout.id}>
+                              {scout.name} ({scout.role}) - Scout Lvl {lvl}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    );
+                  })()}
+                </div>
+
+                {/* Supplies Requirements Check */}
+                <div className="flex flex-col gap-1 mt-1">
+                  <label className="text-[9px] font-mono text-slate-400">2. Required Supplies Check:</label>
+                  {(() => {
+                    const reqSupplies = selectedCell.expeditionSite?.suppliesRequired || [];
+                    if (reqSupplies.length === 0) {
+                      return <span className="text-[9px] font-mono text-emerald-400">✔️ No raw supplies required.</span>;
+                    }
+                    let allAvailable = true;
+                    return (
+                      <div className="flex flex-col gap-1 bg-slate-950 p-2 rounded border border-slate-800">
+                        {reqSupplies.map(req => {
+                          const stockAmt = mapData?.stockpile?.[req.item as keyof typeof mapData.stockpile] ?? 0;
+                          const hasEnough = stockAmt >= req.amount;
+                          if (!hasEnough) allAvailable = false;
+                          return (
+                            <div key={req.item} className="flex justify-between items-center text-[10.5px] font-mono">
+                              <span className="text-slate-300">📦 {req.amount}x {req.item}</span>
+                              <span className={hasEnough ? 'text-emerald-400 font-bold' : 'text-rose-500 font-bold animate-pulse'}>
+                                {hasEnough ? '✔️ Available' : `❌ Missing (${stockAmt}/${req.amount})`}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Optional/Recommended Equipment */}
+                {(() => {
+                  const items = selectedCell.expeditionSite?.equipmentRequiredOrOptional || [];
+                  if (items.length === 0) return null;
+                  return (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[9px] font-mono text-slate-400">3. Select Optional Equipment:</label>
+                      <div className="flex flex-col gap-1.5 bg-slate-950 p-2 rounded border border-slate-800">
+                        {items.map(eq => {
+                          const stockAmt = mapData?.stockpile?.[eq.item as keyof typeof mapData.stockpile] ?? 0;
+                          const isAvailable = stockAmt > 0;
+                          const isChecked = selectedEq[eq.item] || false;
+
+                          let labelText = eq.item;
+                          if (eq.item === 'reinforcedExplorerPack') labelText = '🎒 Explorer Pack (+100% capacity)';
+                          else if (eq.item === 'ruinDiverHarness') labelText = '🧗 Ruin Diver Harness (-30% damage)';
+                          else if (eq.item === 'surveyorsLens') labelText = '🔍 Surveyor Lens (Detect distance)';
+                          else if (eq.item === 'expeditionLantern') labelText = '🔦 Lantern (-10% trap penalty)';
+                          else if (eq.item === 'sealedExpeditionSuit') labelText = '🛡️ Sealed Suit (-50% damage)';
+
+                          return (
+                            <label key={eq.item} className="flex justify-between items-center text-[10.5px] font-mono cursor-pointer select-none">
+                              <div className="flex items-center gap-1.5">
+                                <input 
+                                  type="checkbox"
+                                  disabled={!isAvailable}
+                                  checked={isChecked && isAvailable}
+                                  onChange={(e) => {
+                                    setSelectedEq(prev => ({ ...prev, [eq.item]: e.target.checked }));
+                                  }}
+                                  className="rounded border-slate-800 text-emerald-500 focus:ring-emerald-500 h-3.5 w-3.5 bg-slate-900 cursor-pointer disabled:opacity-50"
+                                />
+                                <span className={isAvailable ? 'text-slate-300' : 'text-slate-500 line-through'}>{labelText}</span>
+                              </div>
+                              <span className={isAvailable ? 'text-emerald-400 font-bold' : 'text-slate-500 text-[9px]'}>
+                                {isAvailable ? `${stockAmt} avail` : 'Not crafted'}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Launch Button */}
+                {(() => {
+                  const reqSupplies = selectedCell.expeditionSite?.suppliesRequired || [];
+                  const stock = mapData?.stockpile || {};
+                  let canLaunch = selectedScoutId !== '';
+                  
+                  // Check required supplies
+                  reqSupplies.forEach(req => {
+                    const stockAmt = stock[req.item as keyof typeof stock] ?? 0;
+                    if (stockAmt < req.amount) canLaunch = false;
+                  });
+
+                  return (
+                    <button
+                      disabled={!canLaunch}
+                      onClick={() => {
+                        if (!canLaunch) return;
+                        
+                        // Collect equipment selected
+                        const eqList = Object.keys(selectedEq).filter(k => selectedEq[k] && (stock[k as keyof typeof stock] ?? 0) > 0);
+                        
+                        onLaunchExpedition?.(
+                          selectedCell.x,
+                          selectedCell.z,
+                          selectedScoutId,
+                          reqSupplies,
+                          eqList
+                        );
+                        
+                        // clear state after launch
+                        setSelectedScoutId('');
+                        setSelectedEq({});
+                      }}
+                      className={`w-full py-2.5 mt-1 text-slate-950 font-extrabold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 shadow-md active:scale-95 cursor-pointer ${
+                        canLaunch 
+                          ? 'bg-emerald-400 hover:bg-emerald-300 text-slate-950 hover:shadow-emerald-500/10 animate-bounce' 
+                          : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
+                      }`}
+                    >
+                      🚀 Launch Scout Expedition
+                    </button>
+                  );
+                })()}
               </div>
             )}
           </div>

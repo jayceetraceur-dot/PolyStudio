@@ -26,7 +26,8 @@ import {
   Activity,
   Hammer,
   Warehouse,
-  BookOpen
+  BookOpen,
+  Package
 } from 'lucide-react';
 import { WorldConfig, TimeSpeed, Tribesperson, TribespersonRole, JobCategory, JobPriority, MapData, CellInfo, RECIPE_DATABASE, Recipe } from '../types';
 import CraftingTab from './CraftingTab';
@@ -138,6 +139,8 @@ export default function ControlsOverlay({
   const [activeTab, setActiveTab ] = useState<'tribe' | 'work' | 'craft' | 'inventory' | 'lore'>('tribe');
   const [showDetailedRes, setShowDetailedRes] = useState(false);
   const [isLogHovered, setIsLogHovered] = useState(false);
+  const [isStockpileHovered, setIsStockpileHovered] = useState(false);
+  const [isTabContentHovered, setIsTabContentHovered] = useState(false);
   
   const [editingThresholdKey, setEditingThresholdKey] = useState<string | null>(null);
   const [editingThresholdLabel, setEditingThresholdLabel] = useState<string>('');
@@ -231,161 +234,14 @@ export default function ControlsOverlay({
           activeTab === 'work' ? 'w-[720px] md:w-[840px]' : 'w-85'
         }`}
       >
-        
-        {/* World Status & Clock widget */}
-        <div id="clock-widget" className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-colors duration-500 flex flex-col gap-3 ${
-          isNight 
-            ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
-            : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
-        }`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg ${isNight ? 'bg-amber-500/15 text-yellow-300' : 'bg-amber-500/10 text-amber-500'}`}>
-                {isNight ? <Moon size={16} /> : <Sun size={16} />}
-              </div>
-              <div>
-                <span className="text-[9px] uppercase tracking-widest font-mono text-slate-500 font-bold block leading-3">Solar Cycle</span>
-                <span className="text-lg font-mono font-bold leading-5">{formattedTime}</span>
-              </div>
-            </div>
-
-            {/* Simulated Speed badging */}
-            <div className="flex bg-slate-200/45 dark:bg-slate-950/80 p-1 rounded-xl border border-slate-250/20 gap-1 items-center">
-              <button
-                id="speed-paused"
-                onClick={() => onChangeTimeSpeed('paused')}
-                className={`px-2.5 py-0.75 text-[9.5px] font-mono font-bold uppercase rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
-                  timeSpeed === 'paused' 
-                    ? 'bg-rose-600 text-white shadow shadow-rose-950/20' 
-                    : 'text-slate-500 dark:text-indigo-400 hover:bg-slate-300/30 dark:hover:bg-slate-800/50'
-                }`}
-                title="Pause Simulation"
-              >
-                <Pause size={9.5} className="fill-current shrink-0" />
-                <span>PAUSE</span>
-              </button>
-              <button
-                id="speed-normal"
-                onClick={() => onChangeTimeSpeed('normal')}
-                className={`px-2 py-0.5 text-xs font-mono font-semibold rounded-lg transition-all cursor-pointer ${timeSpeed === 'normal' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-300/30 dark:hover:bg-slate-800/50'}`}
-                title="Normal Speed"
-              >
-                1x
-              </button>
-              <button
-                id="speed-fast"
-                onClick={() => onChangeTimeSpeed('fast')}
-                className={`px-2 py-0.5 text-xs font-mono font-semibold rounded-lg transition-all cursor-pointer ${timeSpeed === 'fast' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-300/30 dark:hover:bg-slate-800/50'}`}
-                title="Fast Forward"
-              >
-                2x
-              </button>
-              <button
-                id="speed-super"
-                onClick={() => onChangeTimeSpeed('super')}
-                className={`px-2 py-0.5 text-xs font-mono font-semibold rounded-lg transition-all cursor-pointer ${timeSpeed === 'super' ? 'bg-indigo-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-300/30 dark:hover:bg-slate-800/50'}`}
-                title="Super Fast"
-              >
-                4x
-              </button>
-            </div>
-          </div>
-
-          {/* Scrubbing solar dial bar */}
-          <div className="flex flex-col gap-1">
-            <div className="flex justify-between text-[10px] font-mono font-bold text-slate-500 uppercase tracking-widest leading-3">
-              <span>Time of Day</span>
-              <span>
-                {timeOfDay < 0.25 ? 'Night' : timeOfDay < 0.35 ? 'Sunrise' : timeOfDay < 0.70 ? 'Midday' : timeOfDay < 0.8 ? 'Sunset' : 'Night'}
-              </span>
-            </div>
-            <input
-              id="solar-scrub-slider"
-              type="range"
-              min="0"
-              max="1"
-              step="0.005"
-              value={timeOfDay}
-              onChange={(e) => {
-                onChangeTimeOfDay(parseFloat(e.target.value));
-                onChangeTimeSpeed('paused'); // Pause when scrubbing manually
-              }}
-              className="w-full h-1 bg-slate-200 dark:bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-            />
-          </div>
-
-          {/* Game Mode Switcher and Care Package Pill */}
-          <div className="flex flex-col gap-2 border-t border-slate-200/10 pt-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">
-                Settlement Game Mode
-              </span>
-              <div className="flex bg-slate-900/40 p-0.5 rounded-lg border border-slate-700/20">
-                <button
-                  type="button"
-                  onClick={() => onToggleCreativeMode(false)}
-                  className={`px-2 py-0.5 text-[9px] font-bold tracking-tight rounded cursor-pointer transition-all ${
-                    !isCreativeMode
-                      ? 'bg-indigo-600 text-white shadow-md font-extrabold'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  Survival
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onToggleCreativeMode(true)}
-                  className={`px-2 py-0.5 text-[9px] font-bold tracking-tight rounded cursor-pointer transition-all flex items-center gap-1 ${
-                    isCreativeMode
-                      ? 'bg-teal-600 text-white shadow-md font-extrabold'
-                      : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  <Sparkles size={8} /> Deity
-                </button>
-              </div>
-            </div>
-
-            {/* Print Pod / Care Package status (Only in Survival Mode) */}
-            {!isCreativeMode && (
-              <div className="flex items-center justify-between bg-indigo-950/20 border border-indigo-500/15 p-2 rounded-xl">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-[8px] font-mono leading-none text-slate-500 uppercase font-black">
-                    DEITY PRINTING POD
-                  </span>
-                  <span className="text-[10px] text-slate-300">
-                    {Math.floor(gameDays) >= nextCarePackageDay ? (
-                      <span className="text-emerald-400 font-bold animate-pulse">📦 Care Package Ready!</span>
-                    ) : (
-                      <span>Cooldown (Day {Math.floor(gameDays)}/{nextCarePackageDay})</span>
-                    )}
-                  </span>
-                </div>
-                {Math.floor(gameDays) >= nextCarePackageDay ? (
-                  <button
-                    type="button"
-                    onClick={onOpenCarePackage}
-                    className="py-1 px-2 text-[9px] font-mono font-black animate-bounce bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg cursor-pointer transition-all"
-                  >
-                    Open Pod
-                  </button>
-                ) : (
-                  <div className="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-indigo-500 h-full transition-all"
-                      style={{ width: `${Math.max(0, Math.min(100, (1 - (nextCarePackageDay - gameDays) / 30) * 100))}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
         {/* PERSISTENT COLONY STOCKPILE BANNER */}
         <div 
           id="colony-stockpile-card"
-          className={`p-3 rounded-2xl border backdrop-blur-md shadow-md transition-all flex flex-col gap-1.5 shrink-0 ${
+          onMouseEnter={() => setIsStockpileHovered(true)}
+          onMouseLeave={() => setIsStockpileHovered(false)}
+          className={`p-3 rounded-2xl border backdrop-blur-md shadow-md transition-all duration-300 flex flex-col cursor-pointer ${
+            isStockpileHovered ? 'gap-2.5 max-h-[500px]' : 'max-h-[44px] overflow-hidden'
+          } shrink-0 ${
             isNight 
               ? 'bg-slate-950/80 border-slate-800 text-slate-100' 
               : 'bg-white/80 border-slate-200 text-slate-800'
@@ -396,12 +252,24 @@ export default function ControlsOverlay({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Colony Stockpile Reserves
             </span>
-            <button
-              onClick={() => setShowDetailedRes(!showDetailedRes)}
-              className="text-[9px] font-mono uppercase bg-indigo-600/15 text-indigo-500 hover:bg-indigo-600/25 px-1.5 py-0.5 rounded cursor-pointer leading-none border border-indigo-600/20"
-            >
-              {showDetailedRes ? 'Compact' : 'Inventory Details ▾'}
-            </button>
+            {!isStockpileHovered ? (
+              <div className="flex items-center gap-2.5 text-[10px] font-mono font-bold pl-2 opacity-90">
+                <span className="flex items-center gap-0.5">🪵 {mapData.stockpile.wood}</span>
+                <span className="flex items-center gap-0.5">🪨 {mapData.stockpile.stone}</span>
+                <span className="flex items-center gap-0.5">🍖 {mapData.stockpile.food}</span>
+                <span className="text-[8px] text-indigo-550 font-extrabold ml-1 animate-pulse">Expand ▾</span>
+              </div>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDetailedRes(!showDetailedRes);
+                }}
+                className="text-[9px] font-mono uppercase bg-indigo-600/15 text-indigo-500 hover:bg-indigo-600/25 px-1.5 py-0.5 rounded cursor-pointer leading-none border border-indigo-600/20"
+              >
+                {showDetailedRes ? 'Compact' : 'Inventory Details ▾'}
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div 
@@ -637,13 +505,26 @@ export default function ControlsOverlay({
         {activeTab === 'tribe' && (
           <div 
             id="tribe-roster-dashboard"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
+            onMouseEnter={() => setIsTabContentHovered(true)}
+            onMouseLeave={() => setIsTabContentHovered(false)}
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 flex flex-col ${
+              isTabContentHovered 
+                ? 'h-[calc(100vh-170px)] max-h-[calc(100vh-170px)] gap-3.5' 
+                : 'h-11 max-h-11 overflow-hidden cursor-pointer gap-0'
+            } overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
                 : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
             }`}
           >
-            {/* Demographic Indicators */}
+            {!isTabContentHovered ? (
+              <div className="flex items-center justify-between text-xs font-mono font-bold uppercase tracking-wider text-indigo-500 py-0.5">
+                <span className="flex items-center gap-1.5">👥 Tribe Roster <span className="text-[10px] text-slate-500 font-normal">({totalPop} Pop)</span></span>
+                <span className="text-[9px] text-slate-450 normal-case font-normal">Hover to expand ▴</span>
+              </div>
+            ) : (
+              <>
+                {/* Demographic Indicators */}
             <div className="grid grid-cols-3 gap-1.5" id="demographic-pills">
               <div className={`p-2 rounded-xl text-center border ${isNight ? 'bg-slate-900/30 border-slate-850' : 'bg-slate-50 border-slate-100'}`}>
                 <span className="text-[8px] font-mono font-bold text-slate-500 uppercase block">Active Size</span>
@@ -854,19 +735,34 @@ export default function ControlsOverlay({
                 )}
               </div>
             </div>
+          </>
+         )}
           </div>
         )}
 
         {activeTab === 'work' && (
           <div 
             id="work-priorities-dashboard"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
+            onMouseEnter={() => setIsTabContentHovered(true)}
+            onMouseLeave={() => setIsTabContentHovered(false)}
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 flex flex-col ${
+              isTabContentHovered 
+                ? 'h-[calc(100vh-170px)] max-h-[calc(100vh-170px)] gap-3.5' 
+                : 'h-11 max-h-11 overflow-hidden cursor-pointer gap-0'
+            } overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
                 : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
             }`}
           >
-            <div className="flex flex-col gap-1 border-b pb-2 border-slate-200/10">
+            {!isTabContentHovered ? (
+              <div className="flex items-center justify-between text-xs font-mono font-bold uppercase tracking-wider text-indigo-500 py-0.5">
+                <span className="flex items-center gap-1.5">💼 Work Priorities <span className="text-[10px] text-slate-500 font-normal">({totalPop} Workers)</span></span>
+                <span className="text-[9px] text-slate-450 normal-case font-normal">Hover to expand ▴</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-col gap-1 border-b pb-2 border-slate-200/10">
               <div className="flex items-center gap-2">
                 <Briefcase size={15} className="text-indigo-500 shrink-0" />
                 <h4 className="font-semibold text-sm tracking-tight">Work Priorities Grid</h4>
@@ -945,32 +841,68 @@ export default function ControlsOverlay({
                 </table>
               </div>
             )}
+          </>
+         )}
           </div>
         )}
 
 
         {activeTab === 'inventory' && (
-          <InventoryTab
-            mapData={mapData}
-            tribe={tribe}
-            isNight={isNight}
-            onOrganizeWarehouse={onOrganizeWarehouse}
-            onTransferToCaravan={onTransferToCaravan}
-            onTransferToVillage={onTransferToVillage}
-            onMigrateRegion={onMigrateRegion}
-          />
+          <div 
+            onMouseEnter={() => setIsTabContentHovered(true)}
+            onMouseLeave={() => setIsTabContentHovered(false)}
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 flex flex-col ${
+              isTabContentHovered 
+                ? 'h-[calc(100vh-170px)] max-h-[calc(100vh-170px)]' 
+                : 'h-11 max-h-11 overflow-hidden cursor-pointer gap-0'
+            } overflow-y-auto no-scrollbar ${
+              isNight 
+                ? 'bg-slate-950/80 border-slate-800 text-slate-100 shadow-teal-950/10' 
+                : 'bg-white/80 border-slate-200 text-slate-800 shadow-slate-900/5'
+            }`}
+          >
+            {!isTabContentHovered ? (
+              <div className="flex items-center justify-between text-xs font-mono font-bold uppercase tracking-wider text-indigo-500 py-0.5">
+                <span className="flex items-center gap-1.5">📦 Storage Depot <span className="text-[10px] text-slate-500 font-normal">(Manage Depot Reserves)</span></span>
+                <span className="text-[9px] text-slate-450 normal-case font-normal">Hover to expand ▴</span>
+              </div>
+            ) : (
+              <InventoryTab
+                mapData={mapData}
+                tribe={tribe}
+                isNight={isNight}
+                onOrganizeWarehouse={onOrganizeWarehouse}
+                onTransferToCaravan={onTransferToCaravan}
+                onTransferToVillage={onTransferToVillage}
+                onMigrateRegion={onMigrateRegion}
+              />
+            )}
+          </div>
         )}
 
         {activeTab === 'lore' && (
           <div 
             id="lore-codex-tab"
-            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-500 flex flex-col gap-3.5 max-h-[68vh] overflow-y-auto no-scrollbar ${
+            onMouseEnter={() => setIsTabContentHovered(true)}
+            onMouseLeave={() => setIsTabContentHovered(false)}
+            className={`p-4 rounded-2xl border backdrop-blur-md shadow-lg transition-all duration-300 flex flex-col ${
+              isTabContentHovered 
+                ? 'h-[calc(100vh-170px)] max-h-[calc(100vh-170px)] gap-3.5' 
+                : 'h-11 max-h-11 overflow-hidden cursor-pointer gap-0'
+            } overflow-y-auto no-scrollbar ${
               isNight 
                 ? 'bg-slate-950/85 border-slate-800 text-slate-150' 
                 : 'bg-white/90 border-slate-200 text-slate-800'
             }`}
           >
-            <div className="flex justify-between items-center border-b pb-2 border-slate-200/10">
+            {!isTabContentHovered ? (
+              <div className="flex items-center justify-between text-xs font-mono font-bold uppercase tracking-wider text-indigo-500 py-0.5">
+                <span className="flex items-center gap-1.5">📖 Lore Codex <span className="text-[10px] text-slate-500 font-normal">({mapData.activeLoreLogs?.length ?? 0} / 6 Found)</span></span>
+                <span className="text-[9px] text-slate-450 normal-case font-normal">Hover to expand ▴</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center border-b pb-2 border-slate-200/10">
               <div>
                 <span className="text-[9px] uppercase tracking-wider font-mono text-indigo-400 font-bold block leading-3">Island Archives</span>
                 <h3 className="text-sm font-extrabold flex items-center gap-1.5 leading-none">
@@ -1061,6 +993,8 @@ export default function ControlsOverlay({
                 </div>
               )}
             </div>
+          </>
+         )}
           </div>
         )}
 

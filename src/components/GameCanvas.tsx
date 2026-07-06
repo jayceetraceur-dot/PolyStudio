@@ -706,6 +706,54 @@ export default function GameCanvas({
             decorationsGroup.add(lmGroup);
           }
 
+          else if (cell.expeditionSite) {
+            const siteGroup = new THREE.Group();
+            siteGroup.position.set(x, y, z);
+
+            const wallMat = new THREE.MeshStandardMaterial({
+              color: new THREE.Color('#334155'),
+              roughness: 0.8,
+              flatShading: true
+            });
+            const doorMat = new THREE.MeshBasicMaterial({ color: 0x0c0a09 });
+            const lightMat = new THREE.MeshBasicMaterial({ color: cell.expeditionSite.exhausted ? 0x64748b : 0x10b981 });
+
+            const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), wallMat);
+            p1.position.set(-0.35, 0.4, 0);
+            p1.castShadow = true;
+            p1.receiveShadow = true;
+            siteGroup.add(p1);
+
+            const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.8, 0.25), wallMat);
+            p2.position.set(0.35, 0.4, 0);
+            p2.castShadow = true;
+            p2.receiveShadow = true;
+            siteGroup.add(p2);
+
+            const lintel = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.3), wallMat);
+            lintel.position.set(0, 0.9, 0);
+            lintel.castShadow = true;
+            siteGroup.add(lintel);
+
+            const door = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.8, 0.1), doorMat);
+            door.position.set(0, 0.4, -0.05);
+            siteGroup.add(door);
+
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), lightMat);
+            bulb.position.set(0, 1.05, 0);
+            siteGroup.add(bulb);
+
+            p1.userData = { cell };
+            p2.userData = { cell };
+            lintel.userData = { cell };
+            door.userData = { cell };
+
+            decorationMeshes.push(p1, p2, lintel, door);
+            cellMeshes.push(p1);
+
+            decorationsGroup.add(siteGroup);
+          }
+
           // Tree flora
           else if (cell.hasTree) {
             if (cell.biome === 'desert') {
@@ -2249,13 +2297,13 @@ export default function GameCanvas({
           let grassColorHex = '#558b2f'; // default green
 
           if (cell.biome === 'grassland' || cell.biome === 'forest') {
-            grassChance = 0.60;
+            grassChance = 0.85;
             grassColorHex = '#558b2f'; // green
           } else if (cell.biome === 'desert') {
-            grassChance = 0.35;
+            grassChance = 0.55;
             grassColorHex = '#d89e2b'; // yellow/orange
           } else if (cell.biome === 'rocky') {
-            grassChance = 0.05;
+            grassChance = 0.20;
             grassColorHex = '#558b2f'; // green
           }
 
@@ -2275,14 +2323,14 @@ export default function GameCanvas({
               });
 
               const bladeGeom = new THREE.ConeGeometry(0.015, 0.12, 3);
-              const numBlades = 3;
+              const numBlades = 7;
               for (let b = 0; b < numBlades; b++) {
                 const blade = new THREE.Mesh(bladeGeom, grassMat);
                 
                 // deterministic offset per blade
                 const bladeSeed = (seededRandom * (b + 1) * 31.4159) % 1.0;
-                const ox = (bladeSeed * 0.4) - 0.2;
-                const oz = (((bladeSeed * 7.13) % 1.0) * 0.4) - 0.2;
+                const ox = (bladeSeed * 0.45) - 0.225;
+                const oz = (((bladeSeed * 7.13) % 1.0) * 0.45) - 0.225;
                 const bHeight = 0.08 + bladeSeed * 0.12;
 
                 blade.scale.set(1.0, bHeight / 0.12, 1.0);
@@ -3018,7 +3066,9 @@ export default function GameCanvas({
       const activeIds = new Set<string>();
 
       latestTribe.forEach((person) => {
-        if (!person.isAlive) {
+        const isOnExpeditionInside = person.expeditionState && person.expeditionState !== 'none' && person.expeditionState !== 'entering';
+
+        if (!person.isAlive || isOnExpeditionInside) {
           if (actorMeshesMap.has(person.id)) {
             const mesh = actorMeshesMap.get(person.id)!;
             actorGroup.remove(mesh);
@@ -3815,18 +3865,24 @@ export default function GameCanvas({
                 if (!bubbleEl) {
                   bubbleEl = document.createElement('div');
                   bubbleEl.id = bubbleId;
-                  bubbleEl.className = "absolute flex items-center justify-center bg-white border border-slate-900/10 shadow-lg rounded-full w-7 h-7 text-xs select-none transition-transform duration-200 animate-bounce";
+                  bubbleEl.className = "absolute top-0 left-0 select-none pointer-events-none";
                   bubbleEl.style.transformOrigin = "bottom center";
                   bubbleEl.style.zIndex = "10";
+                  bubbleEl.style.opacity = "0.7"; // 70% opacity for thought bubbles
+                  
+                  const inner = document.createElement('div');
+                  inner.className = "relative flex items-center justify-center bg-white border border-slate-900/10 shadow-lg rounded-full w-7 h-7 text-xs animate-bounce";
+                  inner.style.transformOrigin = "bottom center";
+                  bubbleEl.appendChild(inner);
                   
                   const tail = document.createElement('div');
                   tail.className = "absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white border-b border-r border-slate-900/10 rotate-45 rounded-sm";
-                  bubbleEl.appendChild(tail);
+                  inner.appendChild(tail);
 
                   const emojiSpan = document.createElement('span');
                   emojiSpan.className = "z-10 text-[13px] leading-none mb-0.5";
                   emojiSpan.id = `emoji-${person.id}`;
-                  bubbleEl.appendChild(emojiSpan);
+                  inner.appendChild(emojiSpan);
 
                   bubbleContainer.appendChild(bubbleEl);
                 }
@@ -3836,9 +3892,8 @@ export default function GameCanvas({
                   emojiSpan.textContent = emoji;
                 }
 
-                bubbleEl.style.left = `${x2D - 14}px`;
-                bubbleEl.style.top = `${y2D - 42}px`;
-                bubbleEl.style.display = 'flex';
+                bubbleEl.style.transform = `translate3d(${x2D - 14}px, ${y2D - 42}px, 0px)`;
+                bubbleEl.style.display = 'block';
               }
             }
           }

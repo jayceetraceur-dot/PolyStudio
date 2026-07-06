@@ -1,5 +1,6 @@
-import { BiomeType, CellInfo, WorldConfig, MapData, Landmark } from '../types';
+import { BiomeType, CellInfo, WorldConfig, MapData, Landmark, ExpeditionSite } from '../types';
 import { Improved2DNoise, SeededRandom } from './noise';
+import { EXPEDITION_SITES } from './expeditionDatabase';
 
 // Palette matching a low-poly stylized survival game
 export const BIOME_COLORS = {
@@ -584,6 +585,9 @@ export function generateWorld(config: WorldConfig): MapData {
   // Inject procedural landmarks
   placeProceduralLandmarks(grid, size, seed);
 
+  // Inject procedural ancient-site expedition entrances
+  placeProceduralExpeditionSites(grid, size, seed);
+
   return {
     config,
     grid,
@@ -611,7 +615,32 @@ export function generateWorld(config: WorldConfig): MapData {
         reservoirWater: 25,
         rainwater: 10,
         relics: 2,
-        ancientMaterials: 5
+        ancientMaterials: 5,
+        reinforcedExplorerPack: 0,
+        ruinDiverHarness: 0,
+        surveyorsLens: 0,
+        expeditionLantern: 0,
+        sealedExpeditionSuit: 0,
+        ancientPowerCell: 0,
+        precisionGear: 0,
+        starMetalFragment: 0,
+        titanBone: 0,
+        fossilResin: 0,
+        heartwoodCrystal: 0,
+        memoryCrystal: 0,
+        livingResinResidue: 0,
+        deepCrystal: 0,
+        ancientAlloyPlate: 0,
+        logicCore: 0,
+        sterileAncientCloth: 0,
+        regenerationCompound: 0,
+        extinctSeed: 0,
+        stormLens: 0,
+        resonantFossilShard: 0,
+        vacuumVessel: 0,
+        archiveTablet: 0,
+        navigationCore: 0,
+        pristineMachineCore: 0,
       }
     },
     caravanInventory: {
@@ -674,6 +703,31 @@ export function generateWorld(config: WorldConfig): MapData {
       hide: 5,
       fat: 3,
       horns: 0,
+      reinforcedExplorerPack: 0,
+      ruinDiverHarness: 0,
+      surveyorsLens: 0,
+      expeditionLantern: 0,
+      sealedExpeditionSuit: 0,
+      ancientPowerCell: 0,
+      precisionGear: 0,
+      starMetalFragment: 0,
+      titanBone: 0,
+      fossilResin: 0,
+      heartwoodCrystal: 0,
+      memoryCrystal: 0,
+      livingResinResidue: 0,
+      deepCrystal: 0,
+      ancientAlloyPlate: 0,
+      logicCore: 0,
+      sterileAncientCloth: 0,
+      regenerationCompound: 0,
+      extinctSeed: 0,
+      stormLens: 0,
+      resonantFossilShard: 0,
+      vacuumVessel: 0,
+      archiveTablet: 0,
+      navigationCore: 0,
+      pristineMachineCore: 0,
     },
     autoGatherThresholds: {
       wood: 0,
@@ -822,3 +876,73 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     }
   }
 }
+
+export function placeProceduralExpeditionSites(grid: CellInfo[][], size: number, seed: number) {
+  const rand = new SeededRandom(seed + 99991);
+  const center = size / 2;
+
+  // Let's spawn 12 random sites from our rich collection of templates!
+  const sitesToSpawn = [...EXPEDITION_SITES];
+  // Shuffle sitesToSpawn deterministically using rand
+  for (let i = sitesToSpawn.length - 1; i > 0; i--) {
+    const j = Math.floor(rand.next() * (i + 1));
+    const temp = sitesToSpawn[i];
+    sitesToSpawn[i] = sitesToSpawn[j];
+    sitesToSpawn[j] = temp;
+  }
+
+  // We will pick 12 diverse sites to place
+  const chosenTemplates = sitesToSpawn.slice(0, 12);
+
+  for (const template of chosenTemplates) {
+    const candidates: CellInfo[] = [];
+    for (let x = 0; x < size; x++) {
+      for (let z = 0; z < size; z++) {
+        const cell = grid[x][z];
+        const dist = Math.sqrt((x - center) ** 2 + (z - center) ** 2);
+        // Place sites outside immediate center, in non-water biomes, where no landmark or other site exists
+        if (dist > 8 && dist < size - 2 && cell.biome !== 'water' && !cell.landmark && !cell.expeditionSite) {
+          candidates.push(cell);
+        }
+      }
+    }
+
+    if (candidates.length > 0) {
+      const idx = Math.floor(rand.next() * candidates.length);
+      const chosen = candidates[idx];
+
+      chosen.expeditionSite = {
+        id: `site_${template.id}_${Math.floor(rand.next() * 10000)}`,
+        templateId: template.id,
+        category: template.category,
+        name: template.name,
+        tier: template.tier,
+        recommendedScoutLevel: template.recommendedScoutLevel,
+        typicalDuration: template.typicalDuration,
+        durationHours: template.durationHours,
+        risk: template.risk,
+        finds: template.finds,
+        uniqueDiscoveries: template.uniqueDiscoveries,
+        clues: template.clues,
+        suppliesRequired: template.suppliesRequired,
+        equipmentRequiredOrOptional: template.equipmentRequiredOrOptional,
+        allowMultipleScouts: template.allowMultipleScouts,
+        description: template.description,
+        explored: false,
+        exhausted: false,
+        activeScouts: [],
+        remainingLootRuns: 3, // Can explore a site up to 3 times
+        discovered: false, // will be revealed upon scouting
+      };
+
+      chosen.inspectableName = `🚪 Site: ${template.name}`;
+      
+      // Clear trees/rocks so it renders beautifully on the map
+      chosen.hasTree = false;
+      chosen.hasRock = false;
+      chosen.hasShrub = false;
+      chosen.resourceNode = null;
+    }
+  }
+}
+

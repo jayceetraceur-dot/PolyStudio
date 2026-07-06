@@ -100,6 +100,33 @@ export interface CellInfo {
   } | null;
   landmark?: Landmark | null;
   gatherDesignated?: boolean;
+  expeditionSite?: ExpeditionSite | null;
+}
+
+export interface ExpeditionSite {
+  id: string;
+  templateId: string;
+  category: 'Buried Structure' | 'Ancient Tech' | 'Cultural/Historical' | 'Fossil/Natural' | 'Military/Dangerous' | 'Legendary';
+  name: string;
+  tier: 'Minor' | 'Forgotten' | 'Ancient' | 'Pre-Storm' | 'Legendary' | 'Unclassified';
+  recommendedScoutLevel: number;
+  typicalDuration: string;
+  durationHours: number;
+  risk: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High' | 'Extreme';
+  finds: string[];
+  uniqueDiscoveries: { itemKey: string; name: string; description: string }[];
+  clues: string;
+  suppliesRequired: { item: string; amount: number }[];
+  equipmentRequiredOrOptional: { item: string; function: string; optional?: boolean }[];
+  allowMultipleScouts: boolean;
+  description: string;
+  
+  // Instance tracking
+  explored: boolean;
+  exhausted: boolean;
+  activeScouts: string[]; // IDs of scouts inside
+  remainingLootRuns: number; // starts at 3, decreases each successful run
+  discovered: boolean;
 }
 
 export interface Landmark {
@@ -205,6 +232,16 @@ export interface MapData {
     hide: number;
     fat: number;
     horns: number;
+
+    // Expedition Gear
+    reinforcedExplorerPack?: number;
+    ruinDiverHarness?: number;
+    surveyorsLens?: number;
+    expeditionLantern?: number;
+    sealedExpeditionSuit?: number;
+
+    // Index signature for dynamic expedition resources and gear
+    [key: string]: any;
   };
   unlockedBuildings?: string[]; // lists of custom unlocked buildings
   activeLoreLogs?: { id: string; landmarkName: string; text: string; discoveredDay: number }[]; // discovered lore log list
@@ -276,6 +313,7 @@ export interface Animal {
   rareSpecimenAmount: number; // Horns / Feathers
   decayTimer?: number;       // Visual death decay tracker
   killedByPredator?: boolean;// Predator hunting outcome tracker
+  aiTickTimer?: number;
 }
 
 export interface CodexEvent {
@@ -441,6 +479,18 @@ export interface Tribesperson {
   masteryTechniques?: string[];
   lineagePath?: string;
   isOracleApprentice?: boolean;
+  aiTickTimer?: number;
+
+  // Expedition simulation states
+  expeditionState?: 'none' | 'entering' | 'exploring' | 'investigating' | 'returning';
+  expeditionTargetCoords?: { x: number; z: number } | null;
+  expeditionTimer?: number; // hours remaining in current stage
+  expeditionDuration?: number; // total duration
+  expeditionSiteName?: string;
+  expeditionSiteType?: string;
+  expeditionLootCollected?: Record<string, number> | null;
+  expeditionUniqueFinds?: string[] | null;
+  expeditionLogs?: string[] | null;
 }
 
 export interface Recipe {
@@ -553,5 +603,50 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
     workstation: 'RuinousAltar',
     materials: { ancientMaterials: 6, relics: 2, dew: 15 },
     researchCost: 80,
+  },
+  reinforcedExplorerPack: {
+    id: 'reinforcedExplorerPack',
+    name: 'Reinforced Explorer Pack',
+    description: 'Increases scout carrying capacity by 100% during expeditions.',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { fiber: 25, bone: 10, wood: 10 },
+    researchCost: 15,
+  },
+  ruinDiverHarness: {
+    id: 'ruinDiverHarness',
+    name: 'Ruin Diver Harness',
+    description: 'Reduces danger risk during ancient site exploration by 25%.',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { fiber: 35, bone: 15, wood: 5 },
+    researchCost: 15,
+  },
+  surveyorsLens: {
+    id: 'surveyorsLens',
+    name: 'Surveyor\'s Lens',
+    description: 'Allows detecting high-tier ruins and landmarks from further away.',
+    tier: 'Advanced',
+    workstation: 'ScienceMachine',
+    materials: { stone: 20, copper: 6, relics: 1 },
+    researchCost: 30,
+  },
+  expeditionLantern: {
+    id: 'expeditionLantern',
+    name: 'Expedition Lantern',
+    description: 'Eliminates fuel requirements, lessens dark danger by 40%.',
+    tier: 'Advanced',
+    workstation: 'ScienceMachine',
+    materials: { copper: 10, fiber: 20, ancientMaterials: 2 },
+    researchCost: 30,
+  },
+  sealedExpeditionSuit: {
+    id: 'sealedExpeditionSuit',
+    name: 'Sealed Expedition Suit',
+    description: 'Required to enter radioactive or vacuum environments.',
+    tier: 'Relic',
+    workstation: 'RuinousAltar',
+    materials: { ancientMaterials: 5, relics: 2, fiber: 60 },
+    researchCost: 75,
   },
 };

@@ -47,6 +47,33 @@ export default function InventoryTab({
       case 'amuletLife': return 0.3;
       case 'thuleciteCore': return 1.0;
       case 'grassBasket': return 0.5;
+      // Exploration Equipment
+      case 'reinforcedExplorerPack': return 1.0;
+      case 'ruinDiverHarness': return 1.8;
+      case 'surveyorsLens': return 0.4;
+      case 'expeditionLantern': return 0.7;
+      case 'sealedExpeditionSuit': return 4.0;
+      // Ancient Materials
+      case 'ancientPowerCell': return 1.5;
+      case 'precisionGear': return 0.6;
+      case 'starMetalFragment': return 3.0;
+      case 'titanBone': return 4.5;
+      case 'fossilResin': return 0.5;
+      case 'heartwoodCrystal': return 1.2;
+      case 'memoryCrystal': return 0.8;
+      case 'livingResinResidue': return 0.9;
+      case 'deepCrystal': return 1.4;
+      case 'ancientAlloyPlate': return 2.5;
+      case 'logicCore': return 1.0;
+      case 'sterileAncientCloth': return 0.3;
+      case 'regenerationCompound': return 0.1;
+      case 'extinctSeed': return 0.05;
+      case 'stormLens': return 0.5;
+      case 'resonantFossilShard': return 1.1;
+      case 'vacuumVessel': return 1.5;
+      case 'archiveTablet': return 2.0;
+      case 'navigationCore': return 1.0;
+      case 'pristineMachineCore': return 3.5;
       default: return 0.1;
     }
   };
@@ -71,6 +98,33 @@ export default function InventoryTab({
       case 'amuletLife': return 0.2;
       case 'thuleciteCore': return 0.8;
       case 'grassBasket': return 1.0;
+      // Exploration Equipment
+      case 'reinforcedExplorerPack': return 2.0;
+      case 'ruinDiverHarness': return 1.5;
+      case 'surveyorsLens': return 0.3;
+      case 'expeditionLantern': return 0.6;
+      case 'sealedExpeditionSuit': return 4.5;
+      // Ancient Materials
+      case 'ancientPowerCell': return 1.0;
+      case 'precisionGear': return 0.4;
+      case 'starMetalFragment': return 1.5;
+      case 'titanBone': return 3.0;
+      case 'fossilResin': return 0.4;
+      case 'heartwoodCrystal': return 0.8;
+      case 'memoryCrystal': return 0.5;
+      case 'livingResinResidue': return 0.6;
+      case 'deepCrystal': return 1.0;
+      case 'ancientAlloyPlate': return 1.8;
+      case 'logicCore': return 0.8;
+      case 'sterileAncientCloth': return 0.4;
+      case 'regenerationCompound': return 0.1;
+      case 'extinctSeed': return 0.05;
+      case 'stormLens': return 0.4;
+      case 'resonantFossilShard': return 0.8;
+      case 'vacuumVessel': return 1.2;
+      case 'archiveTablet': return 1.5;
+      case 'navigationCore': return 0.8;
+      case 'pristineMachineCore': return 2.5;
       default: return 0.1;
     }
   };
@@ -105,6 +159,35 @@ export default function InventoryTab({
     { key: 'amuletLife', label: '❤️ Life Amulet', desc: 'Triggers instant revive' },
     { key: 'thuleciteCore', label: '🔋 Thulecite Core', desc: 'Indestructible energy cell' },
     { key: 'grassBasket', label: '🧺 Straw Basket', desc: 'Doubles carrying capacity' },
+
+    // Crafted Expedition Equipment
+    { key: 'reinforcedExplorerPack', label: '🎒 Reinforced Explorer Pack', desc: '🎒 Increases scout carrying capacity by 100% on expeditions.' },
+    { key: 'ruinDiverHarness', label: '🧗 Ruin Diver Harness', desc: '🧗 Reduces danger risk during ancient site exploration by 25%.' },
+    { key: 'surveyorsLens', label: '🔍 Surveyor\'s Lens', desc: '🔍 Allows detecting high-tier ruins and landmarks from further away.' },
+    { key: 'expeditionLantern', label: '🔦 Expedition Lantern', desc: '🔦 Eliminates fuel requirements, lessens dark danger by 40%.' },
+    { key: 'sealedExpeditionSuit', label: '🛡️ Sealed Expedition Suit', desc: '🛡️ Required to enter radioactive or vacuum environments.' },
+
+    // Ancient Materials & Loot
+    { key: 'ancientPowerCell', label: '🔋 Ancient Power Cell', desc: 'Pre-storm energy battery' },
+    { key: 'precisionGear', label: '⚙️ Precision Gear', desc: 'Advanced micro-toothed gear assembly' },
+    { key: 'starMetalFragment', label: '✨ Star-Metal Fragment', desc: 'Extremely heavy celestial meteor ore piece' },
+    { key: 'titanBone', label: '🦴 Titan Bone', desc: 'Fossilized bone of a colossal mega-fauna' },
+    { key: 'fossilResin', label: '🧪 Fossil Resin', desc: 'Golden fossil sap used for preservation and healing' },
+    { key: 'heartwoodCrystal', label: '💎 Heartwood Crystal', desc: 'Amber crystal formed at petrified tree core' },
+    { key: 'memoryCrystal', label: '🔮 Memory Crystal', desc: 'Crystalline storage containing precursor data' },
+    { key: 'livingResinResidue', label: '💧 Living-Resin Residue', desc: 'Sticky sap with supreme bonding strength' },
+    { key: 'deepCrystal', label: '🔮 Deep Crystal Shard', desc: 'High-thermal energy subterranean crystal' },
+    { key: 'ancientAlloyPlate', label: '🛡️ Ancient Alloy Plate', desc: 'Featherlight heavy metal protective plating' },
+    { key: 'logicCore', label: '🧠 Logic Core', desc: 'Pre-storm silicon matrix governing automation' },
+    { key: 'sterileAncientCloth', label: '🩹 Sterile Ancient Cloth', desc: 'Anti-infection medical precursor fabric' },
+    { key: 'regenerationCompound', label: '🧬 Regeneration Compound', desc: 'Organic compound promoting instant muscle healing' },
+    { key: 'extinctSeed', label: '🌱 Extinct Seed', desc: 'Intact bio-capsule of pre-storm lost flora' },
+    { key: 'stormLens', label: '🌀 Storm Lens', desc: 'Atmospheric sapphire glass prism' },
+    { key: 'resonantFossilShard', label: '🦴 Resonant Fossil Shard', desc: 'Humming fossilized tooth acting as a receiver' },
+    { key: 'vacuumVessel', label: '🏺 Vacuum Vessel', desc: 'Airtight container halting biological decay' },
+    { key: 'archiveTablet', label: '📜 Archive Tablet', desc: 'Well-preserved clay tablet filled with blueprints' },
+    { key: 'navigationCore', label: '🗺️ Navigation Core', desc: 'Precursor GPS coordinates map module' },
+    { key: 'pristineMachineCore', label: '💎 Pristine Machine Core', desc: 'Highest-tier quantum engine power core' },
   ];
 
   const aliveWorkers = tribe.filter(t => t.isAlive);

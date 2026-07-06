@@ -503,7 +503,22 @@ export function tickEcosystemSimulation(
     // Check captive enclosure pen status
     const currentOnCellX = Math.round(ani.x);
     const currentOnCellZ = Math.round(ani.z);
-    const inPen = checkIsWithinPen(mapData, currentOnCellX, currentOnCellZ);
+
+    // Staggered AI decision tree timer
+    let aiTickTimer = ani.aiTickTimer ?? (Math.random() * 0.6);
+    aiTickTimer -= deltaTime;
+    let timerFired = false;
+    if (aiTickTimer <= 0) {
+      timerFired = true;
+      aiTickTimer = 0.3 + Math.random() * 0.3; // 0.3 to 0.6s intervals
+    }
+    ani.aiTickTimer = aiTickTimer;
+
+    let inPen = (ani as any).cachedInPen ?? false;
+    if (timerFired) {
+      inPen = checkIsWithinPen(mapData, currentOnCellX, currentOnCellZ);
+      (ani as any).cachedInPen = inPen;
+    }
 
     // Graze on Fiber nodes if present on current cell
     const cell = mapData.grid[currentOnCellX]?.[currentOnCellZ];
@@ -590,42 +605,49 @@ export function tickEcosystemSimulation(
     }
 
     // 2. FEAR & FLEEING REACTIONS
-    let fearSourceX = 0;
-    let fearSourceZ = 0;
-    let isScared = false;
+    let isScared = (ani as any).cachedIsScared ?? false;
+    let fearSourceX = (ani as any).cachedFearSourceX ?? 0;
+    let fearSourceZ = (ani as any).cachedFearSourceZ ?? 0;
 
-    // Detect nearby predators (Herbivores flee from small/apex predators)
-    if (ani.category === 'Herbivore' || ani.type === 'Fox') {
-      const threatRange = ani.type === 'Rabbit' ? 3.5 : 4.5;
-      const nearPredator = predatorsPos.find(p => {
-        // Fox does not fear foxes, but fear giants
-        if (ani.type === 'Fox' && p.category === 'SmallPredator') return false;
-        const d = (ani.x - p.x) ** 2 + (ani.z - p.z) ** 2;
-        return d < threatRange ** 2;
+    if (timerFired) {
+      isScared = false;
+      // Detect nearby predators (Herbivores flee from small/apex predators)
+      if (ani.category === 'Herbivore' || ani.type === 'Fox') {
+        const threatRange = ani.type === 'Rabbit' ? 3.5 : 4.5;
+        const nearPredator = predatorsPos.find(p => {
+          // Fox does not fear foxes, but fear giants
+          if (ani.type === 'Fox' && p.category === 'SmallPredator') return false;
+          const d = (ani.x - p.x) ** 2 + (ani.z - p.z) ** 2;
+          return d < threatRange ** 2;
+        });
+
+        if (nearPredator) {
+          fearSourceX = nearPredator.x;
+          fearSourceZ = nearPredator.z;
+          isScared = true;
+          ani.fear = Math.min(100, ani.fear + 45 * deltaTime);
+        }
+      }
+
+      // Detect nearby villagers (flee from any villager unless they are a Beast Friend)
+      const nearVillager = tribe.find(v => {
+        if (!v.isAlive) return false;
+        // Do not flee from "Beast Friend"
+        if (v.traits.includes('Beast Friend')) return false;
+        const d = (ani.x - v.x) ** 2 + (ani.z - v.z) ** 2;
+        return d < (4.5) ** 2;
       });
 
-      if (nearPredator) {
-        fearSourceX = nearPredator.x;
-        fearSourceZ = nearPredator.z;
+      if (nearVillager && !ani.isTame) {
+        fearSourceX = nearVillager.x;
+        fearSourceZ = nearVillager.z;
         isScared = true;
-        ani.fear = Math.min(100, ani.fear + 45 * deltaTime);
+        ani.fear = Math.min(100, ani.fear + 50 * deltaTime);
       }
-    }
 
-    // Detect nearby villagers (flee from any villager unless they are a Beast Friend)
-    const nearVillager = tribe.find(v => {
-      if (!v.isAlive) return false;
-      // Do not flee from "Beast Friend"
-      if (v.traits.includes('Beast Friend')) return false;
-      const d = (ani.x - v.x) ** 2 + (ani.z - v.z) ** 2;
-      return d < (4.5) ** 2;
-    });
-
-    if (nearVillager && !ani.isTame) {
-      fearSourceX = nearVillager.x;
-      fearSourceZ = nearVillager.z;
-      isScared = true;
-      ani.fear = Math.min(100, ani.fear + 50 * deltaTime);
+      (ani as any).cachedIsScared = isScared;
+      (ani as any).cachedFearSourceX = fearSourceX;
+      (ani as any).cachedFearSourceZ = fearSourceZ;
     }
 
     // If scared, flee immediately! Run fast in the opposite direction!
@@ -643,7 +665,7 @@ export function tickEcosystemSimulation(
       ani.energy = Math.max(5, ani.energy - 3.5 * deltaTime);
       
       // Alert nearby herd members if herded! High alertness contagion
-      if (ani.herdId) {
+      if (ani.herdId && timerFired) {
         animals.forEach(other => {
           if (other.herdId === ani.herdId && !other.isDead) {
             other.fear = Math.min(100, other.fear + 30 * deltaTime);
@@ -658,7 +680,7 @@ export function tickEcosystemSimulation(
 
     // 3. REPRODUCTION & MATING SEASON
     if (ani.category === 'Herbivore' && !ani.isDead && ani.agePhase === 'Adult' && !isScared) {
-      if (ani.gender === 'Female' && !ani.isPregnant && ani.hunger < 40 && ani.thirst < 40) {
+      if (ani.gender === 'Female' && !ani.isPregnant && ani.hunger < 40 && ani.thirst < 40 && timerFired) {
         // Scan for compatible male nearby
         const partner = animals.find(m => 
           m.type === ani.type && 
@@ -669,7 +691,7 @@ export function tickEcosystemSimulation(
           Math.abs(m.z - ani.z) < 2.5
         );
 
-        if (partner && Math.random() < 0.08 * deltaTime) {
+        if (partner && Math.random() < 0.08) {
           ani.isPregnant = true;
           ani.gestationTimer = 0;
           addLog(`🌸 Reproduction: A female ${ani.type} has begun a gestation cycle!`, 'success');
@@ -698,7 +720,7 @@ export function tickEcosystemSimulation(
     // 4. PREDATORS SEEKING TARGETS IN THE FOOD CHAIN
     if ((ani.category === 'SmallPredator' || ani.category === 'ApexPredator') && !isScared) {
       // Predators hunt herbivores
-      if (ani.hunger > 25) {
+      if (ani.hunger > 25 && timerFired) {
         // Find best target (prefer babies and healthy adults over hunters)
         let bestTarget: Animal | null = null;
         let closestDist = 9999;
@@ -731,40 +753,58 @@ export function tickEcosystemSimulation(
           const v: Tribesperson = targetVillager;
           ani.targetX = v.x;
           ani.targetZ = v.z;
-          
-          // Attack range
-          const dToV = (ani.x - v.x) ** 2 + (ani.z - v.z) ** 2;
-          if (dToV < 1.2 && Math.random() < 0.6 * deltaTime) {
-            // Harm villager
-            v.stats.health = Math.max(10, v.stats.health - 25 * deltaTime);
-            v.statusText = `😱 Scream! Aggressed by feral ${ani.type}!`;
-            addLog(`⚠️ Terror Attack: A vicious wild ${ani.type} is actively biting ${v.name}! Needs immediate hunter backup!`, 'combat');
-            
-            // Defend: Hunter responds automatically if within range
-            const nearbyDefenders = tribe.filter(t => t.isAlive && t.role === 'Hunter' && (t.x - v.x) ** 2 + (t.z - v.z) ** 2 < 12 ** 2);
-            nearbyDefenders.forEach(def => {
-              if (def.activeJobType !== 'Hunt') {
-                def.activeJobType = 'Hunt';
-                def.jobTargetCoords = { x: Math.round(ani.x), z: Math.round(ani.z) };
-                def.statusText = `🏹 Defender: Running to intercept feral ${ani.type}!`;
-              }
-            });
-          }
+          (ani as any).cachedHuntTargetType = 'villager';
+          (ani as any).cachedHuntTargetId = v.id;
         } else if (bestTarget) {
           const tar: Animal = bestTarget;
           ani.targetX = tar.x;
           ani.targetZ = tar.z;
+          (ani as any).cachedHuntTargetType = 'animal';
+          (ani as any).cachedHuntTargetId = tar.id;
+        } else {
+          (ani as any).cachedHuntTargetType = null;
+          (ani as any).cachedHuntTargetId = null;
+        }
+      }
 
-          // Attack when close
-          const dToT = (ani.x - tar.x) ** 2 + (ani.z - tar.z) ** 2;
-          if (dToT < 1.1) {
-            tar.HP -= 35 * deltaTime;
-            tar.fear = 100;
-            if (tar.HP <= 0) {
-              tar.isDead = true;
-              (tar as any).killedByPredator = true;
-              ani.hunger = Math.max(0, ani.hunger - 60); // Ate and replenished hunger!
-              addLog(`🐾 Food Chain: A wild ${ani.type} struck and devoured a ${tar.type}!`, 'combat');
+      // Execute attack if already tracking target (cheap per frame)
+      if (ani.hunger > 25) {
+        const hType = (ani as any).cachedHuntTargetType;
+        const hId = (ani as any).cachedHuntTargetId;
+        if (hType === 'villager') {
+          const v = tribe.find(t => t.id === hId && t.isAlive);
+          if (v) {
+            const dToV = (ani.x - v.x) ** 2 + (ani.z - v.z) ** 2;
+            if (dToV < 1.2 && Math.random() < 0.6 * deltaTime) {
+              v.stats.health = Math.max(10, v.stats.health - 25 * deltaTime);
+              v.statusText = `😱 Scream! Aggressed by feral ${ani.type}!`;
+              addLog(`⚠️ Terror Attack: A vicious wild ${ani.type} is actively biting ${v.name}! Needs immediate hunter backup!`, 'combat');
+              
+              const nearbyDefenders = tribe.filter(t => t.isAlive && t.role === 'Hunter' && (t.x - v.x) ** 2 + (t.z - v.z) ** 2 < 12 ** 2);
+              nearbyDefenders.forEach(def => {
+                if (def.activeJobType !== 'Hunt') {
+                  def.activeJobType = 'Hunt';
+                  def.jobTargetCoords = { x: Math.round(ani.x), z: Math.round(ani.z) };
+                  def.statusText = `🏹 Defender: Running to intercept feral ${ani.type}!`;
+                }
+              });
+            }
+          }
+        } else if (hType === 'animal') {
+          const tar = animals.find(a => a.id === hId && !a.isDead);
+          if (tar) {
+            const dToT = (ani.x - tar.x) ** 2 + (ani.z - tar.z) ** 2;
+            if (dToT < 1.1) {
+              tar.HP -= 35 * deltaTime;
+              tar.fear = 100;
+              if (tar.HP <= 0) {
+                tar.isDead = true;
+                (tar as any).killedByPredator = true;
+                ani.hunger = Math.max(0, ani.hunger - 60);
+                addLog(`🐾 Food Chain: A wild ${ani.type} struck and devoured a ${tar.type}!`, 'combat');
+                (ani as any).cachedHuntTargetType = null;
+                (ani as any).cachedHuntTargetId = null;
+              }
             }
           }
         }
@@ -774,30 +814,40 @@ export function tickEcosystemSimulation(
     // 5. SCAVENGERS SEEKING CORPSES
     if (ani.category === 'Scavenger' && !isScared) {
       if (activeCorpses.length > 0) {
-        // Find closest dead corpse
-        let closestCorp: Animal | null = null;
-        let dMin = 9999;
-        activeCorpses.forEach(corp => {
-          const d = (ani.x - corp.x) ** 2 + (ani.z - corp.z) ** 2;
-          if (d < dMin) {
-            dMin = d;
-            closestCorp = corp;
+        if (timerFired) {
+          let closestCorp: Animal | null = null;
+          let dMin = 9999;
+          activeCorpses.forEach(corp => {
+            const d = (ani.x - corp.x) ** 2 + (ani.z - corp.z) ** 2;
+            if (d < dMin) {
+              dMin = d;
+              closestCorp = corp;
+            }
+          });
+
+          if (closestCorp) {
+            const cp: Animal = closestCorp;
+            ani.targetX = cp.x;
+            ani.targetZ = cp.z;
+            (ani as any).cachedScavengeTargetId = cp.id;
+          } else {
+            (ani as any).cachedScavengeTargetId = null;
           }
-        });
+        }
 
-        if (closestCorp) {
-          const cp: Animal = closestCorp;
-          ani.targetX = cp.x;
-          ani.targetZ = cp.z;
-
-          const distToCorp = (ani.x - cp.x) ** 2 + (ani.z - cp.z) ** 2;
-          if (distToCorp < 1.0) {
-            // Peck at carcass, diminishing values
-            cp.meatAmount = Math.max(0, cp.meatAmount - 8 * deltaTime);
-            cp.hideAmount = Math.max(0, cp.hideAmount - 3 * deltaTime);
-            if (cp.meatAmount <= 0) {
-              cp.isHarvested = true; // Consumed completely!
-              addLog(`🦅 Scavengers: Vultures/Crows have picked the ${cp.type} carcass clean of leftovers.`, 'info');
+        const scavId = (ani as any).cachedScavengeTargetId;
+        if (scavId) {
+          const cp = activeCorpses.find(c => c.id === scavId);
+          if (cp) {
+            const distToCorp = (ani.x - cp.x) ** 2 + (ani.z - cp.z) ** 2;
+            if (distToCorp < 1.0) {
+              cp.meatAmount = Math.max(0, cp.meatAmount - 8 * deltaTime);
+              cp.hideAmount = Math.max(0, cp.hideAmount - 3 * deltaTime);
+              if (cp.meatAmount <= 0) {
+                cp.isHarvested = true;
+                addLog(`🦅 Scavengers: Vultures/Crows have picked the ${cp.type} carcass clean of leftovers.`, 'info');
+                (ani as any).cachedScavengeTargetId = null;
+              }
             }
           }
         }
@@ -806,15 +856,13 @@ export function tickEcosystemSimulation(
 
     // 6. GENTLE HERDING & WANDERING BEHAVIOR
     const alreadyMoving = Math.abs(ani.x - ani.targetX) > 0.1 || Math.abs(ani.z - ani.targetZ) > 0.1;
-    if (!alreadyMoving && Math.random() < 0.12 * deltaTime) {
+    if (!alreadyMoving && timerFired && Math.random() < 0.35) {
       // If we are a herd follower, let's seek or herd close to our leader!
       if (ani.herdId && !ani.isHerdLeader) {
         const leader = animals.find(other => other.herdId === ani.herdId && other.isHerdLeader && !other.isDead);
         if (leader) {
-          // Gravity pull to herd center/leader coordinates
           const offsetDist = (ani.x - leader.x) ** 2 + (ani.z - leader.z) ** 2;
           if (offsetDist > (2.5) ** 2) {
-            // Wander closer to herd leader
             ani.targetX = Math.round(leader.x + (Math.random() * 2 - 1));
             ani.targetZ = Math.round(leader.z + (Math.random() * 2 - 1));
             continue;

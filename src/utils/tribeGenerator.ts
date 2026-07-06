@@ -1003,15 +1003,90 @@ export function tickTribeSimulation(
     const personality = agent.personality || defaultPersonalities[Math.floor(Math.random() * defaultPersonalities.length)];
     let tempRelationships = agent.relationships ? [...agent.relationships] : [];
 
-    // --- Proximity Scan ---
-    const nearbyAgents = tribe.filter(
-      other => other.id !== agent.id && other.isAlive && Math.abs(other.x - agent.x) < 1.5 && Math.abs(other.z - agent.z) < 1.5
-    );
+    // --- Staggered AI Scheduler Timer ---
+    let aiTickTimer = agent.aiTickTimer ?? (Math.random() * 0.4);
+    aiTickTimer -= deltaTime;
+    let timerFired = false;
+    if (aiTickTimer <= 0) {
+      timerFired = true;
+      aiTickTimer = 0.2 + Math.random() * 0.2; // 0.2s to 0.4s intervals
+    }
 
-    const hasMentorNearby = nearbyAgents.some(other => {
-      const rel = tempRelationships.find(r => r.targetId === other.id);
-      return rel && rel.type === 'Mentor';
-    });
+    // --- Retrieve/Compute Proximity Checks ---
+    let socialSpeedModifier = (agent as any).socialSpeedModifier ?? 1.0;
+    let socialMoraleChange = (agent as any).socialMoraleChange ?? 0.0;
+    let hasMentorNearby = (agent as any).cachedHasMentorNearby ?? false;
+
+    if (timerFired) {
+      const nearbyAgents = tribe.filter(
+        other => other.id !== agent.id && other.isAlive && Math.abs(other.x - agent.x) < 1.5 && Math.abs(other.z - agent.z) < 1.5
+      );
+
+      hasMentorNearby = nearbyAgents.some(other => {
+        const rel = tempRelationships.find(r => r.targetId === other.id);
+        return rel && rel.type === 'Mentor';
+      });
+
+      let tempSpeed = 1.0;
+      let tempMorale = 0.0;
+
+      nearbyAgents.forEach(other => {
+        let rel = tempRelationships.find(r => r.targetId === other.id);
+        if (!rel) {
+          rel = { targetId: other.id, targetName: other.name, type: 'Friend', value: 10 };
+          tempRelationships.push(rel);
+        }
+
+        if (Math.random() < 0.03 * deltaTime * 15) {
+          let valDelta = 2;
+          if (personality === 'Lazy' && other.personality === 'Ambitious') {
+            valDelta = -6;
+          } else if (personality === 'Ambitious' && other.personality === 'Lazy') {
+            valDelta = -6;
+          } else if (personality === 'Greedy' && other.personality === 'Loyal') {
+            valDelta = -4;
+          } else if (personality === 'Brave' && other.personality === 'Brave') {
+            valDelta = 5;
+          } else if (personality === 'Curious' && other.personality === 'Curious') {
+            valDelta = 5;
+          }
+          
+          rel.value = Math.max(-100, Math.min(100, rel.value + valDelta));
+
+          if (rel.value > 45 && rel.type === 'Rival') {
+            rel.type = 'Friend';
+            addLog(`🤝 Harmony Restored: ${agent.name} and ${other.name} settled their past grudges and are now Friends!`, 'info');
+          } else if (rel.value < -35 && rel.type !== 'Rival') {
+            rel.type = 'Rival';
+            addLog(`😡 Bitter Rivalry: ${agent.name} and ${other.name} had a nasty argument and are now Rivals!`, 'warning');
+          } else if (rel.value >= 40 && rel.type !== 'Friend' && rel.type !== 'Family' && rel.type !== 'Mentor' && rel.type !== 'Apprentice') {
+            rel.type = 'Friend';
+            addLog(`🤝 New Friendship: ${agent.name} and ${other.name} became great friends!`, 'info');
+          }
+        }
+
+        if (rel.type === 'Friend') {
+          tempSpeed *= 1.25;
+          tempMorale += 0.6;
+        } else if (rel.type === 'Rival') {
+          tempSpeed *= 0.60;
+          tempMorale -= 1.5;
+          if (Math.random() < 0.003 * deltaTime * 20) {
+            addLog(`😡 Clashing Rivals: ${agent.name} and their rival ${other.name} are yelling and arguing nearby!`, 'warning');
+          }
+        } else if (rel.type === 'Mentor' && other.personality !== 'Lazy') {
+          tempSpeed *= 1.15;
+        } else if (rel.type === 'Apprentice') {
+          tempSpeed *= 1.15;
+        } else if (rel.type === 'Family') {
+          tempSpeed *= 1.15;
+          tempMorale += 0.9;
+        }
+      });
+
+      socialSpeedModifier = tempSpeed;
+      socialMoraleChange = tempMorale;
+    }
 
     let speedModifier = 1.0;
 
@@ -1031,60 +1106,8 @@ export function tickTribeSimulation(
       stats.morale = Math.max(0, stats.morale - 0.25 * deltaTime);
     }
 
-    // Nearby interactions
-    nearbyAgents.forEach(other => {
-      let rel = tempRelationships.find(r => r.targetId === other.id);
-      if (!rel) {
-        rel = { targetId: other.id, targetName: other.name, type: 'Friend', value: 10 };
-        tempRelationships.push(rel);
-      }
-
-      if (Math.random() < 0.03 * deltaTime * 15) {
-        let valDelta = 2;
-        if (personality === 'Lazy' && other.personality === 'Ambitious') {
-          valDelta = -6;
-        } else if (personality === 'Ambitious' && other.personality === 'Lazy') {
-          valDelta = -6;
-        } else if (personality === 'Greedy' && other.personality === 'Loyal') {
-          valDelta = -4;
-        } else if (personality === 'Brave' && other.personality === 'Brave') {
-          valDelta = 5;
-        } else if (personality === 'Curious' && other.personality === 'Curious') {
-          valDelta = 5;
-        }
-        
-        rel.value = Math.max(-100, Math.min(100, rel.value + valDelta));
-
-        if (rel.value > 45 && rel.type === 'Rival') {
-          rel.type = 'Friend';
-          addLog(`🤝 Harmony Restored: ${agent.name} and ${other.name} settled their past grudges and are now Friends!`, 'info');
-        } else if (rel.value < -35 && rel.type !== 'Rival') {
-          rel.type = 'Rival';
-          addLog(`😡 Bitter Rivalry: ${agent.name} and ${other.name} had a nasty argument and are now Rivals!`, 'warning');
-        } else if (rel.value >= 40 && rel.type !== 'Friend' && rel.type !== 'Family' && rel.type !== 'Mentor' && rel.type !== 'Apprentice') {
-          rel.type = 'Friend';
-          addLog(`🤝 New Friendship: ${agent.name} and ${other.name} became great friends!`, 'info');
-        }
-      }
-
-      if (rel.type === 'Friend') {
-        speedModifier *= 1.25;
-        stats.morale = Math.min(100, stats.morale + 0.6 * deltaTime);
-      } else if (rel.type === 'Rival') {
-        speedModifier *= 0.60;
-        stats.morale = Math.max(0, stats.morale - 1.5 * deltaTime);
-        if (Math.random() < 0.003 * deltaTime * 20) {
-          addLog(`😡 Clashing Rivals: ${agent.name} and their rival ${other.name} are yelling and arguing nearby!`, 'warning');
-        }
-      } else if (rel.type === 'Mentor' && other.personality !== 'Lazy') {
-        speedModifier *= 1.15;
-      } else if (rel.type === 'Apprentice') {
-        speedModifier *= 1.15;
-      } else if (rel.type === 'Family') {
-        speedModifier *= 1.15;
-        stats.morale = Math.min(100, stats.morale + 0.9 * deltaTime);
-      }
-    });
+    // Apply active social multipliers
+    speedModifier *= socialSpeedModifier;
 
     const ageScale = agent.agePhase === 'Child' ? 0.45 : agent.agePhase === 'Teenager' ? 0.8 : 1.0;
     stats.hunger = Math.max(0, stats.hunger - 1.15 * digestFactor * ageScale * deltaTime);
@@ -1106,6 +1129,9 @@ export function tickTribeSimulation(
     if (shrines > 0) {
       moraleChange += 1.5 * shrines * deltaTime;
     }
+
+    // Apply cached social morale change continuously scaled by deltaTime
+    moraleChange += socialMoraleChange * deltaTime;
 
     stats.morale = Math.max(0, Math.min(100, stats.morale + moraleChange));
 
@@ -1435,15 +1461,14 @@ export function tickTribeSimulation(
     if (isSweepingFallback) {
       shouldReevaluate = true;
     } else if (!activeJobType || !jobTargetCoords) {
-      // Idle agent! Only re-evaluate with a 12% chance per tick to avoid heavy 60FPS grid scans,
-      // OR if forced by a new blueprint/job placement!
-      if (Math.random() < 0.12) {
+      // Idle agent! Re-evaluate when our staggered scheduler timer fires!
+      if (timerFired) {
         shouldReevaluate = true;
       }
     } else {
-      // Performing active job. Check periodically (e.g., 4% per frame) if a better/higher priority job is available
+      // Performing active job. Check when our staggered scheduler timer fires to see if higher priority job available
       if (!inSurvivalSurvivalEmergency && activeJobType !== 'Sleep' && activeJobType !== 'Eat' && activeJobType !== 'Drink') {
-        if (Math.random() < 0.04) {
+        if (timerFired) {
           shouldReevaluate = true;
         }
       }
@@ -3401,6 +3426,10 @@ export function tickTribeSimulation(
       personality,
       relationships: tempRelationships,
       skills: { ...agent.skills },
+      aiTickTimer,
+      socialSpeedModifier,
+      socialMoraleChange,
+      cachedHasMentorNearby: hasMentorNearby,
       // Generational fields
       ageDays,
       ageYears,

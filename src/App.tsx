@@ -28,8 +28,10 @@ import { generateWorld } from './utils/worldBuilder';
 import GameCanvas from './components/GameCanvas';
 import Inspector from './components/Inspector';
 import ControlsOverlay from './components/ControlsOverlay';
-import WorldClock from './components/WorldClock';
+import TopCenterHUD from './components/TopCenterHUD';
+import { PerformancePanel } from './components/PerformancePanel';
 import { createTribesperson, tickTribeSimulation, ROLE_COLORS, establishSocialBonds } from './utils/tribeGenerator';
+import { tickExpeditionsSimulation } from './utils/expeditionSimulator';
 import { GodTips } from './components/GodTips';
 
 const INITIAL_WORLD_SEED = Math.floor(Math.random() * 8999) + 1000;
@@ -533,16 +535,29 @@ export default function App() {
               nextMap.stockpile.food = Math.round((nextMap.stockpile.food + newFood) * 10) / 10;
             }
 
+            const startTime = performance.now();
             setTribe((prevTribe) => {
               try {
-                let simulated = tickTribeSimulation(
+                // First process our customized ancient-site expedition ticks!
+                let simulated = tickExpeditionsSimulation(
                   prevTribe,
+                  nextMap,
+                  deltaDays,
+                  addLog
+                );
+
+                // Then process standard survivor needs and job pathfinding
+                simulated = tickTribeSimulation(
+                  simulated,
                   nextMap,
                   deltaDays,
                   timeSpeed,
                   addLog
                 );
                 
+                const endTime = performance.now();
+                (nextMap as any).perfSimulationTimeMs = endTime - startTime;
+
                 if ((nextMap as any).triggerHealingReward) {
                   simulated = simulated.map((p) => {
                     if (p.isAlive) {
@@ -1153,6 +1168,85 @@ export default function App() {
     }
   };
 
+  const handleLaunchExpedition = (x: number, z: number, scoutId: string, supplies: { item: string; amount: number }[], equipment: string[]) => {
+    setMapData((prev) => {
+      const nextMap = { ...prev };
+      nextMap.grid = prev.grid.map((row) =>
+        row.map((cell) => {
+          if (cell.x === x && cell.z === z && cell.expeditionSite) {
+            const site = { ...cell.expeditionSite };
+            site.activeScouts = [...site.activeScouts, scoutId];
+            return { ...cell, expeditionSite: site };
+          }
+          return cell;
+        })
+      );
+
+      // Deduct supplies from stockpile
+      supplies.forEach((s) => {
+        if (nextMap.stockpile[s.item as keyof typeof nextMap.stockpile] !== undefined) {
+          (nextMap.stockpile as any)[s.item] = Math.max(0, (nextMap.stockpile as any)[s.item] - s.amount);
+        }
+      });
+
+      // Deduct equipment from stockpile
+      equipment.forEach((eq) => {
+        if (nextMap.stockpile[eq as keyof typeof nextMap.stockpile] !== undefined) {
+          (nextMap.stockpile as any)[eq] = Math.max(0, (nextMap.stockpile as any)[eq] - 1);
+        }
+      });
+
+      return nextMap;
+    });
+
+    setTribe((prevTribe) =>
+      prevTribe.map((p) => {
+        if (p.id === scoutId) {
+          const backpackItems: Record<string, number> = {};
+          equipment.forEach(eq => {
+            backpackItems[eq] = 1;
+          });
+
+          return {
+            ...p,
+            expeditionState: 'entering',
+            expeditionTargetCoords: { x, z },
+            expeditionTimer: 1.5, // 1.5 game hours walking
+            expeditionDuration: 12,
+            expeditionSiteName: selectedCell?.expeditionSite?.name || 'Ancient Ruins',
+            expeditionSiteType: selectedCell?.expeditionSite?.templateId || '',
+            expeditionLootCollected: {},
+            expeditionUniqueFinds: [],
+            expeditionLogs: [`🚶 [Hour 0] Packed supplies and optional gear. Began marching to the coordinates of ${selectedCell?.expeditionSite?.name || 'Ancient Ruins'}.`],
+            activeJobType: 'Scout' as const,
+            jobTargetCoords: { x, z },
+            targetX: x,
+            targetZ: z,
+            personalInventory: {
+              ...p.personalInventory,
+              items: backpackItems
+            },
+            statusText: `🚶 Travelling to ${selectedCell?.expeditionSite?.name || 'Ancient Ruins'}...`
+          };
+        }
+        return p;
+      })
+    );
+
+    // Mirror in local selectedCell state so it updates instantly in the UI panel
+    setSelectedCell((prev) => {
+      if (prev && prev.x === x && prev.z === z && prev.expeditionSite) {
+        const site = { ...prev.expeditionSite };
+        site.activeScouts = [...site.activeScouts, scoutId];
+        return { ...prev, expeditionSite: site };
+      }
+      return prev;
+    });
+
+    const scoutName = tribe.find(p => p.id === scoutId)?.name || 'Scout';
+    addLog(`🚀 Expedition: ${scoutName} has loaded gear and set out for ${selectedCell?.expeditionSite?.name || 'Ancient Site'}!`, 'success');
+  };
+
   const handleRelocateStructure = (sx: number, sz: number, tx: number, tz: number) => {
     if (sx === tx && sz === tz) {
       setRelocatingStructure(null);
@@ -1708,14 +1802,22 @@ export default function App() {
       {/* Floating HUD clock header and active game controls */}
       {!showMainMenu && (
         <>
-          {/* Floating HUD clock header placed at top-right out of control overlays */}
+          {/* Floating HUD clock header placed at upper center */}
           <div 
             id="hud-header"
-            className="absolute top-4 right-4 z-40 pointer-events-none flex items-center justify-end"
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-40 pointer-events-none flex flex-col items-center"
           >
-            <div className="pointer-events-auto">
-              <WorldClock gameDays={gameDays} />
-            </div>
+            <TopCenterHUD
+              gameDays={gameDays}
+              timeOfDay={timeOfDay}
+              onChangeTimeOfDay={setTimeOfDay}
+              timeSpeed={timeSpeed}
+              onChangeTimeSpeed={setTimeSpeed}
+              isCreativeMode={isCreativeMode}
+              onToggleCreativeMode={toggleCreativeMode}
+              nextCarePackageDay={nextCarePackageDay}
+              onOpenCarePackage={generateCarePackageOptions}
+            />
           </div>
 
           {/* Game Interactive Controls Overlay (Left Column, Active Tabs, Log widgets) */}
@@ -1756,6 +1858,9 @@ export default function App() {
             gameDays={gameDays}
           />
 
+          {/* Performance telemetry diagnostics panel HUD */}
+          <PerformancePanel mapData={mapData} tribe={tribe} />
+
           {/* Interactive Selected Mesh Inspector Overlay (Right Column Panel Slider) */}
           <Inspector
             selectedCell={selectedCell}
@@ -1770,6 +1875,7 @@ export default function App() {
             mapData={mapData}
             onDesignateConstruction={handleDesignateConstruction}
             onManualAction={handleExecuteManualAction}
+            onLaunchExpedition={handleLaunchExpedition}
             onStartCraft={handleStartCraft}
             onCancelCraft={handleCancelCraft}
             onResearch={handleResearch}
