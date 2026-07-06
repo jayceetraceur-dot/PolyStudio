@@ -32,7 +32,9 @@ import TopCenterHUD from './components/TopCenterHUD';
 import { PerformancePanel } from './components/PerformancePanel';
 import { createTribesperson, tickTribeSimulation, ROLE_COLORS, establishSocialBonds } from './utils/tribeGenerator';
 import { tickExpeditionsSimulation } from './utils/expeditionSimulator';
+import { runWeeklyVillageSimulation, rollDailyVisitorArrival } from './utils/villageSimulator';
 import { GodTips } from './components/GodTips';
+import { OracleHub } from './components/OracleHub';
 
 const INITIAL_WORLD_SEED = Math.floor(Math.random() * 8999) + 1000;
 const INITIAL_WORLD_CONFIG: WorldConfig = {
@@ -109,6 +111,7 @@ export default function App() {
   const [nextCarePackageDay, setNextCarePackageDay] = useState(1);
   const [showCarePackagePopup, setShowCarePackagePopup] = useState(false);
   const [carePackageOptions, setCarePackageOptions] = useState<any[]>([]);
+  const [showOracleHub, setShowOracleHub] = useState(false);
 
   // Toggle Creative settings
   const toggleCreativeMode = (enabled: boolean) => {
@@ -269,7 +272,97 @@ export default function App() {
     isGeneratingNewWorldRef.current = false;
     
     setConfig(saveState.config);
-    setMapData(saveState.mapData);
+    
+    // Defensive merging for Oracle systems in case loading old save
+    const loadedMapData = { ...saveState.mapData };
+    if (loadedMapData.stormDaysUntilMigration === undefined) loadedMapData.stormDaysUntilMigration = 12;
+    if (loadedMapData.stormSpeed === undefined) loadedMapData.stormSpeed = 1.0;
+    if (loadedMapData.stormMovementDirection === undefined) loadedMapData.stormMovementDirection = 'East';
+    if (loadedMapData.stormDangerLevel === undefined) loadedMapData.stormDangerLevel = 'Low';
+    if (!loadedMapData.knownVillages) {
+      loadedMapData.knownVillages = [
+        {
+          id: 'v1',
+          name: 'Red Hollow',
+          distance: 8,
+          relationship: 10,
+          trust: 25,
+          fear: 5,
+          respect: 15,
+          population: 45,
+          knownOracle: 'Vaelen',
+          availableTradeGoods: [
+            { item: 'meat', quantity: 20, price: 5 },
+            { item: 'bone', quantity: 15, price: 3 },
+            { item: 'horns', quantity: 5, price: 15 }
+          ],
+          neededGoods: [
+            { item: 'reservoirWater', priceMultiplier: 1.8 },
+            { item: 'berries', priceMultiplier: 1.5 }
+          ],
+          dangerStatus: 'Safe',
+          lastContactTime: '3 days ago',
+          visitorsMayArrive: true
+        },
+        {
+          id: 'v2',
+          name: 'Bloomfields Clan',
+          distance: 14,
+          relationship: 20,
+          trust: 40,
+          fear: 0,
+          respect: 30,
+          population: 60,
+          knownOracle: 'Sariel',
+          availableTradeGoods: [
+            { item: 'berries', quantity: 40, price: 2 },
+            { item: 'fiber', quantity: 30, price: 3 },
+            { item: 'mushrooms', quantity: 20, price: 4 }
+          ],
+          neededGoods: [
+            { item: 'stone', priceMultiplier: 1.5 },
+            { item: 'wood', priceMultiplier: 1.3 }
+          ],
+          dangerStatus: 'Safe',
+          lastContactTime: 'Yesterday',
+          visitorsMayArrive: true
+        }
+      ];
+    }
+    if (!loadedMapData.oracleMessages) {
+      loadedMapData.oracleMessages = [
+        {
+          id: 'msg1',
+          sender: 'Oracle Vaelen (Red Hollow)',
+          text: 'Greetings, fellow Reader of Sky. The Red Hollow suffers a drying period; our water cisterns are empty. We seek water in exchange for meat.',
+          timeSent: 'Day 1',
+          actionable: true,
+          type: 'help',
+          status: 'pending',
+          cost: { item: 'reservoirWater', qty: 15 },
+          reward: { item: 'meat', qty: 30 },
+          rewardDescription: 'Gain 30 Meat and +15 Relationship with Red Hollow'
+        }
+      ];
+    }
+    if (!loadedMapData.discoveredRelics) {
+      loadedMapData.discoveredRelics = [
+        {
+          id: 'relic1',
+          name: 'Aegis Command Matrix',
+          unknownFunction: 'Suppressed Supply Beacon',
+          studyProgress: 0,
+          researchValue: 20,
+          dangerLevel: 'Low',
+          requiredOracleLevel: 1,
+          rewardType: 'resources',
+          rewardDesc: 'Coordinates for dropped cargo container (+100 Wood, +100 Stone, +5 Gold)'
+        }
+      ];
+    }
+    if (!loadedMapData.predictionHistory) loadedMapData.predictionHistory = [];
+
+    setMapData(loadedMapData);
     setTribe(saveState.tribe);
     setGameDays(saveState.gameDays);
     setWorldId(Math.random());
@@ -503,6 +596,65 @@ export default function App() {
               }
             }
 
+            // 1.7 Advance the Storm!
+            if (nextMap.stormDaysUntilMigration !== undefined) {
+              const previousDays = prevMap.stormDaysUntilMigration ?? 12;
+              nextMap.stormDaysUntilMigration -= deltaDays;
+              
+              if (previousDays > 0 && nextMap.stormDaysUntilMigration <= 0) {
+                addLog(`🔴 THE STORM WALL HAS REACHED THE CAMP! The moving Eye has left you behind! Food is rotting, and survivors are taking catastrophic static damage! MIGRATE IMMEDIATELY!`, 'warning');
+              }
+              
+              if (nextMap.stormDaysUntilMigration <= 0) {
+                // Decays food
+                nextMap.stockpile.food = Math.max(0, nextMap.stockpile.food - deltaDays * 35.0);
+                if (nextMap.stockpile.berriesFresh > 0) nextMap.stockpile.berriesFresh = Math.max(0, nextMap.stockpile.berriesFresh - deltaDays * 45.0);
+                if (nextMap.stockpile.meatFresh > 0) nextMap.stockpile.meatFresh = Math.max(0, nextMap.stockpile.meatFresh - deltaDays * 45.0);
+                if (nextMap.stockpile.rootsFresh > 0) nextMap.stockpile.rootsFresh = Math.max(0, nextMap.stockpile.rootsFresh - deltaDays * 45.0);
+                if (nextMap.stockpile.mushroomsFresh > 0) nextMap.stockpile.mushroomsFresh = Math.max(0, nextMap.stockpile.mushroomsFresh - deltaDays * 45.0);
+              }
+            }
+
+            // 1.8 OFF-SCREEN VILLAGE SIMULATION & PHYSICAL VISITOR TICKS
+            const currentDays = (gameDaysRef.current ?? 0.40) + deltaDays;
+            nextMap.gameDaysPlayed = currentDays;
+
+            // Weekly Off-Screen Simulation Ticks (every 7 game days)
+            const lastSimDay = prevMap.lastVillageSimulationDay ?? 0.40;
+            if (currentDays - lastSimDay >= 7.0) {
+              const { updatedVillages, newMessages } = runWeeklyVillageSimulation(prevMap, currentDays, addLog);
+              nextMap.knownVillages = updatedVillages;
+              nextMap.oracleMessages = [...newMessages, ...(prevMap.oracleMessages || [])].slice(0, 50);
+              nextMap.lastVillageSimulationDay = currentDays;
+            }
+
+            // Daily Visitor Arrival Rolls (on integer day rollover)
+            const lastCheckDay = prevMap.lastVisitorCheckDay ?? Math.floor(currentDays);
+            if (Math.floor(currentDays) > lastCheckDay) {
+              nextMap.lastVisitorCheckDay = Math.floor(currentDays);
+              
+              // Only spawn new visitor group if the previous group departed
+              if (!nextMap.activeVisitorGroup) {
+                const visitorGroup = rollDailyVisitorArrival(currentDays, nextMap.knownVillages || []);
+                if (visitorGroup) {
+                  nextMap.activeVisitorGroup = visitorGroup;
+                  addLog(`👥 CONTACT: A ${visitorGroup.name} has arrived at the boundary of your loaded area! Visit the Oracle menu or check the campsite.`, 'info');
+                }
+              }
+            }
+
+            // Visitor Timer Decay & Auto-Departure
+            if (nextMap.activeVisitorGroup) {
+              const visitor = { ...nextMap.activeVisitorGroup };
+              visitor.daysRemaining -= deltaDays;
+              if (visitor.daysRemaining <= 0) {
+                addLog(`👥 Departure: The ${visitor.name} has packed up their belongings and departed.`, 'info');
+                nextMap.activeVisitorGroup = null;
+              } else {
+                nextMap.activeVisitorGroup = visitor;
+              }
+            }
+
             // 2. Accumulate Research Points Passively
             let machinesCount = 0;
             let precursorGenerators = 0;
@@ -554,6 +706,24 @@ export default function App() {
                   timeSpeed,
                   addLog
                 );
+                
+                // If storm is engulfing, damage living tribespeople!
+                if (nextMap.stormDaysUntilMigration !== undefined && nextMap.stormDaysUntilMigration <= 0) {
+                  // Damage rate: about 15 HP lost per game hour. 15 * 24 = 360 HP lost per game day.
+                  const damageAmount = deltaDays * 360; 
+                  simulated = simulated.map((p) => {
+                    if (p.isAlive) {
+                      const nextHealth = Math.max(0, p.stats.health - damageAmount);
+                      const stats = { ...p.stats, health: nextHealth };
+                      if (nextHealth <= 0) {
+                        addLog(`💀 ${p.name} has been consumed by the lethal static of the Storm Wall!`, 'death');
+                        return { ...p, isAlive: false, deathReason: 'Storm Wall Engulfment', stats };
+                      }
+                      return { ...p, stats };
+                    }
+                    return p;
+                  });
+                }
                 
                 const endTime = performance.now();
                 (nextMap as any).perfSimulationTimeMs = endTime - startTime;
@@ -717,13 +887,21 @@ export default function App() {
       cell.hasRock = false;
       cell.hasShrub = false;
 
-      if (type === 'Wheat') {
+      const cropTypes: Record<string, string> = {
+        Wheat: 'Solar Wheat',
+        AmberMaize: 'Amber Glow-Corn',
+        VortexCabbage: 'Vortex Jade-Cabbage',
+        Gemberries: 'Cinder Gem-Berry',
+        Stormroot: 'Storm-Root Bulb'
+      };
+
+      if (cropTypes[type]) {
         cell.farmCrop = {
-          type: 'Wheat',
+          type: type as any,
           stage: 'sown',
           progress: 0,
         };
-        cell.inspectableName = 'Sown Wheat crop slot';
+        cell.inspectableName = `Sown ${cropTypes[type]} Crop Plot`;
       } else {
         cell.construction = {
           type,
@@ -1567,11 +1745,11 @@ export default function App() {
     const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
       ani.isTame && 
       (ani as any).assignedJobType === 'transport' && 
-      !['Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+      !['JackLeaper', 'TuskedShagBeast', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle', 'Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
     ) || [];
 
     if (bigBeastTamedAndTransport.length === 0) {
-      addLog(`⚠️ Migration blocked: You need at least one big tamed animal (such as an Elk, Boar, PackBird, or Cattle) assigned to "Pull Wagons" role to transport your caravan cart to a new region!`, 'warning');
+      addLog(`⚠️ Migration blocked: You need at least one big tamed animal (such as a Silt Camel, Frilled Shield-Horn, or Ancient Dome-Back) assigned to "Pull Wagons" role to transport your caravan cart to a new region!`, 'warning');
       return;
     }
 
@@ -1612,9 +1790,48 @@ export default function App() {
     });
 
     setConfig(newConfig);
+    
+    // Randomize storm properties for the new region
+    nextMap.stormDaysUntilMigration = 10 + Math.floor(Math.random() * 8);
+    nextMap.stormSpeed = parseFloat((0.8 + Math.random() * 0.6).toFixed(1));
+    const directions = ['North', 'East', 'South', 'West', 'Northeast', 'Northwest', 'Southeast', 'Southwest'] as const;
+    nextMap.stormMovementDirection = directions[Math.floor(Math.random() * directions.length)];
+    const dangers = ['Low', 'Medium', 'High'] as const;
+    nextMap.stormDangerLevel = dangers[Math.floor(Math.random() * dangers.length)];
+
     setMapData(nextMap);
     setWorldId(Math.random());
     setSelectedCell(null);
+
+    // Award 100 XP to any active living Oracle for a successful migration
+    setTribe((prevTribe) => {
+      return prevTribe.map(agent => {
+        let skills = agent.skills;
+        if (agent.isAlive && agent.role === 'Oracle') {
+          skills = { ...agent.skills };
+          if (skills.Oracle) {
+            const skill = { ...skills.Oracle };
+            skill.xp += 100;
+            if (skill.xp >= skill.xpToNextLevel) {
+              skill.level += 1;
+              skill.xp -= skill.xpToNextLevel;
+              skill.xpToNextLevel = Math.round(skill.xpToNextLevel * 1.5);
+              addLog(`🎉 LEVEL UP! Oracle ${agent.name} has reached level ${skill.level}!`, 'level');
+            }
+            skills.Oracle = skill;
+          }
+        }
+        return {
+          ...agent,
+          skills,
+          x: centerX + (Math.random() * 2 - 1),
+          z: centerZ + (Math.random() * 2 - 1),
+          activeJobType: null,
+          jobTargetCoords: null,
+          workProgress: 0
+        };
+      });
+    });
 
     addLog(`🚚 MIGRATION SUCCESSFUL! Your tribe and caravan wagon have migrated to a brand-new region (Seed: ${newSeed}). Your ${bigBeastTamedAndTransport.map(b => b.type).join(', ')} successfully pulled the wagons!`, 'success');
   };
@@ -1882,6 +2099,7 @@ export default function App() {
             onStudyRelic={handleStudyRelic}
             tribe={tribe}
             isCreativeMode={isCreativeMode}
+            onOpenOracleHub={() => setShowOracleHub(true)}
           />
 
           {/* Relocation Mode Active Prompt */}
@@ -2383,6 +2601,24 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* ORACLE HUB INTERACTIVE INFORMATION HUB OVERLAY */}
+      {showOracleHub && (() => {
+        const activeOracle = tribe.find(p => p.isAlive && p.role === 'Oracle');
+        if (!activeOracle) return null;
+        return (
+          <OracleHub
+            mapData={mapData}
+            setMapData={setMapData}
+            tribe={tribe}
+            setTribe={setTribe}
+            oracle={activeOracle}
+            onClose={() => setShowOracleHub(false)}
+            addLog={addLog}
+            gameDays={gameDays}
+          />
+        );
+      })()}
 
       {/* PAUSE MENU OVERLAY PANEL */}
       {showPauseMenu && !showMainMenu && (

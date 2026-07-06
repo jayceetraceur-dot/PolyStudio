@@ -17,39 +17,221 @@ export interface SpeciesConf {
 }
 
 export const SPECIES_DB: Record<string, SpeciesConf> = {
-  Fish: {
+  // --- INSECTS & SMALL CREATURES (Image 1) ---
+  GlowGrub: {
+    category: 'Herbivore',
+    maxHP: 12,
+    speed: 0.6,
+    yields: { meat: 5, hide: 1, bones: 1, fat: 0.5, rare: 1 }, // rare = glowing fluid
+    description: 'A soft-bodied, neon-veined Glow-Grub found under rich topsoil.',
+    emoji: '🐛',
+    preferredBiomes: ['forest', 'grassland']
+  },
+  CinderCentipede: {
+    category: 'Herbivore',
+    maxHP: 18,
+    speed: 0.9,
+    yields: { meat: 8, hide: 1, bones: 2, fat: 1, rare: 2 }, // rare = static scale
+    description: 'A multi-segmented Cinder-Centipede buzzing with minor static charge.',
+    emoji: '🐛',
+    preferredBiomes: ['rocky', 'forest']
+  },
+  PricklyBeetle: {
+    category: 'Herbivore',
+    maxHP: 22,
+    speed: 0.7,
+    yields: { meat: 10, hide: 2, bones: 2, fat: 1, rare: 2 },
+    description: 'A spiky, protective Prickly Beetle crawling on dry flora.',
+    emoji: '🐞',
+    preferredBiomes: ['desert', 'beach']
+  },
+
+  // --- HERBIVORES / NEUTRAL (Image 1) ---
+  JackLeaper: {
+    category: 'Herbivore',
+    maxHP: 20,
+    speed: 1.5,
+    yields: { meat: 10, hide: 2, bones: 1, fat: 1, rare: 0 },
+    description: 'A high-speed Jack-Leaper with giant, sound-sensitive ears.',
+    emoji: '🐇',
+    preferredBiomes: ['grassland', 'forest', 'desert']
+  },
+  PrismHornAntelope: {
+    category: 'Herbivore',
+    maxHP: 75,
+    speed: 1.6,
+    yields: { meat: 40, hide: 9, bones: 7, fat: 4, rare: 2 }, // rare = crystal horn
+    description: 'A graceful, long-legged Prism-Horn Antelope that bounds across the dry silt steppes.',
+    emoji: '🦌',
+    preferredBiomes: ['grassland', 'desert']
+  },
+  TuskedShagBeast: {
+    category: 'Herbivore',
+    maxHP: 60,
+    speed: 0.9,
+    yields: { meat: 35, hide: 15, bones: 6, fat: 6, rare: 5 }, // rare = shag wool
+    description: 'A heavily woolled Tusked Shag-Beast with protective head horns. Highly cooperative grazer.',
+    emoji: '🐑',
+    preferredBiomes: ['grassland', 'beach']
+  },
+  SiltCamel: {
+    category: 'Herbivore',
+    maxHP: 130,
+    speed: 0.8,
+    yields: { meat: 80, hide: 22, bones: 14, fat: 12, rare: 4 }, // rare = camel wool
+    description: 'A tall, resilient desert grazer with exceptional load capacity.',
+    emoji: '🐫',
+    preferredBiomes: ['desert', 'grassland']
+  },
+  AncientDomeBack: {
+    category: 'Herbivore',
+    maxHP: 110,
+    speed: 0.5,
+    yields: { meat: 55, hide: 20, bones: 12, fat: 8, rare: 4 }, // rare = mossy plate
+    description: 'An ancient Dome-Back with fossil-hardened mossy slate plates on its back.',
+    emoji: '🐢',
+    preferredBiomes: ['forest', 'grassland', 'beach']
+  },
+  FrilledShieldHorn: {
+    category: 'Herbivore',
+    maxHP: 160,
+    speed: 0.7,
+    yields: { meat: 100, hide: 30, bones: 18, fat: 18, rare: 6 }, // rare = shield crest
+    description: 'A massive, thick-skinned Frilled Shield-Horn with defensive head plates and a nose horn.',
+    emoji: '🦏',
+    preferredBiomes: ['desert', 'rocky', 'grassland']
+  },
+
+  // --- PREDATORS / CARNIVORES (Image 1) ---
+  ProwlerJackal: {
+    category: 'SmallPredator',
+    maxHP: 45,
+    speed: 1.4,
+    yields: { meat: 18, hide: 9, bones: 4, fat: 3, rare: 2 }, // rare = sleek pelt
+    description: 'A sleek golden Prowler Jackal that stalks small burrowers.',
+    emoji: '🦊',
+    preferredBiomes: ['forest', 'grassland']
+  },
+  ChitinSlasher: {
+    category: 'SmallPredator',
+    maxHP: 70,
+    speed: 1.25,
+    yields: { meat: 30, hide: 10, bones: 6, fat: 4, rare: 3 }, // rare = venom tail
+    description: 'A territorial, golden-orange Chitin Slasher armed with a jointed stormtail.',
+    emoji: '🦂',
+    preferredBiomes: ['desert', 'rocky']
+  },
+  GaleWingFlier: {
+    category: 'SmallPredator',
+    maxHP: 50,
+    speed: 1.35,
+    yields: { meat: 20, hide: 4, bones: 6, fat: 2, rare: 3 }, // rare = leathery wings
+    description: 'A bat-winged flying predator that dives from above.',
+    emoji: '🦇',
+    preferredBiomes: ['desert', 'rocky']
+  },
+  VelociSkitterer: {
+    category: 'SmallPredator',
+    maxHP: 65,
+    speed: 1.55,
+    yields: { meat: 35, hide: 10, bones: 8, fat: 5, rare: 3 },
+    description: 'A swift, bipedal runner reptile that skitters dynamically through sandy dunes.',
+    emoji: '🦖',
+    preferredBiomes: ['desert', 'grassland']
+  },
+  SpinedSaberWolf: {
+    category: 'ApexPredator',
+    maxHP: 200,
+    speed: 1.3,
+    yields: { meat: 95, hide: 32, bones: 18, fat: 20, rare: 12 }, // claws/tusks
+    description: 'A muscular, double-fanged Spined Saber-Wolf commanding the canyons.',
+    emoji: '🐺',
+    preferredBiomes: ['forest', 'rocky']
+  },
+  ScytheBeakStrider: {
+    category: 'ApexPredator',
+    maxHP: 240,
+    speed: 1.4,
+    yields: { meat: 110, hide: 35, bones: 22, fat: 15, rare: 15 }, // scythe bones
+    description: 'A tall, six-legged Scythe-Beak Strider with powerful mantis claws and a curved beak.',
+    emoji: '🦗',
+    preferredBiomes: ['forest', 'desert', 'rocky']
+  },
+
+  // --- SCAVENGERS / OMNIVORES (Image 1) ---
+  StormVulture: {
+    category: 'Scavenger',
+    maxHP: 55,
+    speed: 1.1,
+    yields: { meat: 16, hide: 3, bones: 8, fat: 2, rare: 4 }, // rare = storm feathers
+    description: 'A hunched, bald Storm Vulture scavenging battlefield and desert remains.',
+    emoji: '🦅',
+    preferredBiomes: ['desert', 'rocky']
+  },
+  PlateBackShellgrazer: {
+    category: 'Scavenger',
+    maxHP: 75,
+    speed: 0.9,
+    yields: { meat: 35, hide: 12, bones: 10, fat: 6, rare: 3 }, // rare = shell plates
+    description: 'An armored, low-slung Plate-Back Shellgrazer digging up subsurface larvae and seeds.',
+    emoji: '🦫',
+    preferredBiomes: ['grassland', 'desert', 'beach']
+  },
+  SiltBadger: {
+    category: 'Scavenger',
+    maxHP: 65,
+    speed: 1.2,
+    yields: { meat: 25, hide: 8, bones: 6, fat: 4, rare: 2 },
+    description: 'A ferocious, low-built Silt Badger that defends its carcass caches aggressively.',
+    emoji: '🦡',
+    preferredBiomes: ['forest', 'grassland']
+  },
+  CarapaceScarab: {
+    category: 'Scavenger',
+    maxHP: 80,
+    speed: 0.85,
+    yields: { meat: 40, hide: 15, bones: 10, fat: 8, rare: 4 },
+    description: 'A massive, six-legged heavy Carapace Scarab capable of crushing dry bones.',
+    emoji: '🪲',
+    preferredBiomes: ['desert', 'rocky', 'grassland']
+  },
+
+  // --- WATER SPECIES ---
+  AureliaFish: {
     category: 'Herbivore',
     maxHP: 15,
     speed: 0.8,
-    yields: { meat: 12, hide: 0, bones: 2, fat: 1, rare: 0 },
-    description: 'A glistening scaley lake fish swimming dynamically.',
+    yields: { meat: 12, hide: 0, bones: 2, fat: 1, rare: 1 }, // rare = glowing scales
+    description: 'A glowing, scale-less Aurelia Fish darting through clear lake water.',
     emoji: '🐟',
     preferredBiomes: ['water']
   },
+
+  // --- BACKWARDS COMPATIBILITY ALIASES ---
   Rabbit: {
     category: 'Herbivore',
     maxHP: 20,
     speed: 1.5,
     yields: { meat: 10, hide: 2, bones: 1, fat: 1, rare: 0 },
-    description: 'A nimble, high-speed cotton-tail. Extremity alert and highly evasive.',
+    description: 'A high-speed Jack-Leaper with giant, sound-sensitive ears.',
     emoji: '🐇',
-    preferredBiomes: ['grassland', 'forest']
+    preferredBiomes: ['grassland', 'forest', 'desert']
   },
   Deer: {
     category: 'Herbivore',
-    maxHP: 80,
-    speed: 1.25,
-    yields: { meat: 45, hide: 10, bones: 8, fat: 5, rare: 2 }, // rare = antlers
-    description: 'A graceful and majestic wild deer. Forms organized, nervous forest herds.',
+    maxHP: 75,
+    speed: 1.6,
+    yields: { meat: 40, hide: 9, bones: 7, fat: 4, rare: 2 },
+    description: 'A graceful, long-legged Prism-Horn Antelope that bounds across the dry silt steppes.',
     emoji: '🦌',
-    preferredBiomes: ['forest', 'grassland']
+    preferredBiomes: ['grassland', 'desert']
   },
   Sheep: {
     category: 'Herbivore',
-    maxHP: 55,
+    maxHP: 60,
     speed: 0.9,
-    yields: { meat: 35, hide: 15, bones: 6, fat: 6, rare: 5 }, // rare = wool blankets
-    description: 'A gentle woolly sheep. Highly cooperative herd grazer, very easy to tame.',
+    yields: { meat: 35, hide: 15, bones: 6, fat: 6, rare: 5 },
+    description: 'A heavily woolled Tusked Shag-Beast with protective head horns.',
     emoji: '🐑',
     preferredBiomes: ['grassland', 'beach']
   },
@@ -57,71 +239,71 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     category: 'Herbivore',
     maxHP: 60,
     speed: 1.1,
-    yields: { meat: 40, hide: 8, bones: 8, fat: 4, rare: 3 }, // rare = horns
+    yields: { meat: 40, hide: 8, bones: 8, fat: 4, rare: 3 },
     description: 'A rugged climber. Extremely comfortable on rough, stony terrain.',
     emoji: '🐐',
     preferredBiomes: ['rocky', 'desert']
   },
   Cattle: {
     category: 'Herbivore',
-    maxHP: 150,
+    maxHP: 160,
     speed: 0.7,
-    yields: { meat: 90, hide: 25, bones: 15, fat: 15, rare: 4 }, // rare = horns
+    yields: { meat: 100, hide: 30, bones: 18, fat: 18, rare: 6 },
     description: 'A massive wild bull. Slow, resilient, holds immense payload capacity.',
     emoji: '🐂',
     preferredBiomes: ['grassland']
   },
   PackBird: {
     category: 'Herbivore',
-    maxHP: 120,
-    speed: 1.35,
-    yields: { meat: 60, hide: 12, bones: 12, fat: 8, rare: 8 }, // rare = feathers
+    maxHP: 130,
+    speed: 0.8,
+    yields: { meat: 80, hide: 22, bones: 14, fat: 12, rare: 4 },
     description: 'A tall flightless runner. Extremely reliable for pulling heavier caravans.',
     emoji: '🦤',
     preferredBiomes: ['desert', 'beach']
   },
   Elk: {
     category: 'Herbivore',
-    maxHP: 120,
-    speed: 1.2,
-    yields: { meat: 70, hide: 18, bones: 12, fat: 10, rare: 4 }, // rare = antlers
-    description: 'A massive, cold-hardy elk with robust visual crown antlers.',
+    maxHP: 110,
+    speed: 0.5,
+    yields: { meat: 55, hide: 20, bones: 12, fat: 8, rare: 4 },
+    description: 'An ancient Dome-Back with fossil-hardened mossy slate plates on its back.',
     emoji: '🦌',
     preferredBiomes: ['forest']
   },
   Antelope: {
     category: 'Herbivore',
-    maxHP: 70,
+    maxHP: 75,
     speed: 1.6,
-    yields: { meat: 35, hide: 8, bones: 6, fat: 4, rare: 1 },
-    description: 'The fastest runner across the steppes. Detects threat ripples instantly.',
+    yields: { meat: 40, hide: 9, bones: 7, fat: 4, rare: 2 },
+    description: 'A graceful, long-legged Prism-Horn Antelope that bounds across the dry silt steppes.',
     emoji: '🦌',
     preferredBiomes: ['grassland', 'desert']
   },
   Boar: {
-    category: 'Herbivore', // technically omnivore, registers as defensive herbivore
+    category: 'Herbivore',
     maxHP: 90,
     speed: 0.95,
-    yields: { meat: 50, hide: 12, bones: 8, fat: 12, rare: 3 }, // rare = tusks
+    yields: { meat: 50, hide: 12, bones: 8, fat: 12, rare: 3 },
     description: 'An aggressive wild pig. Attacks back fiercely when provoked or injured.',
     emoji: '🐗',
     preferredBiomes: ['forest', 'rocky']
   },
   Fox: {
     category: 'SmallPredator',
-    maxHP: 40,
+    maxHP: 45,
     speed: 1.4,
-    yields: { meat: 15, hide: 8, bones: 4, fat: 3, rare: 2 }, // rare = pelt
-    description: 'A clever, sleek predator. Primarily stalks rabbits and flees larger threats.',
+    yields: { meat: 18, hide: 9, bones: 4, fat: 3, rare: 2 },
+    description: 'A sleek golden Prowler Jackal that stalks small burrowers.',
     emoji: '🦊',
     preferredBiomes: ['forest', 'grassland']
   },
   Wolf: {
     category: 'SmallPredator',
-    maxHP: 85,
-    speed: 1.2,
-    yields: { meat: 35, hide: 12, bones: 8, fat: 6, rare: 35 },
-    description: 'A cunning pack predator. Stalks deers, wolves can overwhelm single targets.',
+    maxHP: 70,
+    speed: 1.25,
+    yields: { meat: 30, hide: 10, bones: 6, fat: 4, rare: 3 },
+    description: 'A cunning pack predator.',
     emoji: '🐺',
     preferredBiomes: ['forest', 'rocky']
   },
@@ -130,16 +312,16 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     maxHP: 60,
     speed: 1.3,
     yields: { meat: 25, hide: 8, bones: 6, fat: 4, rare: 1 },
-    description: 'A swift, howling hound. Competes actively with foxes for easy prey.',
+    description: 'A swift, howling hound.',
     emoji: '🐕',
     preferredBiomes: ['desert', 'grassland']
   },
   Bear: {
     category: 'ApexPredator',
-    maxHP: 280,
-    speed: 0.85,
-    yields: { meat: 120, hide: 40, bones: 20, fat: 25, rare: 10 }, // claws/pelts
-    description: 'A towering forest colossus. Highly territorial; ignores boundaries completely.',
+    maxHP: 240,
+    speed: 1.4,
+    yields: { meat: 110, hide: 35, bones: 22, fat: 15, rare: 15 },
+    description: 'A towering forest colossus.',
     emoji: '🐻',
     preferredBiomes: ['forest', 'rocky']
   },
@@ -147,26 +329,26 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     category: 'ApexPredator',
     maxHP: 160,
     speed: 1.45,
-    yields: { meat: 65, hide: 25, bones: 12, fat: 10, rare: 8 }, // golden pelt
-    description: 'A lethal saberooth. Stalks deep within shadows, highly aggressive leap range.',
+    yields: { meat: 65, hide: 25, bones: 12, fat: 10, rare: 8 },
+    description: 'A lethal sabertooth.',
     emoji: '🦁',
     preferredBiomes: ['desert', 'rocky']
   },
   DireWolf: {
     category: 'ApexPredator',
-    maxHP: 240,
+    maxHP: 200,
     speed: 1.3,
-    yields: { meat: 90, hide: 30, bones: 16, fat: 18, rare: 12 },
-    description: 'A mammoth primal alpha hound. Feared by low-level hunters, commands territory.',
+    yields: { meat: 95, hide: 32, bones: 18, fat: 20, rare: 12 },
+    description: 'A mammoth primal alpha hound.',
     emoji: '🐺',
     preferredBiomes: ['forest', 'rocky']
   },
   Vulture: {
     category: 'Scavenger',
-    maxHP: 50,
+    maxHP: 55,
     speed: 1.1,
-    yields: { meat: 15, hide: 2, bones: 8, fat: 2, rare: 4 }, // rare = feathers
-    description: 'A winged carrion-feeder. Circles skies and eats corpses left on fields.',
+    yields: { meat: 16, hide: 3, bones: 8, fat: 2, rare: 4 },
+    description: 'A hunched, bald Storm Vulture scavenging battlefield and desert remains.',
     emoji: '🦅',
     preferredBiomes: ['desert', 'rocky']
   },
@@ -175,7 +357,7 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     maxHP: 75,
     speed: 1.25,
     yields: { meat: 30, hide: 8, bones: 10, fat: 5, rare: 1 },
-    description: 'An aggressive pack scavenger. Steals fresh prey and attacks in packs.',
+    description: 'An aggressive pack scavenger.',
     emoji: '🐆',
     preferredBiomes: ['desert', 'grassland']
   },
@@ -184,9 +366,18 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     maxHP: 15,
     speed: 1.6,
     yields: { meat: 5, hide: 1, bones: 2, fat: 0.5, rare: 2 },
-    description: 'A tiny black shadow. Flies and picks at carcass leftovers.',
+    description: 'A tiny black shadow.',
     emoji: '🐦',
     preferredBiomes: ['grassland', 'forest', 'beach', 'desert']
+  },
+  Fish: {
+    category: 'Herbivore',
+    maxHP: 15,
+    speed: 0.8,
+    yields: { meat: 12, hide: 0, bones: 2, fat: 1, rare: 1 },
+    description: 'A glowing, scale-less Aurelia Fish darting through clear lake water.',
+    emoji: '🐟',
+    preferredBiomes: ['water']
   }
 };
 
@@ -308,7 +499,7 @@ export function populateInitialMapAnimals(mapData: MapData) {
   const size = mapData.grid.length;
 
   // Set up 3-4 herds
-  const herdTypes = ['Deer', 'Sheep', 'PackBird', 'Antelope', 'WildGoat'];
+  const herdTypes = ['PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'FrilledShieldHorn'];
   herdTypes.forEach((type, hIdx) => {
     const rx = 5 + Math.floor(Math.random() * (size - 10));
     const rz = 5 + Math.floor(Math.random() * (size - 10));
@@ -332,7 +523,7 @@ export function populateInitialMapAnimals(mapData: MapData) {
   });
 
   // Spawn some predators and scavengers on land ONLY
-  const soloTypes = ['Wolf', 'Fox', 'Bear', 'Vulture', 'LargeCat', 'Crow'];
+  const soloTypes = ['ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider', 'GaleWingFlier', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab'];
   for (let s = 0; s < 5; s++) {
     const type = soloTypes[Math.floor(Math.random() * soloTypes.length)];
     const rx = Math.floor(Math.random() * size);
@@ -356,7 +547,7 @@ export function populateInitialMapAnimals(mapData: MapData) {
     const numFish = Math.min(waterCells.length, 6 + Math.floor(Math.random() * 3));
     for (let f = 0; f < numFish; f++) {
       const cell = waterCells[Math.floor(Math.random() * waterCells.length)];
-      list.push(createAnimal('Fish', cell.r, cell.c, false));
+      list.push(createAnimal('AureliaFish', cell.r, cell.c, false));
     }
   }
 
@@ -454,15 +645,15 @@ export function tickEcosystemSimulation(
   // Maintain population densities
   if (animals.filter(a => !a.isDead).length < 10 && Math.random() < 0.15 * deltaTime) {
     // Spawn some reinforcements
-    const types = ['Rabbit', 'Deer', 'Sheep', 'WildGoat', 'Fox', 'Wolf', 'Bear', 'Vulture', 'Crow', 'Fish'];
+    const types = ['JackLeaper', 'PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'StormVulture', 'PlateBackShellgrazer', 'AureliaFish'];
     const selectedType = types[Math.floor(Math.random() * types.length)];
     const rx = Math.floor(Math.random() * size);
     const rz = Math.floor(Math.random() * size);
     const cell = mapData.grid[rx]?.[rz];
     if (cell && !cell.structure) {
-      if (selectedType === 'Fish') {
+      if (selectedType === 'AureliaFish' || selectedType === 'Fish') {
         if (cell.biome === 'water') {
-          animals.push(createAnimal('Fish', rx, rz, Math.random() > 0.85));
+          animals.push(createAnimal('AureliaFish', rx, rz, Math.random() > 0.85));
         }
       } else {
         if (cell.biome !== 'water') {
@@ -890,7 +1081,7 @@ export function tickEcosystemSimulation(
     // Apply continuous spatial coordinate movement towards target coordinates
     const moveSpeed = SPECIES_DB[ani.type]?.speed || 1.0;
     const speedScalar = isScared ? 1.85 : 1.0;
-    const finalSpeed = moveSpeed * speedScalar * deltaTime * 3.5;
+    const finalSpeed = moveSpeed * speedScalar * deltaTime * 3.5 * 1.5; // Increased by 50% as requested
 
     const dx = ani.targetX - ani.x;
     const dz = ani.targetZ - ani.z;

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { CellInfo, Tribesperson, TribespersonRole, TribespersonTrait, MapData } from '../types';
 import { BIOME_COLORS } from '../utils/worldBuilder';
+import { SPECIES_DB } from '../utils/ecosystemEngine';
 import CraftingTab from './CraftingTab';
 
 interface InspectorProps {
@@ -55,6 +56,7 @@ interface InspectorProps {
   onStudyRelic?: () => void;
   tribe?: Tribesperson[];
   isCreativeMode?: boolean;
+  onOpenOracleHub?: () => void;
 }
 
 const TRAIT_DATA: Partial<Record<TribespersonTrait, { title: string; desc: string; icon: string }>> = {
@@ -158,7 +160,8 @@ export default function Inspector({
   onResearch,
   onStudyRelic,
   tribe,
-  isCreativeMode = false
+  isCreativeMode = false,
+  onOpenOracleHub
 }: InspectorProps) {
   const isNight = timeOfDay < 0.25 || timeOfDay > 0.75;
   const [showCrafting, setShowCrafting] = useState(false);
@@ -599,6 +602,16 @@ export default function Inspector({
                 </select>
               </div>
 
+              {person.role === 'Oracle' && onOpenOracleHub && (
+                <button
+                  id="open-oracle-hub-btn"
+                  onClick={onOpenOracleHub}
+                  className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-450 text-slate-950 text-xs font-mono font-bold tracking-widest flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 transition-all shadow-md shadow-amber-500/10"
+                >
+                  🔮 OPEN ORACLE HUB
+                </button>
+              )}
+
               {/* Fly Camera focus coordinates button */}
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -721,21 +734,7 @@ export default function Inspector({
 
               <div className="flex items-start gap-3">
                 <div className="text-3xl p-2 rounded-xl bg-slate-900/60 border border-slate-800">
-                  {cellAnimal.type === 'Rabbit' && '🐇'}
-                  {cellAnimal.type === 'Deer' && '🦌'}
-                  {cellAnimal.type === 'Sheep' && '🐑'}
-                  {cellAnimal.type === 'WildGoat' && '🐐'}
-                  {cellAnimal.type === 'Boar' && '🐗'}
-                  {cellAnimal.type === 'Elk' && '🫎'}
-                  {cellAnimal.type === 'PackBird' && '🦤'}
-                  {cellAnimal.type === 'Fox' && '🦊'}
-                  {cellAnimal.type === 'WildDog' && '🐕'}
-                  {cellAnimal.type === 'Vulture' && '🦅'}
-                  {cellAnimal.type === 'Wolf' && '🐺'}
-                  {cellAnimal.type === 'Bear' && '🐻'}
-                  {cellAnimal.type === 'LargeCat' && '🐆'}
-                  {cellAnimal.type === 'DireWolf' && '🛡️'}
-                  {!['Rabbit','Deer','Sheep','WildGoat','Boar','Elk','PackBird','Fox','WildDog','Vulture','Wolf','Bear','LargeCat','DireWolf'].includes(cellAnimal.type) && '🐾'}
+                  {SPECIES_DB[cellAnimal.type]?.emoji || '🐾'}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-baseline">
@@ -751,6 +750,11 @@ export default function Inspector({
                     <span className="font-bold text-slate-100">{Math.round(cellAnimal.HP || 100)} / {cellAnimal.maxHP || 100}</span>
                     {cellAnimal.isSleeping && <span className="ml-2 text-indigo-400 font-bold animate-pulse">💤 Sleeping</span>}
                   </div>
+                  {SPECIES_DB[cellAnimal.type]?.description && (
+                    <p className="text-[10px] text-slate-400 italic mt-1.5 leading-tight">
+                      {SPECIES_DB[cellAnimal.type].description}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -1313,7 +1317,7 @@ export default function Inspector({
                     .map(([key, val]) => {
                       const labelMap: Record<string, string> = {
                         wood: '🪵 Wood',
-                        stone: '🪨 Stone',
+                        stone: '🪨 Breathstone',
                         berries: '🔴 Berries',
                         roots: '🥔 Roots',
                         mushrooms: '🍄 Mushrooms',
@@ -1322,24 +1326,24 @@ export default function Inspector({
                         reservoirWater: '🏺 Well Water',
                         rainwater: '🌧️ Rainwater',
                         fiber: '🌾 Fiber Threads',
-                        bone: '🦴 Bone Fragments',
-                        relics: '👑 Ancient Relic',
-                        ancientMaterials: '⚙️ Thulecite Alloy',
+                        bone: '🦴 Windbone',
+                        relics: '🔮 Stormglass',
+                        ancientMaterials: '⚙️ Atmospheric Alloy',
                         copper: '🧱 Copper Ore',
                         silver: '🪙 Silver Ore',
-                        gold: '👑 Gold Ore',
+                        gold: '✨ Moon-Iron',
                         iron: '⛓️ Iron Ore',
-                        stoneAxe: '🪓 Stone Axe',
-                        flintPickaxe: '⛏️ Flint Pickaxe',
-                        spear: '🗡️ Combat Spear',
-                        boiledRoots: '🥣 Boiled Roots',
-                        paddedJerkin: '👕 Padded Jerkin',
-                        saltedMeat: '🍖 Salted Jerky',
-                        steelPickaxe: '⚒️ Steel Pick',
-                        eldritchWard: '🛡️ Eldritch Ward',
-                        amuletLife: '❤️ Life Amulet',
-                        thuleciteCore: '🔋 Thulecite Core',
-                        grassBasket: '🧺 Straw Basket',
+                        stoneAxe: '🪓 Breathstone Cutter',
+                        flintPickaxe: '⛏️ Breathstone Pickaxe',
+                        spear: '🗡️ Windbone Spear',
+                        boiledRoots: '🥣 Clay-Stewed Root Mash',
+                        paddedJerkin: '👕 Windbone Vest',
+                        saltedMeat: '🍖 Salt-Cured Jerky',
+                        steelPickaxe: '⚒️ Moon-Iron Pickaxe',
+                        eldritchWard: '🛡️ Stormward Talisman',
+                        amuletLife: '❤️ Breathstone Spark Amulet',
+                        thuleciteCore: '🔋 Atmospheric Anchor Core',
+                        grassBasket: '🧺 Handwoven Fiber Basket',
                       };
                       return (
                         <div key={key} className="flex justify-between items-center text-xs font-mono bg-slate-950/40 px-2 py-1 rounded">
@@ -1418,7 +1422,18 @@ export default function Inspector({
               🌾 Agricultural Crop Plot
             </span>
             <div className="flex justify-between items-center text-sm">
-              <span className="font-semibold">{selectedCell.farmCrop.type} ({selectedCell.farmCrop.stage})</span>
+              <span className="font-semibold text-slate-100 flex items-center gap-1">
+                {selectedCell.farmCrop.type === 'Wheat' && '🌾 Solar Wheat'}
+                {selectedCell.farmCrop.type === 'AmberMaize' && '🌽 Amber Glow-Corn'}
+                {selectedCell.farmCrop.type === 'VortexCabbage' && '🥬 Vortex Jade-Cabbage'}
+                {selectedCell.farmCrop.type === 'Gemberries' && '🍒 Cinder Gem-Berry'}
+                {selectedCell.farmCrop.type === 'Stormroot' && '🥔 Storm-Root Bulb'}
+                {selectedCell.farmCrop.type === 'Pumpkin' && '🎃 Giant Pumpkin'}
+                {!['Wheat', 'AmberMaize', 'VortexCabbage', 'Gemberries', 'Stormroot', 'Pumpkin'].includes(selectedCell.farmCrop.type) && selectedCell.farmCrop.type}
+                <span className="text-[10px] text-emerald-400 capitalize bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-900/50 font-mono font-bold ml-1.5">
+                  {selectedCell.farmCrop.stage}
+                </span>
+              </span>
               <span className="text-xs font-mono text-slate-400">Growth: {Math.round(selectedCell.farmCrop.progress)}%</span>
             </div>
             <div className="w-full h-1.5 bg-slate-850 rounded-full overflow-hidden mt-1">
@@ -1521,7 +1536,11 @@ export default function Inspector({
                       id: 'permanent',
                       categoryName: '🗻 Permanent (Fixed placement)',
                       items: [
-                        { type: 'Wheat', label: '🌾 Wheat Crop Plot', cost: '10 Food', wood: 0, stone: 0, food: 10, desc: 'Plotted, tended, harvested by default.' },
+                        { type: 'Wheat', label: '🌾 Solar Wheat Plot', cost: '10 Food', wood: 0, stone: 0, food: 10, desc: 'Produces golden, sun-baked high-nutrient grains.' },
+                        { type: 'AmberMaize', label: '🌽 Amber Glow-Corn Plot', cost: '15 Food', wood: 0, stone: 0, food: 15, desc: 'Grows tall, glowing stalks of bioluminescent sweet corn.' },
+                        { type: 'VortexCabbage', label: '🥬 Vortex Jade-Cabbage Plot', cost: '12 Food', wood: 0, stone: 0, food: 12, desc: 'Cultivates dense, spiraling vortex cabbage heads.' },
+                        { type: 'Gemberries', label: '🍒 Cinder Gem-Berry Shrub', cost: '20 Food', wood: 0, stone: 0, food: 20, desc: 'Tends small bushes of vibrant crimson energy berries.' },
+                        { type: 'Stormroot', label: '🥔 Storm-Root Bulb Plot', cost: '18 Food', wood: 0, stone: 0, food: 18, desc: 'Planted subsurface storm bulbs that thrive in static clay.' },
                         { type: 'WatchTower', label: '🗼 Watch Tower', cost: '40 Wood, 60 Stone', wood: 40, stone: 60, food: 0, desc: 'Informative lookout. Alerts if danger/animals enter the zone.' },
                         { type: 'Fireplace', label: '🔥 Great Fireplace', cost: '20 Wood, 15 Stone', wood: 20, stone: 15, food: 0, desc: 'Central warmth of the village. Spawn region.' }
                       ]

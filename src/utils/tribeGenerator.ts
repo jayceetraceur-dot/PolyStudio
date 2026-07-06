@@ -667,6 +667,7 @@ export function tickTribeSimulation(
   const currentDay = Math.floor(gameDays ?? 1);
   const alivePeople = tribe.filter(t => t.isAlive);
   const totalAliveCount = alivePeople.length;
+  const hasActiveOracle = tribe.some(p => p.isAlive && p.role === 'Oracle');
 
   if (totalAliveCount < 30 && mapData.stockpile.food > 30 && Math.random() < 0.004 * deltaTime) {
     const males = alivePeople.filter(t => t.gender === 'Male' && t.agePhase !== 'Child' && t.agePhase !== 'Teenager');
@@ -1108,6 +1109,11 @@ export function tickTribeSimulation(
 
     // Apply active social multipliers
     speedModifier *= socialSpeedModifier;
+
+    // Without an active Oracle, the tribe's work speed is halved
+    if (!hasActiveOracle) {
+      speedModifier *= 0.5;
+    }
 
     const ageScale = agent.agePhase === 'Child' ? 0.45 : agent.agePhase === 'Teenager' ? 0.8 : 1.0;
     stats.hunger = Math.max(0, stats.hunger - 1.15 * digestFactor * ageScale * deltaTime);
@@ -2766,9 +2772,18 @@ export function tickTribeSimulation(
             } else if (crop.stage === 'harvestable') {
               statusText = '🌾 Sickle harvesting ripe fields...';
               if (workProgress > 2.0) {
+                const yieldAmounts: Record<string, number> = {
+                  Wheat: 30,
+                  AmberMaize: 45,
+                  VortexCabbage: 35,
+                  Gemberries: 60,
+                  Stormroot: 55,
+                  Pumpkin: 40
+                };
+                const finalYield = yieldAmounts[crop.type] || 30;
                 cell.farmCrop = null;
-                cell.itemsOnGround = { type: 'food', amount: 30 };
-                carriage = { type: 'food', amount: 30 };
+                cell.itemsOnGround = { type: 'food', amount: finalYield };
+                carriage = { type: 'food', amount: finalYield };
                 
                 activeJobType = 'Haul';
                 jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
@@ -3448,6 +3463,48 @@ export function tickTribeSimulation(
 
   // Post-sim checks: Family/Friend passing tragedy mourning effects
   const deadThisTick = nextTribe.filter(next => !next.isAlive && tribe.find(prev => prev.id === next.id && prev.isAlive));
+  
+  const oracleDeadThisTick = deadThisTick.find(d => d.role === 'Oracle');
+  if (oracleDeadThisTick) {
+    addLog(`🚨 THE SPIRITUAL LEADER HAS FALLEN! Oracle ${oracleDeadThisTick.name} has passed away!`, 'death');
+    // Check for apprentice succession
+    const apprenticeId = mapData.activeApprenticeId;
+    const apprentice = apprenticeId ? nextTribe.find(p => p.id === apprenticeId && p.isAlive) : null;
+    const apprenticeLevel = apprentice ? (apprentice.skills.Oracle?.level ?? 1) : 0;
+    
+    if (apprentice && apprenticeLevel >= 3) {
+      // Automatic succession
+      apprentice.role = 'Oracle';
+      apprentice.color = '#e2ba5e'; // Oracle color
+      apprentice.statusText = '✨ Succeeded deceased mentor as the new Oracle!';
+      mapData.activeApprenticeId = undefined; // reset apprentice
+      addLog(`✨ SUCCESSION! Apprentice ${apprentice.name} has successfully stepped forward as the tribe's new Oracle (Lvl ${apprenticeLevel})! The lineage continues uninterrupted!`, 'success');
+      
+      if (mapData.tribeCodexLogs) {
+        mapData.tribeCodexLogs.push({
+          id: `succession_${Date.now()}`,
+          type: 'succession',
+          title: '✨ Sacred Succession',
+          description: `Following the passing of Oracle ${oracleDeadThisTick.name}, their apprentice ${apprentice.name} assumed the sacred mantle as the tribe's new Oracle (Lvl ${apprenticeLevel}).`,
+          day: Math.floor(gameDays ?? 1)
+        });
+      }
+    } else {
+      // No qualified successor! Tribe suffers major penalties
+      addLog(`🚨 TRAGEDY! The tribe has no trained successor of at least Level 3! True Storm remaining time is now hidden and work speed is halved!`, 'warning');
+      
+      if (mapData.tribeCodexLogs) {
+        mapData.tribeCodexLogs.push({
+          id: `unplanned_death_${Date.now()}`,
+          type: 'death',
+          title: '🚨 Spiritual Guidance Lost',
+          description: `Oracle ${oracleDeadThisTick.name} passed away without a trained successor. The tribe is plunged into deep ignorance and confusion.`,
+          day: Math.floor(gameDays ?? 1)
+        });
+      }
+    }
+  }
+
   if (deadThisTick.length > 0) {
     deadThisTick.forEach(dead => {
       nextTribe.forEach(survivor => {

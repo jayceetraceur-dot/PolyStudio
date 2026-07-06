@@ -66,7 +66,7 @@ export interface CellInfo {
     dismantleProgress?: number;
   } | null;
   farmCrop?: {
-    type: 'Wheat' | 'Pumpkin';
+    type: 'Wheat' | 'AmberMaize' | 'VortexCabbage' | 'Gemberries' | 'Stormroot' | 'Pumpkin';
     stage: 'sown' | 'growing' | 'harvestable';
     progress: number; // 0 to 100
   } | null;
@@ -258,6 +258,94 @@ export interface MapData {
     rewardType: 'rp' | 'resources' | 'healing';
     decodedMessage: string;
   };
+  stormDaysUntilMigration?: number;
+  stormSpeed?: number;
+  stormMovementDirection?: 'North' | 'East' | 'South' | 'West' | 'Northeast' | 'Northwest' | 'Southeast' | 'Southwest';
+  stormDangerLevel?: 'Low' | 'Medium' | 'High' | 'Catastrophic';
+  eyePos?: { x: number; z: number };
+  eyeRadius?: number;
+  deityModeActive?: boolean;
+  deityModeOverrideDir?: number;
+  deityModeOverrideSpeed?: number;
+  deityModePaused?: boolean;
+  futureEyePath?: { x: number; z: number }[];
+  stormWallDamageEnabled?: boolean;
+  knownVillages?: OtherVillage[];
+  oracleMessages?: OracleMessage[];
+  discoveredRelics?: DiscoveredRelic[];
+  activeApprenticeId?: string;
+  predictionHistory?: { day: number; success: boolean }[];
+}
+
+export interface OtherVillage {
+  id: string;
+  name: string;
+  distance: number;
+  relationship: number; // -100 to 100
+  trust: number;
+  fear: number;
+  respect: number;
+  population: number;
+  knownOracle: string;
+  availableTradeGoods: { item: string; quantity: number; price: number }[];
+  neededGoods: { item: string; priceMultiplier: number }[];
+  dangerStatus: 'Safe' | 'Threatened' | 'Under Attack' | 'Evacuating';
+  lastContactTime?: string;
+  visitorsMayArrive: boolean;
+
+  // OFF-SCREEN SIMULATION EXPANSIONS
+  cultureType?: 'Storm-Following Tribe' | 'Stationary Eye Settlement' | 'Relic Hunter Clan' | 'Herding Caravan' | 'Moon-Watcher Enclave' | 'Ruin-Born Settlement' | 'Broken Tribe' | 'Desperate Band';
+  originStory?: string;
+  region?: string;
+  migrationStyle?: 'Constant Nomads' | 'Semi-Stationary' | 'Fixed Fortified' | 'Slow Drifters';
+  food?: number; // 0 to 100
+  water?: number; // 0 to 100
+  medicine?: number; // 0 to 100
+  animals?: number; // 0 to 100
+  tools?: number; // 0 to 100
+  relics?: number; // 0 to 100
+  majorShortages?: string[];
+  dangerLevel?: number; // 0 to 100
+  morale?: number; // 0 to 100
+  stability?: number; // 0 to 100
+  migrationStatus?: string;
+  oracleLevel?: number;
+  relationships?: Record<string, 'allied' | 'friendly' | 'neutral' | 'suspicious' | 'rival' | 'hostile' | 'dependent' | 'indebted'>;
+  activeProblems?: string[];
+  activeOpportunities?: string[];
+  recentEvents?: string[]; // history log of stories
+  knownAncientSites?: string[];
+  knownTradeRoutes?: string[];
+  specialResources?: string[];
+  culturalTraits?: string[];
+  reputation?: string;
+  lastContactDate?: string;
+}
+
+export interface OracleMessage {
+  id: string;
+  sender: string;
+  text: string;
+  timeSent: string;
+  actionable: boolean;
+  rewardDescription?: string;
+  isRead?: boolean;
+  type: 'help' | 'trade' | 'warning' | 'rumor' | 'news';
+  status?: 'pending' | 'accepted' | 'declined' | 'completed';
+  cost?: { item: string; qty: number };
+  reward?: { item: string; qty: number };
+}
+
+export interface DiscoveredRelic {
+  id: string;
+  name: string;
+  unknownFunction: string;
+  studyProgress: number; // 0 to 100
+  researchValue: number;
+  dangerLevel: 'None' | 'Low' | 'Medium' | 'High';
+  requiredOracleLevel: number;
+  rewardType: 'blueprint' | 'lore' | 'resources' | 'technology';
+  rewardDesc: string;
 }
 
 export type AnimalCategory = 'Herbivore' | 'SmallPredator' | 'ApexPredator' | 'Scavenger';
@@ -421,6 +509,16 @@ export interface SkillProgress {
   xpToNextLevel: number;
 }
 
+export interface IllnessInfo {
+  name: string; // e.g. "Storm Fever", "Spoil Gut", "Dust Cough"
+  severity: 'Mild' | 'Moderate' | 'Severe';
+  durationRemainingDays: number;
+  treatmentProgress: number; // 0 to 100
+  medicineRequired: number; // e.g. 1 to 3 herbs/mushrooms/roots
+  recoveryChance: number; // 0 to 1
+  symptoms: string;
+}
+
 export interface Tribesperson {
   id: string;
   name: string;
@@ -491,6 +589,7 @@ export interface Tribesperson {
   expeditionLootCollected?: Record<string, number> | null;
   expeditionUniqueFinds?: string[] | null;
   expeditionLogs?: string[] | null;
+  illness?: IllnessInfo;
 }
 
 export interface Recipe {
@@ -507,7 +606,7 @@ export interface Recipe {
 export const RECIPE_DATABASE: Record<string, Recipe> = {
   stoneAxe: {
     id: 'stoneAxe',
-    name: 'Sharp Flint Axe',
+    name: 'Breathstone Cutter',
     description: 'Increases woodcutting efficiency. Decreases gather node efforts by 50%.',
     tier: 'Primitive',
     workstation: 'None',
@@ -515,7 +614,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   flintPickaxe: {
     id: 'flintPickaxe',
-    name: 'Flint Mine Pickaxe',
+    name: 'Breathstone Pickaxe',
     description: 'Increases mining efficiency. Decreases rock harvesting time by 50%.',
     tier: 'Primitive',
     workstation: 'None',
@@ -523,7 +622,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   grassBasket: {
     id: 'grassBasket',
-    name: 'Handwoven Grass Basket',
+    name: 'Handwoven Fiber Basket',
     description: 'Allows haulers and foragers to pack light! Adds +10kg to carrying inventory capacity.',
     tier: 'Primitive',
     workstation: 'None',
@@ -531,7 +630,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   spear: {
     id: 'spear',
-    name: 'Bone-Tipped Spear',
+    name: 'Windbone Spear',
     description: 'Deals 2x damage to animals. Buffs hunter success rate & speeds up slaughter times.',
     tier: 'Tribal',
     workstation: 'ArtisanBench',
@@ -541,7 +640,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   boiledRoots: {
     id: 'boiledRoots',
-    name: 'Clay-Boiled Roots Medley',
+    name: 'Clay-Stewed Root Mash',
     description: 'A comforting high-nutrient dish. Retains moisture; restores +40 Hunger and +15 Thirst.',
     tier: 'Tribal',
     workstation: 'ArtisanBench',
@@ -551,7 +650,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   paddedJerkin: {
     id: 'paddedJerkin',
-    name: 'Reinforced Bone jerkin',
+    name: 'Windbone Vest',
     description: 'Light padding. Lessens severity of exposure & negative morale events by 35%.',
     tier: 'Tribal',
     workstation: 'ArtisanBench',
@@ -560,7 +659,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   saltedMeat: {
     id: 'saltedMeat',
-    name: 'Salty Jerky Strips',
+    name: 'Salt-Cured Jerky',
     description: 'Cured and salted high protein snack. Kept airtight, it NEVER decays or spoils.',
     tier: 'Advanced',
     workstation: 'ScienceMachine',
@@ -570,8 +669,8 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   steelPickaxe: {
     id: 'steelPickaxe',
-    name: 'Forged Ore Pickaxe',
-    description: 'Superb mining tool. Accelerates rock extraction by 75%.',
+    name: 'Moon-Iron Pickaxe',
+    description: 'Superb mining tool made of heavy Moon-Iron. Accelerates rock extraction by 75%.',
     tier: 'Advanced',
     workstation: 'ScienceMachine',
     materials: { ancientMaterials: 3, wood: 15, stone: 25 },
@@ -579,8 +678,8 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   eldritchWard: {
     id: 'eldritchWard',
-    name: 'Ancient Eldritch Ward',
-    description: 'A glowing defensive talisman. Completely blocks decay and contamination effects in warehouse storage (+15 Stockpile Cleanliness).',
+    name: 'Stormward Talisman',
+    description: 'A glowing electrostatic protective talisman. Completely blocks decay and contamination effects in warehouse storage (+15 Stockpile Cleanliness).',
     tier: 'Advanced',
     workstation: 'ScienceMachine',
     materials: { relics: 1, bone: 10, fiber: 30 },
@@ -588,8 +687,8 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   amuletLife: {
     id: 'amuletLife',
-    name: 'Red Ruby Vitality Amulet',
-    description: 'Saves a tribe member from death! Automatically shatters to restore 100% heat, hunger, and health.',
+    name: 'Breathstone Spark Amulet',
+    description: 'Saves a tribe member from death! Automatically shatters to restore 100% heat, hunger, and health using compressed air cells inside the Breathstone.',
     tier: 'Relic',
     workstation: 'RuinousAltar',
     materials: { relics: 3, bone: 15, dew: 10 },
@@ -597,7 +696,7 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
   },
   thuleciteCore: {
     id: 'thuleciteCore',
-    name: 'Ruins-Power Thulecite Core',
+    name: 'Atmospheric Anchor Core',
     description: 'An ancient heart pulsating with power. Passive morale boost (+20 Morale state colony-wide).',
     tier: 'Relic',
     workstation: 'RuinousAltar',

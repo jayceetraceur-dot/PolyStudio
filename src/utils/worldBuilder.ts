@@ -1,6 +1,7 @@
 import { BiomeType, CellInfo, WorldConfig, MapData, Landmark, ExpeditionSite } from '../types';
 import { Improved2DNoise, SeededRandom } from './noise';
 import { EXPEDITION_SITES } from './expeditionDatabase';
+import { initializeOffScreenVillages } from './villageSimulator';
 
 // Palette matching a low-poly stylized survival game
 export const BIOME_COLORS = {
@@ -292,7 +293,7 @@ export function generateWorld(config: WorldConfig): MapData {
             regrowRate: 1,
             quality: 100,
           };
-          inspectableName = biome === 'desert' ? 'Spiny Flower Agave' : 'Wild Berry Shrub';
+          inspectableName = biome === 'desert' ? 'Prickly Agave Shrub' : 'Cinder-Berry Shrub';
         } else if (hasTree) {
           resourceNode = {
             category: 'material',
@@ -303,7 +304,7 @@ export function generateWorld(config: WorldConfig): MapData {
             regrowRate: 0.5,
             quality: 100,
           };
-          inspectableName = biome === 'desert' ? 'Spiked Saguaro Cactus' : 'Wood Pine Trunk';
+          inspectableName = biome === 'desert' ? 'Prickly Obsidian Saguaro' : 'Petrified Ironwood Tree';
         } else if (hasRock) {
           const boulderRoll = cellRand.next();
           if (boulderRoll < 0.50) {
@@ -375,16 +376,16 @@ export function generateWorld(config: WorldConfig): MapData {
               // Food Variety
               if (subSeed < 0.25) {
                 resourceNode = { category: 'food', type: 'Berries', amount: 15, maxAmount: 15, regrowTimer: 0, regrowRate: 1.0, quality: 100 };
-                inspectableName = 'Meadow Sweet-strawberries';
+                inspectableName = 'Meadow Solar Strawberries';
               } else if (subSeed < 0.50) {
                 resourceNode = { category: 'food', type: 'Berries', amount: 12, maxAmount: 12, regrowTimer: 0, regrowRate: 0.9, quality: 100 };
                 inspectableName = 'Golden Sunflower Seeds';
               } else if (subSeed < 0.75) {
                 resourceNode = { category: 'food', type: 'Roots', amount: 10, maxAmount: 10, regrowTimer: 0, regrowRate: 0.8, quality: 100 };
-                inspectableName = 'Wild Sweet Potato Corm';
+                inspectableName = 'Vortex Root Corm';
               } else {
                 resourceNode = { category: 'food', type: 'Roots', amount: 14, maxAmount: 14, regrowTimer: 0, regrowRate: 0.75, quality: 100 };
-                inspectableName = 'Spiced Fennel Bulb';
+                inspectableName = 'Storm-Root Bulb';
               }
             } else if (rollResource < 0.38) {
               // Material (Fiber) Variety
@@ -393,7 +394,7 @@ export function generateWorld(config: WorldConfig): MapData {
                 inspectableName = 'Tall Flax Blue-fibers';
               } else {
                 resourceNode = { category: 'material', type: 'Fiber', amount: 15, maxAmount: 15, regrowTimer: 0, regrowRate: 1.1, quality: 100 };
-                inspectableName = 'Wild Organic Cotton Bolls';
+                inspectableName = 'Neon Glow-Cotton Bolls';
               }
             } else if (rollResource < 0.46) {
               // Water variety
@@ -406,19 +407,19 @@ export function generateWorld(config: WorldConfig): MapData {
               // Food Variety (highly habitable)
               if (subSeed < 0.2) {
                 resourceNode = { category: 'food', type: 'Mushrooms', amount: 8, maxAmount: 8, regrowTimer: 0, regrowRate: 0.7, quality: 100 };
-                inspectableName = 'Glowcap Neon Mushrooms';
+                inspectableName = 'Glowcap Lumina-Mushrooms';
               } else if (subSeed < 0.4) {
                 resourceNode = { category: 'food', type: 'Mushrooms', amount: 10, maxAmount: 10, regrowTimer: 0, regrowRate: 0.8, quality: 100 };
                 inspectableName = 'Earthy Chanterelle Clump';
               } else if (subSeed < 0.6) {
                 resourceNode = { category: 'food', type: 'Berries', amount: 15, maxAmount: 15, regrowTimer: 0, regrowRate: 1.0, quality: 100 };
-                inspectableName = 'Forest Wild Raspberries';
+                inspectableName = 'Sylvan Emberberries';
               } else if (subSeed < 0.8) {
                 resourceNode = { category: 'food', type: 'Berries', amount: 12, maxAmount: 12, regrowTimer: 0, regrowRate: 1.1, quality: 100 };
-                inspectableName = 'Shade Elderberry Clusters';
+                inspectableName = 'Amethyst Violetberries';
               } else {
                 resourceNode = { category: 'food', type: 'Roots', amount: 8, maxAmount: 8, regrowTimer: 0, regrowRate: 0.6, quality: 100 };
-                inspectableName = 'Aromatic Ginger Stems';
+                inspectableName = 'Storm-Root Stem';
               }
             } else if (rollResource < 0.40) {
               // Material (Fiber) Variety
@@ -490,7 +491,7 @@ export function generateWorld(config: WorldConfig): MapData {
                 inspectableName = 'Coarse Dune Marram Grass';
               } else {
                 resourceNode = { category: 'food', type: 'Berries', amount: 10, maxAmount: 10, regrowTimer: 0, regrowRate: 1.2, quality: 100 };
-                inspectableName = 'Coastal Seaberries Shrub';
+                inspectableName = 'Salt-Crested Gemberries';
               }
             } else if (rollResource < 0.43) {
               resourceNode = { category: 'water', type: 'Dew', amount: 6, maxAmount: 6, regrowTimer: 0, regrowRate: 1.4, quality: 100 };
@@ -588,12 +589,38 @@ export function generateWorld(config: WorldConfig): MapData {
   // Inject procedural ancient-site expedition entrances
   placeProceduralExpeditionSites(grid, size, seed);
 
+  // --- EYE OF THE STORM INITIALIZATION ---
+  const eyePos = { x: size / 2, z: size / 2 };
+  const eyeRadius = 14.0;
+  
+  // Create future waypoints for the Oracle prediction path
+  const futureEyePath: { x: number; z: number }[] = [];
+  const initialAngle = Math.random() * Math.PI * 2;
+  let curX = eyePos.x;
+  let curZ = eyePos.z;
+  let curAngle = initialAngle;
+  for (let i = 0; i < 6; i++) {
+    const dist = 7 + Math.random() * 5;
+    curAngle += (Math.random() - 0.5) * 0.6;
+    curX = Math.max(4, Math.min(size - 4, curX + Math.cos(curAngle) * dist));
+    curZ = Math.max(4, Math.min(size - 4, curZ + Math.sin(curAngle) * dist));
+    futureEyePath.push({ x: parseFloat(curX.toFixed(1)), z: parseFloat(curZ.toFixed(1)) });
+  }
+
   return {
     config,
     grid,
     researchPoints: 5,
     unlockedRecipes: ['stoneAxe', 'flintPickaxe', 'grassBasket'],
     unlockedBuildings: [],
+    eyePos,
+    eyeRadius,
+    futureEyePath,
+    deityModeActive: false,
+    deityModeOverrideDir: undefined,
+    deityModeOverrideSpeed: undefined,
+    deityModePaused: false,
+    stormWallDamageEnabled: true,
     activeLoreLogs: [],
     craftQueue: [],
     villageInventory: {
@@ -744,7 +771,51 @@ export function generateWorld(config: WorldConfig): MapData {
       iron: 0,
       bone: 0
     },
-    animals: []
+    animals: [],
+    stormDaysUntilMigration: 12,
+    stormSpeed: 1.0,
+    stormMovementDirection: 'East',
+    stormDangerLevel: 'Low',
+    knownVillages: initializeOffScreenVillages(),
+    oracleMessages: [
+      {
+        id: 'msg1',
+        sender: 'Oracle Vaelen (Red Hollow)',
+        text: 'Greetings, fellow Reader of Sky. The Red Hollow suffers a drying period; our water cisterns are empty. We seek water in exchange for meat.',
+        timeSent: 'Day 1',
+        actionable: true,
+        type: 'help',
+        status: 'pending',
+        cost: { item: 'reservoirWater', qty: 15 },
+        reward: { item: 'meat', qty: 30 },
+        rewardDescription: 'Gain 30 Meat and +15 Relationship with Red Hollow'
+      }
+    ],
+    discoveredRelics: [
+      {
+        id: 'relic1',
+        name: 'Aegis Command Matrix',
+        unknownFunction: 'Suppressed Supply Beacon',
+        studyProgress: 0,
+        researchValue: 20,
+        dangerLevel: 'Low',
+        requiredOracleLevel: 1,
+        rewardType: 'resources',
+        rewardDesc: 'Coordinates for dropped cargo container (+100 Wood, +100 Stone, +5 Gold)'
+      },
+      {
+        id: 'relic2',
+        name: 'Chrono-Hydra Cell',
+        unknownFunction: 'Magnetic Resonator Core',
+        studyProgress: 0,
+        researchValue: 35,
+        dangerLevel: 'Medium',
+        requiredOracleLevel: 3,
+        rewardType: 'technology',
+        rewardDesc: 'Ancient design principles (+35 Research Points)'
+      }
+    ],
+    predictionHistory: []
   };
 }
 
@@ -754,9 +825,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_giant_petrified_tree',
       type: 'giant_petrified_tree',
-      name: 'Yggdrasil Petrified Arch-Trunk',
-      description: 'A colossal, fossilized tree reaching towards the cosmos. Its bark has hardened into ancient silicate, teeming with petrified energy and micro-crystalline structures.',
-      storySegment: 'This towering wooden titan survived the Precursor nuclear event, but its wood has been completely replaced by jade and quartz crystal. Faint warm hums still pulse within its trunk, proving that some biological matrix remains intact, waiting for the correct technological key.',
+      name: 'Petritree Arch-Root',
+      description: 'A colossal, fossilized alien tree root reaching towards the sky. Its bark has petrified into glowing silicate, teeming with Root Crystals and storm-hardened resin.',
+      storySegment: 'This titanic root survived the colonists\' early attempts to clear the native petrified forests. Faint warm hums still pulse inside, proving that the planet\'s root network is still fully alive, absorbing kinetic friction and feeding off the Storm\'s static electricity.',
       rewards: {
         knowledgePoints: 30,
         moraleBoost: 15,
@@ -767,9 +838,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_ancient_tower',
       type: 'ancient_tower',
-      name: 'Precursor Spire Tower',
-      description: 'A mathematical, obsidian tower rising from the cliffs. Ancient fiber lines run into its stone layers, occasionally sparking with blue high-energy electrostatic static arcs.',
-      storySegment: 'The walls of this spire are inscribed with geometric calculations for celestial navigation. It seems to have functioned as an anti-gravity antenna or early weather-shaper. Inside, we found metallic maps of a green earth before the oceans boiled.',
+      name: 'Stormbreaker Spire Tower',
+      description: 'A mathematical obsidian spire rising from the high cliffs. Ancient heavy fiber lines run deep into its stone layers, occasionally sparking with blue static discharges.',
+      storySegment: 'The walls of this spire are inscribed with equations for cloud-seeding and weather manipulation. It was a weather control tower built by the first human colonists in a failed attempt to weaken the global Storm. The Oracle now studies its humming antenna to predict the moving Eye.',
       rewards: {
         knowledgePoints: 40,
         relics: 2,
@@ -779,9 +850,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_massive_skeleton',
       type: 'massive_skeleton',
-      name: 'Titanodon Prehistoric Fossil Remains',
-      description: 'The massive fossilized ribs of a beast that walked the earth eons ago. Its petrified bones are wide enough to build shelters beneath.',
-      storySegment: 'This skeleton bears thermal scars, indicating weapon burns rather than biological decay. The tribespeople whisper that these massive beasts were genetically crafted as super-heavy armor platforms by the ancients, before they rebelled.',
+      name: 'Colossal Wind-Rider Fossil',
+      description: 'The massive fossilized ribs of a sky-dwelling mega-fauna beast that ruled the skies eons ago. Its hollow fossilized bones are wide enough to build shelters under.',
+      storySegment: 'This titan ribcage bears ancient laser burns, indicating that the early colonist engineers tried to exterminate these majestic sky-creatures to clear orbital landing paths. The modern tribe believes the Wind-Riders are sacred guardians of the Eye, reminding us that survival comes from moving with the world, not trying to conquer it.',
       rewards: {
         knowledgePoints: 25,
         moraleBoost: -10,
@@ -792,9 +863,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_buried_machine',
       type: 'buried_machine',
-      name: 'Chronos Dynamo Generator',
-      description: 'A massive half-buried clockwork centrifuge. Metallic cooling vents poke through the ground, still drawing ambient electrical currents.',
-      storySegment: 'This machine is an ancient electrostatic battery core. The tribal records call it the "Heart of the Mountain". It holds active lithium circuits and a steady power grid that can be channeled into automatic research calculators.',
+      name: 'Atmospheric Anchor Centrifuge',
+      description: 'A massive, half-buried planetary cooling centrifuge. Metallic conduits poke through the sand, still drawing electrostatic energy from the passing clouds.',
+      storySegment: 'This colossal machine was built by early colonist teams to anchor a permanent safe zone in this sector by draining kinetic energy from the Storm. It failed when its core melted down under extreme wind pressure, but its power cells can still be salvaged for our caravans.',
       rewards: {
         knowledgePoints: 50,
         ancientMaterials: 5,
@@ -804,9 +875,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_crashed_structure',
       type: 'crashed_structure',
-      name: 'Crashed Pioneer Capsule',
-      description: 'A highly burnt escape capsule made of strange silver alloys, embedded deep in the ground with warning stencils written in an ancient, forgotten script.',
-      storySegment: 'This spacecraft fell from orbit a century ago. Its escape hatches are melted solid, but checking through the cracked thruster casing reveals active med-gel reserves and nanites that can heal any organic disease.',
+      name: 'Firstfall Colonist Lander',
+      description: 'A highly burnt escape craft made of strange silver alloys, embedded deep in the ground with warning stencils written in an ancient scientific script.',
+      storySegment: 'This spacecraft fell from orbit over a century ago, carrying the first human ancestors to this world. Checking the logs reveals diaries of researchers who realized too late that the planetary desert Storm was not a random weather pattern, but an ecological force of nature that cannot be stopped.',
       rewards: {
         knowledgePoints: 35,
         ancientMaterials: 3,
@@ -818,9 +889,9 @@ function placeProceduralLandmarks(grid: CellInfo[][], size: number, seed: number
     {
       id: 'lm_strange_stone_circle',
       type: 'strange_stone_circle',
-      name: 'Hypergrid Quartz Stone Circle',
-      description: 'Ten megalithic slate stones arranged in an exact mathematical circle. At night, faint cyan ley-lines form on the surface connecting the stones.',
-      storySegment: 'These stones are not quartz, but compact obsidian crystalline microprocessors. They are wired under the grass into the island\'s bedrock, acting as localized gravity dampeners to prevent the floating island from cracking apart.',
+      name: 'God\'s Eye Moon-Relay',
+      description: 'Ten massive alloy pillars arranged in an exact mathematical circle. Under the moonlight, faint cyan ley-lines form on the surface connecting the pillars.',
+      storySegment: 'These pillars are not natural stone, but heavy mineral microprocessors linked directly to the orbital satellite networks. The tribe treats this as a temple of the God\'s Eye (the moon), believing that the moon\'s reflection on the floor is the Eye of the Storm\'s physical blessing.',
       rewards: {
         knowledgePoints: 25,
         moraleBoost: 20,

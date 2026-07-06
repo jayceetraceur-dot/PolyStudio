@@ -5,7 +5,7 @@ export interface ExpeditionSiteTemplate {
   tier: 'Minor' | 'Forgotten' | 'Ancient' | 'Pre-Storm' | 'Legendary' | 'Unclassified';
   recommendedScoutLevel: number;
   typicalDuration: string; // duration display
-  durationHours: number; // actual game simulation hours (1 day = 24h, etc.)
+  durationHours: number; // actual game simulation hours
   risk: 'Very Low' | 'Low' | 'Moderate' | 'High' | 'Very High' | 'Extreme';
   finds: string[];
   uniqueDiscoveries: { itemKey: string; name: string; description: string }[];
@@ -18,9 +18,9 @@ export interface ExpeditionSiteTemplate {
 
 export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
   {
-    id: "buried_homestead",
+    id: "firstfall_habitat_minor",
     category: "Buried Structure",
-    name: "Buried Homestead",
+    name: "Firstfall Habitat Delta-4",
     tier: "Minor",
     recommendedScoutLevel: 1,
     typicalDuration: "3-10 hours",
@@ -28,19 +28,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very Low",
     finds: ["wood", "stone", "berries", "fiber"],
     uniqueDiscoveries: [
-      { itemKey: "extinctSeed", name: "Heirloom Seed Varieties", description: "Preserved crop seeds from before the great collapse." },
-      { itemKey: "archiveTablet", name: "Domestic Building Blueprints", description: "Old architectural diagrams showing home reinforcement techniques." }
+      { itemKey: "extinctSeed", name: "Skyseed pods", description: "Preserved atmospheric spores of pre-storm floating flora." },
+      { itemKey: "archiveTablet", name: "Damaged Colonist Journal", description: "Faded electronic records describing early landing attempts before the Storm erupted." }
     ],
-    clues: "Faint household item contours buried under several layers of ash sand.",
+    clues: "Partially exposed carbon-fiber struts buried under several layers of electrostatic sand.",
     suppliesRequired: [{ item: "berries", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "grassBasket", function: "Increases carrying capacity", optional: true }],
     allowMultipleScouts: false,
-    description: "A partially collapsed entrance leading to the home of an ancient family. It contains preserved tools and household relics."
+    description: "The crushed, dome-shaped hull of an early landing module. It represents the failed dream of permanent settlements before the Storm taught humans humility."
   },
   {
-    id: "underground_storehouse",
+    id: "seed_ark_forgotten",
     category: "Buried Structure",
-    name: "Underground Storehouse",
+    name: "Subterranean Seed Ark",
     tier: "Forgotten",
     recommendedScoutLevel: 3,
     typicalDuration: "8-24 hours",
@@ -48,19 +48,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["saltedMeat", "berries", "wood", "fiber"],
     uniqueDiscoveries: [
-      { itemKey: "fossilResin", name: "Ancient Preservation Resin", description: "A high-grade chemical seal preventing degradation." },
-      { itemKey: "vacuumVessel", name: "Vacuum-Storage Vessels", description: "Airtight metal container designed to halt decay." }
+      { itemKey: "fossilResin", name: "Thunder Resin Jar", description: "Electro-cured sap preserving organic matter." },
+      { itemKey: "vacuumVessel", name: "Sealed Pressure Core", description: "Airtight brass capsule holding pressurized planetary air samples." }
     ],
-    clues: "Heavy reinforced door with rusted brass hinges protruding from the dune edge.",
+    clues: "Heavy reinforced thermal blast door protruding from the dune edge.",
     suppliesRequired: [{ item: "boiledRoots", amount: 2 }, { item: "reservoirWater", amount: 2 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Protects fragile relics", optional: true }],
     allowMultipleScouts: true,
-    description: "A sealed food and material depot designed to survive environmental disasters. Holds construction elements and medicines."
+    description: "A cryogenic preservation vault where human colonists tried to isolate Terran crops from the planet's atmospheric wrath. The crops died; only alien mutations remain."
   },
   {
-    id: "collapsed_workshop",
+    id: "pressure_engine_vault",
     category: "Buried Structure",
-    name: "Collapsed Workshop",
+    name: "Pressure Engine Vault",
     tier: "Forgotten",
     recommendedScoutLevel: 3,
     typicalDuration: "8-24 hours",
@@ -68,19 +68,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["copper", "iron", "wood", "stone"],
     uniqueDiscoveries: [
-      { itemKey: "precisionGear", name: "Precision Gears", description: "Slick, micro-toothed gear assemblies carved from rare alloys." },
-      { itemKey: "archiveTablet", name: "Specialized Crafting Recipes", description: "Faded manuscript detailing ancient machinery setups." }
+      { itemKey: "precisionGear", name: "Precision Storm Gears", description: "Dense micro-gears built to survive high atmospheric drag." },
+      { itemKey: "archiveTablet", name: "Atmospheric Anchoring Schematics", description: "Faded digital diagrams for anchoring habitats against wind pressure." }
     ],
-    clues: "Broken metal components and gears half-submerged in petrified mud.",
+    clues: "Broken compression vents and pneumatic pipes half-submerged in petrified mud.",
     suppliesRequired: [{ item: "saltedMeat", amount: 3 }, { item: "reservoirWater", amount: 3 }],
     equipmentRequiredOrOptional: [{ item: "ruinDiverHarness", function: "Reduces danger in collapsed spaces", optional: true }],
     allowMultipleScouts: false,
-    description: "The remains of an ancient artisan or engineering facility. Useful metal components and tools are scattered within."
+    description: "A bunker housing ancient atmospheric compression engines. The colonists used these to generate artificial pressure zones, which the global Storm eventually crushed."
   },
   {
-    id: "buried_transit_station",
+    id: "ancient_migration_station",
     category: "Buried Structure",
-    name: "Buried Transit Station",
+    name: "Ancient Migration Station",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -88,19 +88,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["iron", "copper", "ancientMaterials", "relics"],
     uniqueDiscoveries: [
-      { itemKey: "ancientAlloyPlate", name: "Lightweight Structural Alloy", description: "A featherlight metal plate with immense resistance." },
-      { itemKey: "navigationCore", name: "Caravan Suspension Technology", description: "Frictionless hydraulic axle blueprints." }
+      { itemKey: "ancientAlloyPlate", name: "Atmospheric Alloy Plate", description: "A featherlight structural shielding plate designed to deflect micro-debris." },
+      { itemKey: "navigationCore", name: "Frictionless Axle Blueprint", description: "A pre-storm blueprint for building storm-resistant caravan wheels." }
     ],
-    clues: "Exposed metallic tunnel with parallel tracks curving down into deep bedrock.",
+    clues: "Exposed titanium rail tracks curving down into deep bedrock fissures.",
     suppliesRequired: [{ item: "saltedMeat", amount: 6 }, { item: "rainwater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "ancientClimbingRig", function: "Shortens shaft expedition duration", optional: true }],
     allowMultipleScouts: true,
-    description: "An underground station once used to move people and cargo between settlements. It remains filled with rusted cargo crates."
+    description: "An early underground terminal built when humans first realized they had to move to survive. It became a graveyard when the Eye moved faster than their transit vehicles."
   },
   {
-    id: "subterranean_district",
+    id: "broken_shield_dome",
     category: "Buried Structure",
-    name: "Subterranean Residential District",
+    name: "Broken Shield Dome Lambda",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -108,22 +108,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["wood", "fiber", "relics", "gold"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Ancient Furniture Styles", description: "Stylized drawings of ergonomic precursor dwellings." },
-      { itemKey: "memoryCrystal", name: "Preserved Family Records", description: "Memory banks preserving personal histories." }
+      { itemKey: "archiveTablet", name: "False Eye blueprints", description: "Schematics for dome generators that attempted to mimic the Eye's safety." },
+      { itemKey: "memoryCrystal", name: "Firstfall Colony Log", description: "Records describing the sudden failure of the local shield during an orbital super-storm." }
     ],
-    clues: "Extensive networks of stone chimneys and vents coughing dust after minor quakes.",
+    clues: "Extensive networks of fused-glass pillars reflecting moonlight in the dunes.",
     suppliesRequired: [{ item: "boiledRoots", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [
       { item: "ruinBreathingMask", function: "Protects against toxic dust", optional: true },
       { item: "echoMapper", function: "Reveals hidden rooms", optional: true }
     ],
     allowMultipleScouts: true,
-    description: "A large underground neighborhood with many rooms and branching passages, containing home objects and cultural records."
+    description: "The ruins of a geodesic city once protected by an electrostatic shield. When the generators failed, the Storm wall swallowed the city whole. A reminder of the folly of permanent brick and stone."
   },
   {
-    id: "sealed_emergency_shelter",
+    id: "firstfall_shelter_sealed",
     category: "Buried Structure",
-    name: "Sealed Emergency Shelter",
+    name: "Sealed Firstfall Shelter",
     tier: "Ancient",
     recommendedScoutLevel: 4,
     typicalDuration: "8-24 hours",
@@ -131,19 +131,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["mushrooms", "dew", "ancientMaterials"],
     uniqueDiscoveries: [
-      { itemKey: "vacuumVessel", name: "Advanced Filtration Membranes", description: "Synthesized polymers capable of micro-filtering pure water." },
-      { itemKey: "archiveTablet", name: "Emergency Ration Recipes", description: "Formulas for nutrient block synthesis." }
+      { itemKey: "vacuumVessel", name: "High-Efficiency Dew Collector", description: "Synthetic carbon-filter components designed to extract water from storm wind." },
+      { itemKey: "archiveTablet", name: "Nomadic Ration Recipes", description: "Early survival formulas for compact nutrient blocks." }
     ],
-    clues: "A glowing blue airlock panel half-excavated, blinking with automated diagnostics.",
+    clues: "A glowing blue biometric airlock panel half-excavated, blinking with automated emergency diagnostics.",
     suppliesRequired: [{ item: "saltedMeat", amount: 4 }, { item: "reservoirWater", amount: 4 }],
     equipmentRequiredOrOptional: [{ item: "structuralScanner", function: "Warns about cave-ins", optional: true }],
     allowMultipleScouts: false,
-    description: "A reinforced refuge built for an unknown ancient disaster. It holds valuable water purifiers and old emergency documents."
+    description: "An emergency shelter built deep into solid mountain bedrock. Unlike surface cities, this survived because it didn't challenge the wind, though its occupants eventually had to venture out as nomads."
   },
   {
-    id: "ancient_mine_entrance",
+    id: "buried_terraforming_spine",
     category: "Buried Structure",
-    name: "Ancient Mine Entrance",
+    name: "Buried Terraforming Spine",
     tier: "Ancient",
     recommendedScoutLevel: 6,
     typicalDuration: "1-3 days",
@@ -151,19 +151,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["copper", "silver", "gold", "iron"],
     uniqueDiscoveries: [
-      { itemKey: "starMetalFragment", name: "Star-Metal Fragments", description: "Extremely heavy, space-born meteor ore pieces." },
-      { itemKey: "deepCrystal", name: "Deep Crystal Shards", description: "Sub-crust crystals radiating high thermal energy." }
+      { itemKey: "starMetalFragment", name: "Moon-Iron Shards", description: "Highly reflective, heavy alien ore displaying magnetic alignment." },
+      { itemKey: "deepCrystal", name: "Sub-Crust Root Crystal", description: "A crystal that pulses in tandem with the planet's atmospheric currents." }
     ],
-    clues: "Carved mining shaft with mineral crystals glowing in the shadows.",
+    clues: "Massive drill shafts lined with mineral crystals glowing under the moonlight.",
     suppliesRequired: [{ item: "saltedMeat", amount: 8 }, { item: "dew", amount: 8 }],
     equipmentRequiredOrOptional: [{ item: "expeditionLantern", function: "Eliminates fuel requirements, lessens dark danger", optional: true }],
     allowMultipleScouts: true,
-    description: "A deep mine once used to extract minerals no longer found on the surface. Requires extreme physical endurance to navigate."
+    description: "A subterranean machine designed to inject alien soil with earth-like cultures. It was torn asunder by tectonic-atmospheric shifts, leaving a vein of raw Moon-Iron and petrified roots."
   },
   {
-    id: "buried_research_annex",
+    id: "failed_artificial_eye",
     category: "Buried Structure",
-    name: "Buried Research Annex",
+    name: "Failed Artificial Eye Site",
     tier: "Pre-Storm",
     recommendedScoutLevel: 7,
     typicalDuration: "2-5 days",
@@ -171,19 +171,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["relics", "ancientMaterials", "silver"],
     uniqueDiscoveries: [
-      { itemKey: "logicCore", name: "Research Blueprints", description: "Incredibly dense silicon matrices describing automation." },
-      { itemKey: "stormLens", name: "Environmental Sensors", description: "Delicate meteorology gauges." }
+      { itemKey: "logicCore", name: "Storm-Predicting Matrix", description: "A dense computer module designed to track the Eye Above." },
+      { itemKey: "stormLens", name: "Stormglass Lens Shard", description: "Flawless, laser-cut glass designed to measure electrostatic charges." }
     ],
-    clues: "A glass dome sticking out of the dunes, half-shielded by dark alloy plates.",
+    clues: "A colossal, dead sapphire hemisphere sticking out of the dunes, half-shielded by carbon armor plates.",
     suppliesRequired: [{ item: "saltedMeat", amount: 10 }, { item: "reservoirWater", amount: 10 }],
     equipmentRequiredOrOptional: [{ item: "sealedExpeditionSuit", function: "Blocks radiation and hazardous bio-agents", optional: false }],
     allowMultipleScouts: false,
-    description: "A scientific facility hidden beneath ordinary ruins. It contains advanced atmospheric measurement devices and records."
+    description: "An observatory built to create an artificial 'Eye'—a safe sector of calm air that would remain permanent. The project imploded, creating an electrostatic vortex."
   },
   {
-    id: "weather_observation_station",
+    id: "stormbreaker_tower_minor",
     category: "Ancient Tech",
-    name: "Weather Observation Station",
+    name: "Stormbreaker Tower Spire",
     tier: "Pre-Storm",
     recommendedScoutLevel: 7,
     typicalDuration: "1-3 days",
@@ -191,19 +191,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["ancientMaterials", "relics", "dew"],
     uniqueDiscoveries: [
-      { itemKey: "stormLens", name: "Oracle Equipment Upgrades", description: "Refractive sapphire glass that improves storm forecasting." },
-      { itemKey: "deepCrystal", name: "Storm-Pressure Sensors", description: "Delicate carbon-fiber barometers." }
+      { itemKey: "stormLens", name: "Refractive Stormglass Prism", description: "A highly calibrated crystal capable of redirecting lightning." },
+      { itemKey: "deepCrystal", name: "Static Charge Barometer", description: "A delicate instrument used by the Oracle to sense approaching sand walls." }
     ],
-    clues: "A high-altitude steel antenna array catching storm lightnings and humming.",
+    clues: "A high-altitude alloy spire catching storm lightning, humming with unstable energy.",
     suppliesRequired: [{ item: "boiledRoots", amount: 6 }, { item: "rainwater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "surveyorsLens", function: "Speeds up navigation and landmark detection", optional: true }],
     allowMultipleScouts: true,
-    description: "A facility once used to study the atmospheric layers and the storm. Crucial for Oracle and prediction progression."
+    description: "A defensive outpost armed with cloud-seeding and wind-dampening lasers. It stands frozen in a perpetual state of firing, attracting localized lightnings."
   },
   {
-    id: "navigation_relay",
+    id: "moon_signal_relay_minor",
     category: "Ancient Tech",
-    name: "Navigation Relay",
+    name: "Moon-Signal Relay Site",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -211,18 +211,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["copper", "relics", "ancientMaterials"],
     uniqueDiscoveries: [
-      { itemKey: "navigationCore", name: "Ancient Map Fragments", description: "Data chips containing landmarks outside our region." }
+      { itemKey: "navigationCore", name: "Lunar Orbit Map Chip", description: "Data fragments tracing the orbital path of the Eye Above." }
     ],
-    clues: "A rotating beacon head buried in desert sands, clicking rhythmically.",
+    clues: "A rotating dish head buried in sand, clicking rhythmically as if trying to speak to the moon.",
     suppliesRequired: [{ item: "saltedMeat", amount: 5 }, { item: "reservoirWater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "ancientCompass", function: "Speeds up route calculation", optional: true }],
     allowMultipleScouts: false,
-    description: "A broken beacon relay that once guided cargo vehicles across the ancient world. Holds coordinates to other regional nodes."
+    description: "A communication tower once linked to the colonists' colony ship in orbit. The tribe believes it is a sacred temple that spoke directly to the God's Eye (the moon)."
   },
   {
-    id: "ancient_fabrication_chamber",
+    id: "bioforming_gardens_ancient",
     category: "Ancient Tech",
-    name: "Ancient Fabrication Chamber",
+    name: "Bioforming Garden Sinks",
     tier: "Pre-Storm",
     recommendedScoutLevel: 8,
     typicalDuration: "2-5 days",
@@ -230,19 +230,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["iron", "ancientMaterials", "copper"],
     uniqueDiscoveries: [
-      { itemKey: "pristineMachineCore", name: "Uncraftable Machine Cores", description: "Pre-assembled quantum engines for highest-tier structures." },
-      { itemKey: "logicCore", name: "Advanced Workstation Blueprints", description: "Instruction manuals for assembling automated fabricators." }
+      { itemKey: "pristineMachineCore", name: "Synthesizer core", description: "An automated chemical mixer used to fabricate organic binders." },
+      { itemKey: "logicCore", name: "Bio-seeding blueprints", description: "Instruction templates for cultivating storm-resistant spore flora." }
     ],
-    clues: "Exposed hydraulic exhaust vents occasionally puffing cold compressed air.",
+    clues: "Exposed greenhouse tubes occasionally puffing moist, nitrogen-rich air from beneath the cracked shale.",
     suppliesRequired: [{ item: "saltedMeat", amount: 12 }, { item: "reservoirWater", amount: 12 }],
     equipmentRequiredOrOptional: [{ item: "ruinDiverHarness", function: "Safely cross mechanical gears", optional: true }],
     allowMultipleScouts: true,
-    description: "An automated heavy manufacturing facility containing assemblers. It remains highly dangerous due to defensive lasers."
+    description: "An underground hydroponic nursery where colonists tried to splice Earth crops with local desert weeds. The result is a wild, toxic garden guarded by defensive automated drones."
   },
   {
-    id: "power_regulation_vault",
+    id: "atmospheric_anchor_vault",
     category: "Ancient Tech",
-    name: "Power Regulation Vault",
+    name: "Atmospheric Anchor Vault",
     tier: "Pre-Storm",
     recommendedScoutLevel: 7,
     typicalDuration: "2-5 days",
@@ -250,19 +250,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["copper", "ancientMaterials", "gold"],
     uniqueDiscoveries: [
-      { itemKey: "ancientPowerCell", name: "Ancient Power Cells", description: "Indestructible energy batteries filled with radioactive plasma." },
-      { itemKey: "logicCore", name: "Energy-Regulator Modules", description: "Circuit boards that govern safe energy output." }
+      { itemKey: "ancientPowerCell", name: "Static Battery Core", description: "An indestructible capsule humming with captured lightning power." },
+      { itemKey: "logicCore", name: "Pressure Regulator Plate", description: "A heavy circuit board that maintains a stable pressure envelope." }
     ],
-    clues: "Crackling sounds and static charges that make hair stand on end within 30 meters.",
+    clues: "Deep electric crackles and localized static charges that make hair stand on end within 30 meters.",
     suppliesRequired: [{ item: "saltedMeat", amount: 8 }, { item: "reservoirWater", amount: 8 }],
     equipmentRequiredOrOptional: [{ item: "relicDetector", function: "Identifies safe circuit nodes", optional: true }],
     allowMultipleScouts: false,
-    description: "A reinforced high-voltage vault that once distributed energy. Its ancient cells cannot be crafted."
+    description: "A reinforced underground facility once meant to anchor the wind. It failed when the Storm bypassed its magnetic coils, but the power cells inside are still fully active."
   },
   {
-    id: "automated_agricultural",
+    id: "seed_ark_metropolis",
     category: "Ancient Tech",
-    name: "Automated Agricultural Facility",
+    name: "Grand Seed Ark Enclave",
     tier: "Ancient",
     recommendedScoutLevel: 6,
     typicalDuration: "1-3 days",
@@ -270,19 +270,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["berries", "roots", "mushrooms", "dew"],
     uniqueDiscoveries: [
-      { itemKey: "extinctSeed", name: "Extinct Crop Seeds", description: "Pristine bio-capsules containing genetic templates for long-lost vegetables." },
-      { itemKey: "vacuumVessel", name: "Self-Watering Planter Designs", description: "Hydroponic blueprint profiles." }
+      { itemKey: "extinctSeed", name: "Skyseed pod specimens", description: "High-grade pre-storm spore shells that grow into buoyant, water-storing plants." },
+      { itemKey: "vacuumVessel", name: "Soil-Moistening Regulator", description: "Ancient irrigation matrix blueprints." }
     ],
-    clues: "Moist, sweet air smelling of damp earth leaking from a rusted metal hatch.",
+    clues: "Damp, sweet soil smell leaking from a rusted copper ventilation hatch.",
     suppliesRequired: [{ item: "boiledRoots", amount: 5 }, { item: "reservoirWater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Protects biological seed integrity", optional: true }],
     allowMultipleScouts: true,
-    description: "An underground automated greenhouse. Holds extinct crops, hyper-fertility dirt, and irrigation technologies."
+    description: "A major biological vault. It preserves the genome of pre-storm flora and failed Terran hybrid crops, buried deep enough to escape the radioactive static walls."
   },
   {
-    id: "medical_preservation_center",
+    id: "bioforming_enclave",
     category: "Ancient Tech",
-    name: "Medical Preservation Center",
+    name: "Bioforming Laboratory Sector",
     tier: "Pre-Storm",
     recommendedScoutLevel: 8,
     typicalDuration: "2-5 days",
@@ -290,19 +290,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["dew", "mushrooms", "silver"],
     uniqueDiscoveries: [
-      { itemKey: "regenerationCompound", name: "Regeneration Compound", description: "An organic compound that reconstructs ruptured muscle in seconds." },
-      { itemKey: "sterileAncientCloth", name: "Sterile Ancient Cloth", description: "Anti-infection synthetic fabrics." }
+      { itemKey: "regenerationCompound", name: "Concentrated Bioforming Gel", description: "An organic compound that seals physical wounds and accelerates cell division." },
+      { itemKey: "sterileAncientCloth", name: "Synthetic Skin Bandages", description: "Bio-synthetic fabric used to bind injuries." }
     ],
-    clues: "An airtight steel hatch smelling of dry alcohol and chemical antiseptics.",
+    clues: "An airtight steel airlock leaking dry ethanol vapor and cold, filtered oxygen.",
     suppliesRequired: [{ item: "saltedMeat", amount: 8 }, { item: "reservoirWater", amount: 8 }],
     equipmentRequiredOrOptional: [{ item: "ruinBreathingMask", function: "Protects against toxic medical gases", optional: false }],
     allowMultipleScouts: true,
-    description: "A sealed bio-storage facility. Highly valued for recovery medicine, healer blueprints, and clinical tools."
+    description: "A laboratory specialized in bioforming. Here, researchers analyzed how human DNA could be adjusted to withstand the planet's atmospheric density."
   },
   {
-    id: "ancient_communication_hub",
+    id: "echo_vault_comm",
     category: "Ancient Tech",
-    name: "Ancient Communication Hub",
+    name: "Echo Vault Communication Hub",
     tier: "Pre-Storm",
     recommendedScoutLevel: 6,
     typicalDuration: "1-3 days",
@@ -310,19 +310,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["relics", "ancientMaterials", "copper"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Coded Tablets", description: "Precursor telecommunication logs requiring Oracle analysis." },
-      { itemKey: "navigationCore", name: "Megastructure Coordinates", description: "Navigation map detailing ancient facility coordinates." }
+      { itemKey: "archiveTablet", name: "Decryption Slate", description: "Telecommunication modules that can translate ancient warning signals." },
+      { itemKey: "navigationCore", name: "Pre-Storm City Coordinates", description: "A solid navigation map listing the coordinates of major failed settlements." }
     ],
-    clues: "A massive satellite dish partially buried vertically in a rocky ridge.",
+    clues: "A massive satellite receiver dish buried vertically in a rocky ridge, occasionally reflecting moonlight.",
     suppliesRequired: [{ item: "saltedMeat", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "echoMapper", function: "Maps out communications relays", optional: true }],
     allowMultipleScouts: false,
-    description: "A communication station that once connected settlements across the globe. Deciphering its signals reveals other ruins."
+    description: "A central terminal once used to coordinate evacuations when the cities fell. It continuously broadcasts automated distress loops that sound like whispers of ghosts to the tribe."
   },
   {
-    id: "machine_nursery",
+    id: "failed_artificial_eye_metropolis",
     category: "Ancient Tech",
-    name: "Machine Nursery",
+    name: "Artificial Eye Core",
     tier: "Legendary",
     recommendedScoutLevel: 9,
     typicalDuration: "4-8 days",
@@ -330,19 +330,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very High",
     finds: ["ancientMaterials", "relics", "gold", "iron"],
     uniqueDiscoveries: [
-      { itemKey: "logicCore", name: "Dormant Helper Construct", description: "An inactive automated robot drone designed to assist." },
-      { itemKey: "pristineMachineCore", name: "Ancient Logic Cores", description: "Processor matrices containing machine learning logic." }
+      { itemKey: "logicCore", name: "Luminous Hover Construct", description: "An inactive, drone construct that can float and assist caravans." },
+      { itemKey: "pristineMachineCore", name: "Pristine Navigation Core", description: "An intact gravity-stabilization engine processor." }
     ],
-    clues: "Rhythmic ticking and clicking deep underground, accompanied by blue sparks.",
+    clues: "Faint blue lightning flares pulsing deep underground, accompanied by low humming vibration.",
     suppliesRequired: [{ item: "saltedMeat", amount: 15 }, { item: "reservoirWater", amount: 15 }],
     equipmentRequiredOrOptional: [{ item: "structuralScanner", function: "Protects against robot defense collapses", optional: false }],
     allowMultipleScouts: true,
-    description: "A highly complex facility where helper machines and robotic constructs were crafted and charged."
+    description: "The core facility of the artificial dome network. Here, the final attempts to rewrite the planet's weather patterns were made before the global Storm tore down the colony's power grid."
   },
   {
-    id: "ancestral_tomb",
+    id: "root_crystal_ossuary",
     category: "Cultural/Historical",
-    name: "Ancestral Tomb",
+    name: "Root-Crystal Ossuary",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -350,18 +350,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["gold", "silver", "relics", "bone"],
     uniqueDiscoveries: [
-      { itemKey: "relics", name: "Named Morale Relics", description: "Venerated relics that boost tribal morale permanently." }
+      { itemKey: "relics", name: "God-Eye Totem Shard", description: "A beautifully polished crystal carved in the shape of the Moon-Eye." }
     ],
-    clues: "Carved skull monoliths guarding a narrow obsidian fissure in the mountains.",
+    clues: "Ancient stone monoliths with glowing roots wrapping around skeletal remains inside an obsidian cleft.",
     suppliesRequired: [{ item: "boiledRoots", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "artifactSatchel", function: "Safely wraps sacred relics to prevent damage", optional: true }],
     allowMultipleScouts: false,
-    description: "A burial chamber belonging to an ancient family or ruler. Morale disagreements can occur if sacred items are stolen."
+    description: "A ceremonial burial site where early nomads laid their dead. Over time, root-crystals grew through their bones, creating beautiful fossilized shrines sacred to the Oracle."
   },
   {
-    id: "memorial_archive",
+    id: "echo_vault_minor",
     category: "Cultural/Historical",
-    name: "Memorial Archive",
+    name: "Echo Vault Memorial Archive",
     tier: "Minor",
     recommendedScoutLevel: 2,
     typicalDuration: "3-10 hours",
@@ -369,18 +369,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very Low",
     finds: ["stone", "fiber", "wood"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Major Lore Entries", description: "A beautifully preserved clay slab containing historical narratives." }
+      { itemKey: "archiveTablet", name: "Chronicle of the Great Humbling", description: "A digital slate detailing how the colonists chose to abandon their stone walls and follow the Eye." }
     ],
-    clues: "A series of memorial stones standing in rows, covered with moss and vines.",
+    clues: "A circle of smooth alloy plates standing upright, etched with thousands of names.",
     suppliesRequired: [{ item: "berries", amount: 4 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Protects ancient tablets from cracking", optional: true }],
     allowMultipleScouts: false,
-    description: "A structure preserving the names and histories of people lost during the collapse. Generates excellent lore records."
+    description: "A monument dedicated to the casualties of the early colony war against the Storm. It contains logs of scientists realizing that adaptation, not conquest, is the only key to survival."
   },
   {
-    id: "temple_beneath_sand",
+    id: "storm_taken_altar",
     category: "Cultural/Historical",
-    name: "Temple Beneath the Sand",
+    name: "Storm-Taken Altar of the Eye",
     tier: "Ancient",
     recommendedScoutLevel: 6,
     typicalDuration: "1-3 days",
@@ -388,18 +388,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["relics", "gold", "bone", "dew"],
     uniqueDiscoveries: [
-      { itemKey: "heartwoodCrystal", name: "Shrine Blueprints & Sacred Symbols", description: "Fabulous golden engravings that inspire Oracle designs." }
+      { itemKey: "heartwoodCrystal", name: "Sacred Moon-Lens Blueprint", description: "Etched copper templates showing how to construct the Oracle's focus lenses." }
     ],
-    clues: "Ancient stone columns and carved arches barely rising from the sand drifts.",
+    clues: "Fallen glass obelisks and sand-blasted arches barely visible through heavy electrostatic haze.",
     suppliesRequired: [{ item: "saltedMeat", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "expeditionLantern", function: "Safely navigate dark ritual chambers", optional: true }],
     allowMultipleScouts: true,
-    description: "A buried religious structure containing ritual chambers and altars. Highly valued for spiritual relic gathering."
+    description: "An early shrine built where the Eye of the Storm stalled for an entire month, long ago. Early colonists began treating the calm as a blessing from the Moon-Eye."
   },
   {
-    id: "forgotten_school",
+    id: "firstfall_enclave",
     category: "Cultural/Historical",
-    name: "Forgotten School",
+    name: "Firstfall Enclave Ruins",
     tier: "Forgotten",
     recommendedScoutLevel: 3,
     typicalDuration: "8-24 hours",
@@ -407,18 +407,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["wood", "fiber", "berries", "stone"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Education Blueprints", description: "Blueprints containing pedagogy guides to boost apprentice speeds." }
+      { itemKey: "archiveTablet", name: "Meteorological Records", description: "A collection of data slides detailing the mathematical rhythm of the Storm's movement." }
     ],
-    clues: "Rusted swing frames and a moldy concrete archway surrounded by dry bushes.",
+    clues: "Rusted dome structures and shattered solar sails surrounded by dry desert shrubs.",
     suppliesRequired: [{ item: "boiledRoots", amount: 3 }, { item: "reservoirWater", amount: 3 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Protects paper records", optional: true }],
     allowMultipleScouts: false,
-    description: "An educational academy from before the storms. Contains schoolbooks, maps, and drawings that boost apprentices."
+    description: "A ruined compound where early colonists lived during the first decade. It contains simple learning materials, diaries of children marveling at the blue sky, and maps of an earth they would never see."
   },
   {
-    id: "ancient_council_hall",
+    id: "stormbreaker_enclave",
     category: "Cultural/Historical",
-    name: "Ancient Council Hall",
+    name: "Stormbreaker Council Hall",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -426,18 +426,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["relics", "silver", "wood", "fiber"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Diplomatic Records", description: "Ancient records describing precursor clans and their compacts." }
+      { itemKey: "archiveTablet", name: "Surrender Compact Log", description: "The historical record of the first five clans agreeing to live together under the Eye." }
     ],
-    clues: "Exposed amphitheater seating rings carved into a bedrock crater.",
+    clues: "Shattered metallic columns arranged in a wide circle on a rocky ledge.",
     suppliesRequired: [{ item: "saltedMeat", amount: 5 }, { item: "reservoirWater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "echoMapper", function: "Finds locked vaults", optional: true }],
     allowMultipleScouts: false,
-    description: "The administrative center of a lost settlement. Holds precursor laws, alliance maps, and diplomatic logs."
+    description: "The meeting hall where the first colonists sat to debate their surrender. Here, they agreed to abandon their heavy machines, take up walking staffs, and follow the Moon-Eye."
   },
   {
-    id: "lost_tribal_settlement",
+    id: "pre_storm_migration_camp",
     category: "Cultural/Historical",
-    name: "Lost Tribal Settlement",
+    name: "Pre-Storm Migration Camp",
     tier: "Minor",
     recommendedScoutLevel: 2,
     typicalDuration: "3-10 hours",
@@ -445,18 +445,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["meat", "hide", "bone", "wood"],
     uniqueDiscoveries: [
-      { itemKey: "navigationCore", name: "Rival Tribe Maps", description: "Faded migration logs showing other tribe routes." }
+      { itemKey: "navigationCore", name: "Faded Migration Trail Map", description: "A mapped path tracing historical movements of the Eye over the last century." }
     ],
-    clues: "Deteriorated wooden poles and cold leather tents arranged in a circular camp.",
+    clues: "Shattered bone poles and leather tents half-buried in a sandy valley.",
     suppliesRequired: [{ item: "berries", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "grassBasket", function: "Hauls camp items", optional: true }],
     allowMultipleScouts: true,
-    description: "A recent campsite abandoned by another tribe that fled the storm. Contains basic tools and migration routes."
+    description: "An abandoned campsite of another nomad tribe that moved on days ago. Contains crude survival bone tools and discarded gear."
   },
   {
-    id: "sealed_library",
+    id: "echo_archive_sealed",
     category: "Cultural/Historical",
-    name: "Sealed Library",
+    name: "Sealed Echo Archive",
     tier: "Pre-Storm",
     recommendedScoutLevel: 8,
     typicalDuration: "2-5 days",
@@ -464,22 +464,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["relics", "ancientMaterials", "gold", "silver"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Technical Research Archives", description: "Dozens of high-tier blueprint documents." },
-      { itemKey: "memoryCrystal", name: "Knowledge Multipliers", description: "Crystalline storage containing centuries of lost scientific theory." }
+      { itemKey: "archiveTablet", name: "Advanced Oracle blueprint", description: "Instructions for constructing high-precision mapping terminals." },
+      { itemKey: "memoryCrystal", name: "Atmospheric History Crystal", description: "A crystal matrix containing pre-storm data that proves the Storm has a predictable biological pulse." }
     ],
-    clues: "Extremely heavy steel vault doors marked with a book-and-atom emblem.",
+    clues: "Heavy reinforced metal vault door embossed with a stylized double-eye motif.",
     suppliesRequired: [{ item: "saltedMeat", amount: 10 }, { item: "reservoirWater", amount: 10 }],
     equipmentRequiredOrOptional: [
       { item: "preservationCase", function: "Safeguards fragile paper documents", optional: false },
       { item: "relicDetector", function: "Bypasses automated security panels", optional: true }
     ],
     allowMultipleScouts: true,
-    description: "A perfectly sealed archive containing precursor knowledge. Highly valued but incredibly difficult to explore fully."
+    description: "A perfectly preserved library vault. Unlike other structures, it contains no weapons—only centuries of atmospheric data, colonist diaries, and maps of the moving Eye."
   },
   {
-    id: "colossal_fossil_bed",
+    id: "fossil_megafauna_hollows",
     category: "Fossil/Natural",
-    name: "Colossal Fossil Bed",
+    name: "Fossil Megafauna Hollows",
     tier: "Ancient",
     recommendedScoutLevel: 4,
     typicalDuration: "1-3 days",
@@ -487,19 +487,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["bone", "stone", "copper", "iron"],
     uniqueDiscoveries: [
-      { itemKey: "titanBone", name: "Titan Bones", description: "Immense fossilized limbs of mega-fauna that existed eons ago." },
-      { itemKey: "fossilResin", name: "Fossil Marrow Crystals", description: "Mineralized organic residue." }
+      { itemKey: "titanBone", name: "Colossal Windbone Skeleton", description: "A massive fossilized wing-strut of a prehistoric flying titan." },
+      { itemKey: "fossilResin", name: "Fossilized Thunder-Sap", description: "Petrified amber holding extinct plant spores." }
     ],
-    clues: "Giant curved bone columns sticking out of a deep rocky ravine.",
+    clues: "Giant curved bone columns sticking out of a deep rocky ravine like petrified tree trunks.",
     suppliesRequired: [{ item: "boiledRoots", amount: 4 }, { item: "reservoirWater", amount: 4 }],
     equipmentRequiredOrOptional: [{ item: "ruinDiverHarness", function: "Protects scouts when descending bone crevices", optional: true }],
     allowMultipleScouts: true,
-    description: "A burial ground containing fossilized skeleton remains of extinct colossal creatures. Yields unique bones."
+    description: "A dry canyon filled with the skeleton remains of extinct, mountain-sized flying creatures. Their hollow rib cages are large enough to shelter an entire caravan."
   },
   {
-    id: "petrified_nest",
+    id: "wind_rider_nest",
     category: "Fossil/Natural",
-    name: "Petrified Nest",
+    name: "Wind-Rider Nesting Grounds",
     tier: "Forgotten",
     recommendedScoutLevel: 3,
     typicalDuration: "8-24 hours",
@@ -507,19 +507,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["bone", "stone", "fiber"],
     uniqueDiscoveries: [
-      { itemKey: "extinctSeed", name: "Intact Fossil Eggs", description: "Preserved calcified eggs containing ancient beast DNA." },
-      { itemKey: "ancientAlloyPlate", name: "Ultra-Light Shell Plates", description: "Featherlight protective plates." }
+      { itemKey: "extinctSeed", name: "Fossilized Egg Shells", description: "Thick, calcified shells of pre-storm storm-adapted flying beasts." },
+      { itemKey: "ancientAlloyPlate", name: "Petrified Feather Plating", description: "A lightweight organic matrix with steel-like structural strength." }
     ],
-    clues: "Circular stone mounds with fossilized egg fragments half-buried in sand.",
+    clues: "Circular sand-mounds lined with fossilized egg fragments catching the moon's reflection.",
     suppliesRequired: [{ item: "boiledRoots", amount: 3 }, { item: "reservoirWater", amount: 3 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Saves egg shells", optional: true }],
     allowMultipleScouts: false,
-    description: "The petrified nesting grounds of an extinct mega-predator or colossal bird species. Great for breeding discoveries."
+    description: "The nesting site of the ancient Wind-Riders, colossal birds that lived in the upper storm clouds. The tribe's legends say they would carry children who fell outside the Eye back to safety."
   },
   {
-    id: "ancient_root_chamber",
+    id: "root_crystal_chamber_minor",
     category: "Fossil/Natural",
-    name: "Ancient Root Chamber",
+    name: "Root-Crystal Chamber",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -527,19 +527,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["wood", "dew", "mushrooms"],
     uniqueDiscoveries: [
-      { itemKey: "heartwoodCrystal", name: "Heartwood Crystals", description: "Amber crystals formed at the dead cores of colossal petrified trees." },
-      { itemKey: "livingResinResidue", name: "Living-Resin Residue", description: "Still-sticky resin fluid with powerful bonding strength." }
+      { itemKey: "heartwoodCrystal", name: "Vibrant Root Crystal Core", description: "A pure, glowing energy crystal grown within a petrified megatree core." },
+      { itemKey: "livingResinResidue", name: "Sticky Thunder Sap Residue", description: "Uncured organic sap with incredible bonding strength." }
     ],
-    clues: "A glowing sap fissure in a hollow cliff side near a petrified root.",
+    clues: "A glowing sap fissure in a hollow cliff side near a massive petrified root.",
     suppliesRequired: [{ item: "saltedMeat", amount: 5 }, { item: "reservoirWater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "artifactSatchel", function: "Carries sticky resin safely", optional: true }],
     allowMultipleScouts: false,
-    description: "A cavern inside the giant roots of a mountain-sized dead petrified tree. Rich in organic crystal resins."
+    description: "A cave formed inside the root systems of a dead, petrified megatree. Tectonic pressure and lightning strikes have converted its sap into glowing energy crystals."
   },
   {
-    id: "amber_grove",
+    id: "root_crystal_grove",
     category: "Fossil/Natural",
-    name: "Amber Grove",
+    name: "Root-Crystal Grove",
     tier: "Forgotten",
     recommendedScoutLevel: 3,
     typicalDuration: "8-24 hours",
@@ -547,19 +547,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Low",
     finds: ["wood", "stone", "berries"],
     uniqueDiscoveries: [
-      { itemKey: "fossilResin", name: "Pristine Ancient Resin", description: "A high-purity golden fossil sap chunk." },
-      { itemKey: "extinctSeed", name: "Extinct Plant Seeds", description: "Plant genetics preserved inside fossil amber." }
+      { itemKey: "fossilResin", name: "Aromatic Thunder Resin", description: "Hardened golden sap that emits a calming, therapeutic scent." },
+      { itemKey: "extinctSeed", name: "Ancient Petritree Sapling", description: "Seeds of petrified megatrees preserved in amber." }
     ],
-    clues: "Golden, translucent stones catching the morning light along a clay creek bed.",
+    clues: "Golden, translucent crystal nodules catching the morning light along a clay creek bed.",
     suppliesRequired: [{ item: "boiledRoots", amount: 2 }, { item: "reservoirWater", amount: 2 }],
     equipmentRequiredOrOptional: [{ item: "preservationCase", function: "Safeguards fragile amber", optional: true }],
     allowMultipleScouts: true,
-    description: "A buried underground grove with massive pockets of fossilized plant sap and golden amber blocks."
+    description: "A shallow subterranean grove where petrified roots are saturated with amber resin. Excellent material for crafting sacred staves and Oracle instruments."
   },
   {
-    id: "subterranean_spore",
+    id: "bioforming_garden_minor",
     category: "Fossil/Natural",
-    name: "Subterranean Spore Garden",
+    name: "Spore Bioforming Garden",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -567,18 +567,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["mushrooms", "fiber", "dew", "meat"],
     uniqueDiscoveries: [
-      { itemKey: "sterileAncientCloth", name: "Luminous Spores & Medicinal Mycelium", description: "Fungal strains that grow active medical mycelium." }
+      { itemKey: "sterileAncientCloth", name: "Bioluminescent Mycelium Spores", description: "Luminous spores that can be cultivated to purify water." }
     ],
-    clues: "Fluorescent cyan spores drifting out of a wet cave crack, carrying a sweet scent.",
+    clues: "Fluorescent cyan spores drifting out of a wet cave crack, carrying a cool moisture scent.",
     suppliesRequired: [{ item: "boiledRoots", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "ruinBreathingMask", function: "Required to survive toxic fungal spores", optional: false }],
     allowMultipleScouts: true,
-    description: "An isolated underground ecosystem that has survived for centuries. Holds bioluminescent fungi and aggressive fauna."
+    description: "A pocket ecosystem that survived the colony collapse. It is filled with pre-storm bioluminescent fungi that grow only in high-humidity storm-fronts."
   },
   {
-    id: "crystal_ossuary",
+    id: "root_crystal_ossuary_deep",
     category: "Fossil/Natural",
-    name: "Crystal Ossuary",
+    name: "Crystalline Skeleton Caves",
     tier: "Pre-Storm",
     recommendedScoutLevel: 7,
     typicalDuration: "2-5 days",
@@ -586,19 +586,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["stone", "gold", "silver", "relics"],
     uniqueDiscoveries: [
-      { itemKey: "memoryCrystal", name: "Memory Crystals", description: "Crystals that store genetic or historical precursor knowledge." },
-      { itemKey: "resonantFossilShard", name: "Resonant Fossil Shards", description: "Fossilized teeth that hum in tune with electro-signals." }
+      { itemKey: "memoryCrystal", name: "Nomadic Memory Crystal", description: "An ancient data recording detailing the first migrations." },
+      { itemKey: "resonantFossilShard", name: "Resonant Windbone Flute", description: "A hollow bone that hums with a beautiful melody when wind passes through." }
     ],
-    clues: "Crystalline chime sounds and harmonic vibrations emanating from a dark granite fissure.",
+    clues: "Harmonic chime vibrations emanating from a deep granite fissure.",
     suppliesRequired: [{ item: "saltedMeat", amount: 8 }, { item: "reservoirWater", amount: 8 }],
     equipmentRequiredOrOptional: [{ item: "echoMapper", function: "Speeds up navigation via acoustics", optional: true }],
     allowMultipleScouts: false,
-    description: "A deep geological cavern where ancient remains have become infused with crystalline mineral growths."
+    description: "A deep geological fault where petrified remains and ancient nomad bones have fused with mineral crystals under extreme tectonic heat."
   },
   {
-    id: "ancient_armory",
+    id: "storm_rider_arsenal",
     category: "Military/Dangerous",
-    name: "Ancient Armory",
+    name: "Storm-Rider Arsenal",
     tier: "Pre-Storm",
     recommendedScoutLevel: 7,
     typicalDuration: "2-5 days",
@@ -606,19 +606,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["iron", "copper", "ancientMaterials"],
     uniqueDiscoveries: [
-      { itemKey: "starMetalFragment", name: "Advanced Spear Blueprints", description: "Instructions for crafting high-tier star-metal blades." },
-      { itemKey: "ancientAlloyPlate", name: "Ancient Protective Alloys", description: "Super-reinforced armor fragments." }
+      { itemKey: "starMetalFragment", name: "Windbone Harpoon Tip", description: "Heavy alloy tips designed to anchor nomadic structures in gale winds." },
+      { itemKey: "ancientAlloyPlate", name: "Reinforced Alloy Plating", description: "High-integrity metal sheets salvageable for caravan armor." }
     ],
-    clues: "Heavy titanium blast shields embossed with crossed sword icons.",
+    clues: "Heavy carbon-fiber blast doors etched with crossed lightning and staff icons.",
     suppliesRequired: [{ item: "saltedMeat", amount: 6 }, { item: "reservoirWater", amount: 6 }],
     equipmentRequiredOrOptional: [{ item: "ruinDiverHarness", function: "Safely navigate heavy collapsing racks", optional: true }],
     allowMultipleScouts: true,
-    description: "A fortified bunker once used to store weapons and equipment. Warning: Automated defense sentries may still be active."
+    description: "A military supply bunker built by 'Storm Riders'—the early human squads who ventured outside the safe zones to repair weather towers."
   },
   {
-    id: "fortified_bunker",
+    id: "atmospheric_anchor_bunker",
     category: "Military/Dangerous",
-    name: "Fortified Bunker",
+    name: "Atmospheric Anchor Bunker",
     tier: "Pre-Storm",
     recommendedScoutLevel: 8,
     typicalDuration: "2-5 days",
@@ -626,19 +626,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["saltedMeat", "iron", "copper", "ancientMaterials"],
     uniqueDiscoveries: [
-      { itemKey: "ancientAlloyPlate", name: "Reinforced-Building Blueprints", description: "Defensive wall designs built to withstand debris walls." },
-      { itemKey: "vacuumVessel", name: "Storm-Resistant Components", description: "Bunker structural reinforcements." }
+      { itemKey: "ancientAlloyPlate", name: "Storm-Resistant Caravan Blueprint", description: "Schematics for building stormproof shelters." },
+      { itemKey: "vacuumVessel", name: "Reinforced Pressure Core", description: "Heavy stabilization core designed to counteract tornado force." }
     ],
-    clues: "A massive, circular bunker hatch embedded flush into a vertical bedrock cliff face.",
+    clues: "A massive, circular blast hatch embedded flush into a vertical bedrock cliff face.",
     suppliesRequired: [{ item: "saltedMeat", amount: 10 }, { item: "reservoirWater", amount: 10 }],
     equipmentRequiredOrOptional: [{ item: "structuralScanner", function: "Warns of blast lock collapses", optional: false }],
     allowMultipleScouts: true,
-    description: "A sealed military refuge built to survive heavy fallout. Highly dangerous, but packed with supreme defensive schematics."
+    description: "A sealed command center built to manage the planetary weather towers. It is guarded by automated high-voltage turrets that still perceive humans as unauthorized trespassers."
   },
   {
-    id: "battlefield_burial",
+    id: "precursor_defense_trench",
     category: "Military/Dangerous",
-    name: "Battlefield Burial Site",
+    name: "Precursor Defense Trench",
     tier: "Ancient",
     recommendedScoutLevel: 5,
     typicalDuration: "1-3 days",
@@ -646,18 +646,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["bone", "iron", "copper", "relics"],
     uniqueDiscoveries: [
-      { itemKey: "ancientAlloyPlate", name: "Named Artifacts & Rare Alloys", description: "Folkloric weapon relics from heroic defenders." }
+      { itemKey: "ancientAlloyPlate", name: "Shattered Storm-Shield Array", description: "Fragments of an early mobile shield generator." }
     ],
-    clues: "Rusted metallic spears and shield plates sticking out of an ash valley like grave markers.",
+    clues: "Rusted metallic defensive lines and spear-tipped poles sticking out of an ash valley like grave markers.",
     suppliesRequired: [{ item: "boiledRoots", amount: 5 }, { item: "reservoirWater", amount: 5 }],
     equipmentRequiredOrOptional: [{ item: "relicDetector", function: "Pinpoints buried weapon caches", optional: true }],
     allowMultipleScouts: true,
-    description: "A valley filled with the buried machinery and skeletal remains of an ancient battlefield conflict. Valuable scrap."
+    description: "The site of a tragic battle where early human soldiers tried to defend their settlement against a shifting storm front. Their weapons are rusted, and their armor is fused with sand."
   },
   {
-    id: "containment_facility",
+    id: "atmospheric_control_containment",
     category: "Military/Dangerous",
-    name: "Containment Facility",
+    name: "Atmospheric Control Containment",
     tier: "Legendary",
     recommendedScoutLevel: 9,
     typicalDuration: "4-8 days",
@@ -665,22 +665,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Extreme",
     finds: ["relics", "ancientMaterials", "gold", "bone"],
     uniqueDiscoveries: [
-      { itemKey: "pristineMachineCore", name: "Rare Scientific Components", description: "Nuclear isotopes and experimental capacitors." },
-      { itemKey: "logicCore", name: "Corruption Biosensors", description: "Devices tracking ancient storm mutations." }
+      { itemKey: "pristineMachineCore", name: "Vortex Inductor Core", description: "A highly unstable gravity core capable of creating localized vacuums." },
+      { itemKey: "logicCore", name: "Atmospheric Mutator Module", description: "Hardware tracking the genetic adaptation of plants in high-friction wind." }
     ],
-    clues: "Deep, terrifying growls and vibrating concrete walls beneath the sands, marked with radioactive logos.",
+    clues: "Deep, terrifying wind-howls and vibrating alloy walls beneath the sand, leaking static charge.",
     suppliesRequired: [{ item: "saltedMeat", amount: 12 }, { item: "reservoirWater", amount: 12 }],
     equipmentRequiredOrOptional: [
       { item: "sealedExpeditionSuit", function: "Imperative to block containment gas leakages", optional: false },
       { item: "scoutSignalBeacon", function: "Enables emergency extraction", optional: true }
     ],
     allowMultipleScouts: false,
-    description: "A super-reinforced concrete structure designed to hold extremely dangerous organic anomalies. Low-level scouts will refuse to enter."
+    description: "An ultra-reinforced bunker designed to contain a simulated planetary vortex. Low-level scouts will refuse to enter due to the crushing wind-pressures and active defense barriers."
   },
   {
-    id: "collapsed_war_machine",
+    id: "pilgrim_wreck",
     category: "Military/Dangerous",
-    name: "Collapsed War Machine",
+    name: "Pilgrim Land-Cruiser Wreck",
     tier: "Legendary",
     recommendedScoutLevel: 8,
     typicalDuration: "2-5 days",
@@ -688,19 +688,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["iron", "ancientMaterials", "copper", "gold"],
     uniqueDiscoveries: [
-      { itemKey: "pristineMachineCore", name: "Precursor Machine Core", description: "An intact high-output gravity engine core." },
-      { itemKey: "ancientAlloyPlate", name: "Heavy Armor Plates", description: "Thick plates used to build indestructible caravans." }
+      { itemKey: "pristineMachineCore", name: "Nomadic Engine Core", description: "A high-output thermal engine core suitable for advanced mobile bases." },
+      { itemKey: "ancientAlloyPlate", name: "Indestructible Wheel Shielding", description: "Heavy titanium armor plate to construct stormproof caravans." }
     ],
-    clues: "A colossal metallic leg joint, large as a tree, sticking out of a deep canyon bed.",
+    clues: "A colossal rusted wheel chassis, larger than a forest tree, sticking out of a deep canyon bed.",
     suppliesRequired: [{ item: "saltedMeat", amount: 8 }, { item: "reservoirWater", amount: 8 }],
     equipmentRequiredOrOptional: [{ item: "ruinDiverHarness", function: "Allows crawling inside tight engine shafts", optional: true }],
     allowMultipleScouts: true,
-    description: "The rusted, skyscraper-sized wreckage of an ancient walking tank. Contains rare mechanical modules."
+    description: "The wreckage of a skyscraper-sized land vehicle used during the first great migrations. It collapsed when the Eye moved into a mountain range, forcing the survivors to travel lighter."
   },
   {
-    id: "predator_den",
+    id: "feral_storm_catcher_nest",
     category: "Military/Dangerous",
-    name: "Predator Den in Ancient Ruins",
+    name: "Feral Storm-Catcher Nest",
     tier: "Forgotten",
     recommendedScoutLevel: 4,
     typicalDuration: "8-24 hours",
@@ -708,18 +708,18 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "High",
     finds: ["meat", "hide", "bone", "relics"],
     uniqueDiscoveries: [
-      { itemKey: "titanBone", name: "Feral Alpha Skulls", description: "Trophy bones of legendary predators that boost herder courage." }
+      { itemKey: "titanBone", name: "Alphascale Skull Shield", description: "The dense horn of an apex predator that protects caravans from flying debris." }
     ],
-    clues: "Gnawed bones and fresh wild predator tracks leading into a beautifully carved stone temple entrance.",
+    clues: "Gnawed windbones and fresh wild predator tracks leading into a beautifully carved stone temple entrance.",
     suppliesRequired: [{ item: "saltedMeat", amount: 4 }],
     equipmentRequiredOrOptional: [{ item: "spear", function: "Fends off nesting beasts", optional: false }],
     allowMultipleScouts: true,
-    description: "Vicious predators have nested inside a valuable ancient archaeological building. Requires weapon escorts."
+    description: "Dangerous, storm-adapted predators have nested inside a ruined weather tower control room. Highly valuable data slides are guarded by these feral beasts."
   },
   {
-    id: "buried_city_gate",
+    id: "storm_taken_city_gate",
     category: "Legendary",
-    name: "Buried City Gate",
+    name: "Storm-Taken City Gate",
     tier: "Legendary",
     recommendedScoutLevel: 9,
     typicalDuration: "4-8 days",
@@ -727,22 +727,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very High",
     finds: ["gold", "silver", "copper", "iron", "relics", "ancientMaterials"],
     uniqueDiscoveries: [
-      { itemKey: "navigationCore", name: "Precursor City Maps", description: "Detailed blueprints showing multiple connected legendary locations." },
-      { itemKey: "pristineMachineCore", name: "Major Story Revelations", description: "Preserved holographic journals explaining the fall." }
+      { itemKey: "navigationCore", name: "Global Migration Chart", description: "A complete mapping chip of the planet's atmospheric currents." },
+      { itemKey: "pristineMachineCore", name: "The Humbling Chronicle", description: "A holographic journal showing the final moments of the city's leaders realizing they should have migrated." }
     ],
-    clues: "A colossal concrete wall stretching hundreds of meters, with a main gate buried under dunes.",
+    clues: "A colossal concrete barrier wall stretching hundreds of meters, with a main security gate buried under sand dunes.",
     suppliesRequired: [{ item: "saltedMeat", amount: 15 }, { item: "reservoirWater", amount: 15 }],
     equipmentRequiredOrOptional: [
       { item: "ancientCompass", function: "Prevents scouts from becoming lost in massive sewer sectors", optional: true },
       { item: "echoMapper", function: "Finds secret residential vaults", optional: true }
     ],
     allowMultipleScouts: true,
-    description: "The massive, sealed gate of an entire metropolis preserved underground. Holds enough treasures for multiple expeditions."
+    description: "The gateway to New Rome, the largest permanent city built by the colonists. It stands as a silent monument of dust—a testament that those who build permanent walls are eventually swallowed by the Storm."
   },
   {
-    id: "dead_tree_interior",
+    id: "root_crystal_cavern",
     category: "Legendary",
-    name: "Dead Tree Interior",
+    name: "Root-Crystal Megacavern",
     tier: "Legendary",
     recommendedScoutLevel: 8,
     typicalDuration: "4-8 days",
@@ -750,19 +750,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Moderate",
     finds: ["wood", "mushrooms", "dew", "relics"],
     uniqueDiscoveries: [
-      { itemKey: "heartwoodCrystal", name: "Living Architecture Blueprints", description: "Fabulous instructions for growing organic shelters." },
-      { itemKey: "livingResinResidue", name: "Ancient Forest Chronicles", description: "Botanical lore logs showing historical weather trends." }
+      { itemKey: "heartwoodCrystal", name: "Organic Habitat Blueprint", description: "Instructions on how to grow shelters from live petritree roots instead of cutting them." },
+      { itemKey: "livingResinResidue", name: "Deep Earth Botanical Chart", description: "Geological maps showing where underground water pockets reside." }
     ],
-    clues: "A narrow hollow gap inside a colossal petrified tree, leaking glowing cyan sap.",
+    clues: "A narrow hollow gap inside a colossal petrified root, leaking glowing cyan sap.",
     suppliesRequired: [{ item: "boiledRoots", amount: 10 }, { item: "reservoirWater", amount: 10 }],
     equipmentRequiredOrOptional: [{ item: "ancientClimbingRig", function: "Accelerates vertical tree trunk climbing", optional: true }],
     allowMultipleScouts: false,
-    description: "An entrance leading into the heart of one of the mountain-sized petrified trees. Extremely high botanical relic density."
+    description: "An immense underground hollow within the roots of the World Tree. The crystal density here is so high that the cavern floor glows like a sea of stars under the moon."
   },
   {
-    id: "weather_tower_foundation",
+    id: "stormbreaker_spire_core",
     category: "Legendary",
-    name: "Ancient Weather Tower Foundation",
+    name: "Stormbreaker Spire Core",
     tier: "Legendary",
     recommendedScoutLevel: 9,
     typicalDuration: "4-8 days",
@@ -770,19 +770,19 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very High",
     finds: ["ancientMaterials", "relics", "dew"],
     uniqueDiscoveries: [
-      { itemKey: "stormLens", name: "Oracle Matrix Tech", description: "Atmospheric prisms that grant permanent prediction bonuses." },
-      { itemKey: "pristineMachineCore", name: "Critical World History Logs", description: "Lore logs detailing the orbital storms creation." }
+      { itemKey: "stormLens", name: "God-Eye Focusing Prism", description: "The ultimate focal lens used to construct the Oracle's storm prediction engines." },
+      { itemKey: "pristineMachineCore", name: "Firstfall Planetary Survey", description: "Scientific logs showing that the Storm was actually created by the planet's ecosystem to heal itself." }
     ],
-    clues: "A massive concrete base surrounded by crackling gravity fields, with hums heard kilometers away.",
+    clues: "A massive alloy base surrounded by crackling gravity fields, with hums heard kilometers away.",
     suppliesRequired: [{ item: "saltedMeat", amount: 12 }, { item: "reservoirWater", amount: 12 }],
     equipmentRequiredOrOptional: [{ item: "sealedExpeditionSuit", function: "Required to survive electrostatic currents", optional: false }],
     allowMultipleScouts: true,
-    description: "The massive subterranean power vaults of a weather-shaping spire. It houses the most crucial Oracle upgrade devices."
+    description: "The core power station of the global Weather Grid. It contains the most valuable Oracle materials and the true story of how the colonists' attempts to destroy the Storm nearly broke the planet."
   },
   {
-    id: "world_archive",
+    id: "grand_echo_vault",
     category: "Legendary",
-    name: "World Archive",
+    name: "Grand Echo Vault",
     tier: "Legendary",
     recommendedScoutLevel: 10,
     typicalDuration: "4-8 days",
@@ -790,22 +790,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Extreme",
     finds: ["relics", "ancientMaterials", "gold", "silver"],
     uniqueDiscoveries: [
-      { itemKey: "archiveTablet", name: "Complete Technology Blueprints", description: "Automated blueprint caches that unlock high-tier recipes." },
-      { itemKey: "memoryCrystal", name: "World Maps & Major Lore Books", description: "A crystal matrix containing complete geographical maps." }
+      { itemKey: "archiveTablet", name: "Nomadic Adaptation Blueprint", description: "Advanced blueprints unlocking advanced navigation, caravan gears, and farming." },
+      { itemKey: "memoryCrystal", name: "Firstfall Origin Records", description: "Historical journals describing Earth's final days and why the colony ship was launched." }
     ],
-    clues: "A shining obsidian monument surrounded by concrete libraries, half-buried.",
+    clues: "A shining obsidian monument surrounded by collapsed libraries, half-buried.",
     suppliesRequired: [{ item: "saltedMeat", amount: 16 }, { item: "reservoirWater", amount: 16 }],
     equipmentRequiredOrOptional: [
       { item: "relicDetector", function: "Crucial to unlock information servers", optional: false },
       { item: "preservationCase", function: "Prevents historical scrolls from breaking", optional: true }
     ],
     allowMultipleScouts: true,
-    description: "A legendary underground server database built to store human knowledge through the collapse. Extremely high value."
+    description: "The ultimate database built by the final governors of the colony. It was designed to store all human knowledge through the centuries of nomadic survival, waiting for a generation wise enough to read it."
   },
   {
-    id: "sealed_pre_fall_vault",
+    id: "firstfall_alpha_vault",
     category: "Legendary",
-    name: "Sealed Pre-Fall Vault",
+    name: "Firstfall Alpha Vault",
     tier: "Unclassified",
     recommendedScoutLevel: 10,
     typicalDuration: "4-8 days",
@@ -813,22 +813,22 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Extreme",
     finds: ["gold", "relics", "ancientMaterials", "saltedMeat"],
     uniqueDiscoveries: [
-      { itemKey: "pristineMachineCore", name: "Pristine Uncraftable Nanite Injector", description: "An ancient med-injector that makes the user virtually immortal." },
-      { itemKey: "starMetalFragment", name: "Uncraftable Star-Metal Exoskeleton", description: "A high-tech mechanical rig that doubles physical stats." }
+      { itemKey: "pristineMachineCore", name: "Pristine Nanite Medical Capsule", description: "An ancient med-capsule that rejuvenates health and stabilizes morale." },
+      { itemKey: "starMetalFragment", name: "Moon-Iron Power Rig", description: "An advanced titanium and Moon-Iron exoskeleton that vastly boosts scout speed." }
     ],
-    clues: "An untouched, glowing magnetic airlock door completely free of rust or ash.",
+    clues: "An untouched, glowing magnetic airlock door completely free of rust or sand, reflecting moonlight.",
     suppliesRequired: [{ item: "saltedMeat", amount: 20 }, { item: "reservoirWater", amount: 20 }],
     equipmentRequiredOrOptional: [
       { item: "sealedExpeditionSuit", function: "Prevents toxic gas and high pressure shock", optional: false },
       { item: "structuralScanner", function: "Warns of magnetic field implosions", optional: true }
     ],
     allowMultipleScouts: true,
-    description: "A secret precursor bunker untouched since before the storm became dominant. Holds the finest items in existence."
+    description: "The legendary command module of the original colonist mothership. It landed intact in a mountainous valley and remains completely sealed, carrying the purest artifacts of pre-storm technology."
   },
   {
-    id: "astronaut_settlement",
+    id: "moon_signal_hub",
     category: "Legendary",
-    name: "Buried Astronaut Settlement",
+    name: "Moon-Signal Hub Delta",
     tier: "Legendary",
     recommendedScoutLevel: 9,
     typicalDuration: "4-8 days",
@@ -836,13 +836,13 @@ export const EXPEDITION_SITES: ExpeditionSiteTemplate[] = [
     risk: "Very High",
     finds: ["relics", "ancientMaterials", "silver", "dew"],
     uniqueDiscoveries: [
-      { itemKey: "navigationCore", name: "Origin Space Stencil Blueprints", description: "Fabulous celestial origin coordinates." },
-      { itemKey: "logicCore", name: "Anti-Gravity Thruster Units", description: "Floating engine parts." }
+      { itemKey: "navigationCore", name: "Star Map Calibration Matrix", description: "An ancient stellar map linking the planet's coordinates to our lost mother-world." },
+      { itemKey: "logicCore", name: "Anti-Gravity Thruster Plates", description: "Floating plates that can make caravan transport practically weightless." }
     ],
-    clues: "Strange, vertical rocket-like cylinders covered in space-burned tiles sticking out of a sandy hollow.",
+    clues: "Strange, vertical rocket silos covered in heat-shield tiles sticking out of a sandy hollow, aligned perfectly with the moon.",
     suppliesRequired: [{ item: "saltedMeat", amount: 15 }, { item: "reservoirWater", amount: 15 }],
     equipmentRequiredOrOptional: [{ item: "sealedExpeditionSuit", function: "Allows walking inside vacuum spacecraft sectors", optional: false }],
     allowMultipleScouts: false,
-    description: "A forgotten installation connected to the tribe's stellar origins, containing bizarre tools and oxygen tanks."
+    description: "The primary transmitter built to align orbital satellites with the surface. The tribe believes it was the high altar where the first Oracle received the vision of the 'God's Eye' watching over them."
   }
 ];
