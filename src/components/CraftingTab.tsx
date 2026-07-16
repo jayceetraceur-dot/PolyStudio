@@ -36,6 +36,7 @@ export default function CraftingTab({
       'Shelter': 0
     };
     for (let r = 0; r < mapData.grid.length; r++) {
+      if (!mapData.grid[r]) continue;
       for (let c = 0; c < mapData.grid[r].length; c++) {
         const struct = mapData.grid[r][c]?.structure;
         if (struct) {

@@ -11,6 +11,7 @@ interface InventoryTabProps {
   onTransferToCaravan?: (itemKey: string, amount: number) => void;
   onTransferToVillage?: (itemKey: string, amount: number) => void;
   onMigrateRegion?: () => void;
+  onStartPacking?: () => void;
 }
 
 export default function InventoryTab({
@@ -21,8 +22,10 @@ export default function InventoryTab({
   onTransferToCaravan,
   onTransferToVillage,
   onMigrateRegion,
+  onStartPacking,
 }: InventoryTabProps) {
   const [cargoSubTab, setCargoSubTab] = useState<'village' | 'caravan' | 'personal'>('village');
+  const [showPackingPopup, setShowPackingPopup] = useState(false);
   
   // Slider transfer amount tracker
   const [transferAmount, setTransferAmount] = useState<Record<string, number>>({});
@@ -39,6 +42,7 @@ export default function InventoryTab({
       case 'relics': case 'ancientMaterials': return 2.0;
       case 'stoneAxe': case 'flintPickaxe': return 1.2;
       case 'spear': return 1.5;
+      case 'bow': return 1.8;
       case 'boiledRoots': return 0.06;
       case 'paddedJerkin': return 2.5;
       case 'saltedMeat': return 0.12;
@@ -90,6 +94,7 @@ export default function InventoryTab({
       case 'relics': case 'ancientMaterials': return 1.5;
       case 'stoneAxe': case 'flintPickaxe': return 1.5;
       case 'spear': return 2.0;
+      case 'bow': return 2.2;
       case 'boiledRoots': return 0.06;
       case 'paddedJerkin': return 3.0;
       case 'saltedMeat': return 0.12;
@@ -151,6 +156,7 @@ export default function InventoryTab({
     { key: 'stoneAxe', label: '🪓 Breathstone Cutter', desc: 'Petrified wood cutting tool' },
     { key: 'flintPickaxe', label: '⛏️ Breathstone Pickaxe', desc: 'Light mineral mining tool' },
     { key: 'spear', label: '🗡️ Windbone Spear', desc: 'Lethal hunting spear made of strong, lightweight Windbone' },
+    { key: 'bow', label: '🏹 Tendon Longbow', desc: 'Powerful ranged bow allowing level 4+ Hunters to shoot from distance' },
     { key: 'boiledRoots', label: '🥣 Clay-Stewed Root Mash', desc: 'High-nutrient cooked mash; restores hunger and thirst', preparedFood: true },
     { key: 'paddedJerkin', label: '👕 Windbone Vest', desc: 'Woven fibers and bone plates shield from dust storms' },
     { key: 'saltedMeat', label: '🍖 Salt-Cured Jerky', desc: 'Air-cured preservation meat', preparedFood: true },
@@ -317,7 +323,7 @@ export default function InventoryTab({
             <span className="text-[9px] font-mono font-bold uppercase text-slate-400 block pb-1 border-b border-slate-200/5">DEPOT STORAGE CONTENT</span>
             <div className="grid grid-cols-1 gap-1.5">
               {resourcesList.map((res) => {
-                const qtyVal = (mapData.stockpile as any)[res.key] ?? 0;
+                const qtyVal = Math.round((mapData.stockpile as any)[res.key] ?? 0);
                 if (qtyVal === 0) return null;
 
                 const sliderMax = Math.min(qtyVal, 50);
@@ -423,10 +429,10 @@ export default function InventoryTab({
             {/* Migrate Button */}
             <div className="pt-1">
               <button
-                onClick={onMigrateRegion}
+                onClick={() => setShowPackingPopup(true)}
                 className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-[10px] font-bold rounded-lg border border-indigo-500/30 transition-all shadow-md shadow-indigo-950/40"
               >
-                🚚 Migrate to New Region
+                🚚 Caravan Packing Ceremony...
               </button>
             </div>
 
@@ -544,6 +550,194 @@ export default function InventoryTab({
           </div>
         </div>
       )}
+      {/* Caravan Packing Popup Modal */}
+      <AnimatePresence>
+        {showPackingPopup && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 15 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 15 }}
+              className="relative w-full max-w-md bg-slate-900/95 border border-indigo-500/30 rounded-xl shadow-2xl p-5 text-slate-100 overflow-hidden text-left"
+            >
+              {/* Backglow decoration */}
+              <div className="absolute -top-24 -left-24 w-48 h-48 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -right-24 w-48 h-48 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🚚</span>
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono">Migration Ceremony</h3>
+                    <h2 className="text-sm font-semibold text-slate-200">Caravan Preparation & Packing</h2>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowPackingPopup(false)}
+                  className="p-1 text-slate-400 hover:text-slate-200 rounded-lg bg-slate-800/40 hover:bg-slate-800 transition-all font-mono text-[10px]"
+                >
+                  ✕ Close
+                </button>
+              </div>
+
+              {/* Prep Requirements Checklist */}
+              <div className="py-4 space-y-3">
+                <span className="text-[9px] font-mono font-bold uppercase text-slate-400 block tracking-wider">Preparation Checklist</span>
+                
+                {/* 1. Heavy beast check */}
+                {(() => {
+                  const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
+                    ani.isTame && 
+                    (ani as any).assignedJobType === 'transport' && 
+                    !['JackLeaper', 'TuskedShagBeast', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle', 'Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+                  ) || [];
+                  const beastReady = bigBeastTamedAndTransport.length > 0;
+                  return (
+                    <div className={`p-2.5 rounded-lg border ${beastReady ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-amber-950/25 border-amber-500/20'} flex items-start gap-2.5 text-[10px]`}>
+                      <span className="text-xs">{beastReady ? '✅' : 'ℹ️'}</span>
+                      <div className="space-y-0.5">
+                        <span className="font-bold block text-slate-200">Draft Beasts assigned to "Pull Wagons":</span>
+                        <span className={beastReady ? 'text-emerald-400' : 'text-amber-400 font-medium'}>
+                          {beastReady 
+                            ? `Ready (${bigBeastTamedAndTransport[0].type} assigned - 300kg full load)`
+                            : 'No heavy beast assigned to pull wagons. You can still migrate, but villagers will carry only 1/3 weight (100kg load limit).'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 2. Stockpile Food check */}
+                {(() => {
+                  const foodVal = Math.round(mapData.stockpile.food ?? 0);
+                  const foodReady = foodVal >= 30;
+                  return (
+                    <div className={`p-2.5 rounded-lg border ${foodReady ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-amber-950/20 border-amber-500/20'} flex items-start gap-2.5 text-[10px]`}>
+                      <span className="text-xs">{foodReady ? '✅' : '⚠️'}</span>
+                      <div className="space-y-0.5">
+                        <span className="font-bold block text-slate-200">Ration Provisions (min 30 food):</span>
+                        <span className={foodReady ? 'text-emerald-400' : 'text-amber-400'}>
+                          {foodReady 
+                            ? `Plenty of food stowed (${foodVal} / 30 required)`
+                            : `Low food reserves! Journey has high starvation danger (${foodVal} / 30 recommended)`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 3. Living Workers check */}
+                {(() => {
+                  const aliveCount = tribe.filter(t => t.isAlive).length;
+                  const workersReady = aliveCount > 0;
+                  return (
+                    <div className={`p-2.5 rounded-lg border ${workersReady ? 'bg-emerald-950/20 border-emerald-500/20' : 'bg-red-950/20 border-red-500/20'} flex items-start gap-2.5 text-[10px]`}>
+                      <span className="text-xs">{workersReady ? '✅' : '❌'}</span>
+                      <div className="space-y-0.5">
+                        <span className="font-bold block text-slate-200">Caravan Packers:</span>
+                        <span className={workersReady ? 'text-emerald-400' : 'text-red-400'}>
+                          {workersReady 
+                            ? `${aliveCount} physical workers ready to dismantle camp`
+                            : 'No living tribal members remaining to conduct migration!'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Ceremony Packing Progress & Actions */}
+              <div className="mt-2 pt-4 border-t border-slate-800 space-y-4">
+                {mapData.isPackingCaravan ? (
+                  <div className="space-y-3 bg-indigo-950/20 border border-indigo-500/20 rounded-xl p-3">
+                    <div className="flex justify-between items-center text-[10px] font-mono font-bold">
+                      <span className="text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <span className="animate-pulse">⏳</span> Packing Ceremony Active
+                      </span>
+                      <span className="text-slate-300 bg-indigo-900/40 px-1.5 py-0.5 rounded">
+                        {Math.round(mapData.packingProgress ?? 0)}%
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-indigo-500/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 transition-all duration-300"
+                        style={{ width: `${mapData.packingProgress ?? 0}%` }}
+                      />
+                    </div>
+
+                    <p className="text-[9px] text-slate-400 leading-normal">
+                      Workers are currently walking to structures, dismantling them, and carrying supply crates back to the wagon center near the Fireplace. Close this panel to watch them pack in the diorama!
+                    </p>
+
+                    {/* Fast pack or Proceed button */}
+                    <div className="pt-2 flex gap-2">
+                      {(mapData.packingProgress ?? 0) < 100 && (
+                        <button
+                          onClick={() => {
+                            if (onStartPacking) {
+                              // Shortcut: set progress to 100% instantly
+                              mapData.packingProgress = 100;
+                              // Force update trigger
+                              if (onTransferToCaravan) onTransferToCaravan('wood', 0);
+                            }
+                          }}
+                          className="flex-1 py-1 px-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-300 text-[9px] font-bold rounded border border-slate-700 transition-all uppercase tracking-wider"
+                        >
+                          ⚡ Instant Pack
+                        </button>
+                      )}
+
+                      {(mapData.packingProgress ?? 0) >= 100 ? (
+                        <button
+                          onClick={() => {
+                            setShowPackingPopup(false);
+                            if (onMigrateRegion) onMigrateRegion();
+                          }}
+                          className="flex-1 py-2 px-3 bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 active:from-emerald-700 active:to-indigo-700 text-white text-[10px] font-bold rounded-lg border border-indigo-500/30 transition-all shadow-md shadow-indigo-950/40 animate-bounce uppercase tracking-wider animate-pulse"
+                        >
+                          🚚 Cross Storm Boundary & Begin Journey
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setShowPackingPopup(false)}
+                          className="flex-1 py-1.5 px-3 bg-indigo-900/40 hover:bg-indigo-900/60 active:bg-indigo-900/80 text-indigo-200 text-[9px] font-bold rounded border border-indigo-500/20 transition-all uppercase tracking-wider"
+                        >
+                          👀 Watch in Diorama
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowPackingPopup(false)}
+                      className="flex-1 py-1.5 px-3 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-300 text-[10px] font-semibold rounded-lg border border-slate-700 transition-all"
+                    >
+                      Close
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (onStartPacking) onStartPacking();
+                      }}
+                      disabled={!tribe.some(t => t.isAlive)}
+                      className="flex-1 py-1.5 px-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:border-slate-800/40 active:bg-indigo-700 text-white text-[10px] font-bold rounded-lg border border-indigo-500/30 transition-all shadow-md shadow-indigo-950/40 uppercase tracking-wider"
+                    >
+                      🔥 Begin Packing Ceremony
+                    </button>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

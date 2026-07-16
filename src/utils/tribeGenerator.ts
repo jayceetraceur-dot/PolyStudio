@@ -42,10 +42,12 @@ export function hasStructureInVillage(mapData: any, type: string): boolean {
   if (!mapData || !mapData.grid) return false;
   for (let r = 0; r < mapData.grid.length; r++) {
     const row = mapData.grid[r];
-    for (let c = 0; c < row.length; c++) {
-      const cell = row[c];
-      if (cell.structure && cell.structure.type === type && !cell.structure.dismantling) {
-        return true;
+    if (row) {
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        if (cell && cell.structure && cell.structure.type === type && !cell.structure.dismantling) {
+          return true;
+        }
       }
     }
   }
@@ -54,19 +56,23 @@ export function hasStructureInVillage(mapData: any, type: string): boolean {
 
 export function findBestStorageDestination(mapData: MapData, fromX: number, fromZ: number): { x: number, z: number } {
   const size = mapData.grid.length;
-  let bestX = Math.floor(size / 2);
-  let bestZ = Math.floor(size / 2);
+  const campCenter = getCampCenter(mapData, size);
+  let bestX = campCenter.x;
+  let bestZ = campCenter.z;
   let bestDist = 9999;
 
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r][c];
-      if (cell.structure?.type === 'StorageBin' && !cell.structure.dismantling) {
-        const d = Math.abs(r - fromX) + Math.abs(c - fromZ);
-        if (d < bestDist) {
-          bestDist = d;
-          bestX = r;
-          bestZ = c;
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell?.structure?.type === 'StorageBin' && !cell.structure.dismantling) {
+          const d = Math.abs(r - fromX) + Math.abs(c - fromZ);
+          if (d < bestDist) {
+            bestDist = d;
+            bestX = r;
+            bestZ = c;
+          }
         }
       }
     }
@@ -247,21 +253,32 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
     skills['Hunter'].xpToNextLevel = getXPRequirement(lVal);
   }
 
-  // Initial Placement positioning (spawn on a non-water land tile or near the village Fireplace)
+  // Initial Placement positioning: MUST spawn inside the Eye, near the Eye center or fireplace if inside Eye
   const size = mapData.grid.length;
-  let px = size / 2;
-  let pz = size / 2;
+  const eyeX = mapData.eyePos?.x ?? (size / 2);
+  const eyeZ = mapData.eyePos?.z ?? (size / 2);
+  const eyeRadius = mapData.eyeRadius ?? 14.0;
+
+  let px = eyeX;
+  let pz = eyeZ;
   let py = 1;
   let found = false;
 
-  // Search for Fireplace structure on the map
+  // Let's try to find a safe tile near the fireplace if there is one and it is inside the Eye
   let fireplaceCell: { x: number; z: number; height: number } | null = null;
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r]?.[c];
-      if (cell && cell.structure?.type === 'Fireplace') {
-        fireplaceCell = { x: r, z: c, height: cell.height };
-        break;
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell && cell.structure?.type === 'Fireplace') {
+          // Check if fireplace is inside the Eye
+          const dist = Math.hypot(r - eyeX, c - eyeZ);
+          if (dist < eyeRadius * 0.8) {
+            fireplaceCell = { x: r, z: c, height: cell.height };
+            break;
+          }
+        }
       }
     }
     if (fireplaceCell) break;
@@ -269,13 +286,43 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
 
   if (fireplaceCell) {
     let attempts = 0;
-    while (attempts < 20) {
-      const rx = fireplaceCell.x + (Math.random() - 0.5) * 2;
-      const rz = fireplaceCell.z + (Math.random() - 0.5) * 2;
+    while (attempts < 50) {
+      const rx = fireplaceCell.x + (Math.random() - 0.5) * 3;
+      const rz = fireplaceCell.z + (Math.random() - 0.5) * 3;
       const gridX = Math.max(0, Math.min(size - 1, Math.floor(rx)));
       const gridZ = Math.max(0, Math.min(size - 1, Math.floor(rz)));
       const targetCell = mapData.grid[gridX]?.[gridZ];
-      if (targetCell && targetCell.biome !== 'water') {
+      
+      // Check if this random offset is safe: inside Eye, not water, not blocked, no building/construction
+      if (targetCell && targetCell.biome !== 'water' && !targetCell.structure && !targetCell.construction) {
+        const dist = Math.hypot(rx - eyeX, rz - eyeZ);
+        if (dist <= eyeRadius - 1.5) {
+          px = rx;
+          pz = rz;
+          py = targetCell.height;
+          found = true;
+          break;
+        }
+      }
+      attempts++;
+    }
+  }
+
+  // If no fireplace or fireplace was unsafe/no point found near it, find a safe point inside the Eye radius
+  if (!found) {
+    let attempts = 0;
+    while (attempts < 200) {
+      // Spawn near the current Eye center with some random offset
+      const angle = Math.random() * Math.PI * 2;
+      const distFromCenter = Math.random() * (eyeRadius * 0.7); // keep inside Eye
+      const rx = eyeX + Math.cos(angle) * distFromCenter;
+      const rz = eyeZ + Math.sin(angle) * distFromCenter;
+      
+      const gridX = Math.max(0, Math.min(size - 1, Math.floor(rx)));
+      const gridZ = Math.max(0, Math.min(size - 1, Math.floor(rz)));
+      const targetCell = mapData.grid[gridX]?.[gridZ];
+      
+      if (targetCell && targetCell.biome !== 'water' && !targetCell.structure && !targetCell.construction) {
         px = rx;
         pz = rz;
         py = targetCell.height;
@@ -284,28 +331,20 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
       }
       attempts++;
     }
-    if (!found) {
-      px = fireplaceCell.x;
-      pz = fireplaceCell.z;
-      py = fireplaceCell.height;
-      found = true;
-    }
-  } else {
-    // Find a suitable land tile
-    let attempts = 0;
-    while (!found && attempts < 100) {
-      const x = Math.floor(Math.random() * size);
-      const z = Math.floor(Math.random() * size);
-      const cell = mapData.grid[x][z];
-      if (cell.biome !== 'water') {
-        px = x;
-        pz = z;
-        py = cell.height;
-        found = true;
-      }
-      attempts++;
-    }
   }
+
+  // Fallback if still not found (extreme case)
+  if (!found) {
+    px = eyeX;
+    pz = eyeZ;
+    const gridX = Math.max(0, Math.min(size - 1, Math.floor(eyeX)));
+    const gridZ = Math.max(0, Math.min(size - 1, Math.floor(eyeZ)));
+    py = mapData.grid[gridX]?.[gridZ]?.height ?? 1;
+  }
+
+  // Debug validation to confirm all villagers start inside the Eye
+  const finalDist = Math.hypot(px - eyeX, pz - eyeZ);
+  console.log(`[DEBUG VALIDATION] Spawned tribesperson at [${px.toFixed(2)}, ${pz.toFixed(2)}]. Distance to Eye center [${eyeX.toFixed(2)}, ${eyeZ.toFixed(2)}] is ${finalDist.toFixed(2)} tiles. Eye Radius: ${eyeRadius}. Safe: ${finalDist <= eyeRadius}`);
 
 
   const defaultPriorities: Record<JobCategory, JobPriority> = {
@@ -317,9 +356,12 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
     Build: role === 'Builder' ? 1 : 2,
     Farm: role === 'Farmer' ? 1 : 2,
     Scout: role === 'Scout' ? 1 : 2,
+    Heal: role === 'Healer' ? 1 : 2,
+    CraftMedicine: role === 'Healer' ? 1 : 2,
     Haul: 2,
     Repair: role === 'Builder' ? 2 : 3,
     Study: 2,
+    CaravanPacking: 2,
   };
 
   const personalities: ('Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy')[] = [
@@ -443,9 +485,12 @@ export function createTribeBornChild(
     Build: 0,
     Farm: 0,
     Scout: 0,
+    Heal: 0,
+    CraftMedicine: 0,
     Haul: 0,
     Repair: 0,
     Study: 0,
+    CaravanPacking: 0,
   };
 
   const child: Tribesperson = {
@@ -549,6 +594,19 @@ export function establishSocialBonds(tribe: Tribesperson[]): Tribesperson[] {
   return nextTribe;
 }
 
+export function getCampCenter(mapData: MapData, size: number): { x: number; z: number } {
+  if (mapData && mapData.eyePos) {
+    return {
+      x: Math.max(0, Math.min(size - 1, Math.round(mapData.eyePos.x))),
+      z: Math.max(0, Math.min(size - 1, Math.round(mapData.eyePos.z))),
+    };
+  }
+  return {
+    x: Math.floor(size / 2),
+    z: Math.floor(size / 2),
+  };
+}
+
 /**
  * Safely resolves or assigns housing for a villager.
  * Primary: family home (below capacity or previously assigned).
@@ -563,8 +621,9 @@ export function getVillagerHousing(
 ): { x: number; z: number } {
   const dynamicAgent = agent as any;
   const size = mapData.grid.length;
-  const depotX = Math.floor(size / 2);
-  const depotZ = Math.floor(size / 2);
+  const center = getCampCenter(mapData, size);
+  const depotX = center.x;
+  const depotZ = center.z;
 
   // If already has familyHome that still exists, use it!
   if (dynamicAgent.familyHome) {
@@ -579,13 +638,16 @@ export function getVillagerHousing(
   // Find all shelter structures on map
   const shelters: Array<{ x: number; z: number; type: string; cap: number; occupants: string[] }> = [];
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r][c];
-      if (cell.structure && !(cell as any).isMultiTileChildOf) {
-        if (cell.structure.type === 'Shelter') {
-          shelters.push({ x: r, z: c, type: 'Shelter', cap: 5, occupants: [] });
-        } else if (cell.structure.type === 'Tent') {
-          shelters.push({ x: r, z: c, type: 'Tent', cap: 2, occupants: [] });
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell?.structure && !(cell as any).isMultiTileChildOf) {
+          if (cell.structure.type === 'Shelter') {
+            shelters.push({ x: r, z: c, type: 'Shelter', cap: 5, occupants: [] });
+          } else if (cell.structure.type === 'Tent') {
+            shelters.push({ x: r, z: c, type: 'Tent', cap: 2, occupants: [] });
+          }
         }
       }
     }
@@ -704,6 +766,9 @@ export function tickTribeSimulation(
       case 'bone': return 0.4;
       case 'dew': case 'reservoirWater': case 'rainwater': return 0.1;
       case 'relics': case 'ancientMaterials': return 2.0;
+      case 'copper': case 'iron': return 1.8;
+      case 'silver': return 2.0;
+      case 'gold': return 3.0;
       // Craftables
       case 'stoneAxe': case 'flintPickaxe': return 1.2;
       case 'spear': return 1.5;
@@ -729,6 +794,7 @@ export function tickTribeSimulation(
       case 'bone': return 0.3;
       case 'dew': case 'reservoirWater': case 'rainwater': return 0.1;
       case 'relics': case 'ancientMaterials': return 1.5;
+      case 'copper': case 'iron': case 'silver': case 'gold': return 0.5;
       // Craftables
       case 'stoneAxe': case 'flintPickaxe': return 1.5;
       case 'spear': return 2.0;
@@ -749,15 +815,18 @@ export function tickTribeSimulation(
   let shrines = 0;
   let watchTowers = 0;
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r][c];
-      if (cell && cell.structure) {
-        if (cell.structure.type === 'StorageBin') {
-          storageBins++;
-        } else if (cell.structure.type === 'Shrine' && !cell.structure.dismantling) {
-          shrines++;
-        } else if (cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
-          watchTowers++;
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell && cell.structure) {
+          if (cell.structure.type === 'StorageBin') {
+            storageBins++;
+          } else if (cell.structure.type === 'Shrine' && !cell.structure.dismantling) {
+            shrines++;
+          } else if (cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
+            watchTowers++;
+          }
         }
       }
     }
@@ -765,20 +834,23 @@ export function tickTribeSimulation(
 
   // 1b. WatchTower dynamic danger warning checklist
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r][c];
-      if (cell && cell.structure && cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
-        const rad = 5;
-        for (let dx = -rad; dx <= rad; dx++) {
-          for (let dz = -rad; dz <= rad; dz++) {
-            const nx = r + dx;
-            const nz = c + dz;
-            if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
-              const checkCell = mapData.grid[nx][nz];
-              if (checkCell && checkCell.wildAnimal && !checkCell.wildAnimal.isDead) {
-                // Warning frequency throttle using random roll
-                if (Math.random() < 0.01) {
-                  addLog(`🗼 Watch Tower Alert: A wild, dynamic ${checkCell.wildAnimal.type} has entered the perimeter of the watchtower situated at [${r}, ${c}]! (Near coordinates [${nx}, ${nz}])`, 'warning');
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell && cell.structure && cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
+          const rad = 5;
+          for (let dx = -rad; dx <= rad; dx++) {
+            for (let dz = -rad; dz <= rad; dz++) {
+              const nx = r + dx;
+              const nz = c + dz;
+              if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
+                const checkCell = mapData.grid[nx]?.[nz];
+                if (checkCell && checkCell.wildAnimal && !checkCell.wildAnimal.isDead) {
+                  // Warning frequency throttle using random roll
+                  if (Math.random() < 0.01) {
+                    addLog(`🗼 Watch Tower Alert: A wild, dynamic ${checkCell.wildAnimal.type} has entered the perimeter of the watchtower situated at [${r}, ${c}]! (Near coordinates [${nx}, ${nz}])`, 'warning');
+                  }
                 }
               }
             }
@@ -829,16 +901,30 @@ export function tickTribeSimulation(
   const haulerSpoilFactor = Math.max(0.4, 1.0 - activeHaulers * 0.08);
   const spoilageMultiplier = (1.0 + (100 - mapData.villageInventory.cleanliness) * 0.05) * haulerSpoilFactor; // 1x to 5.5x speed, reduced by active haulers
 
+  // Calculate dynamic Caravan max capacity (1/3 if no tamed animals assigned to wagons)
+  const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
+    ani.isTame && 
+    (ani as any).assignedJobType === 'transport' && 
+    !['JackLeaper', 'TuskedShagBeast', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle', 'Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+  ) || [];
+  const beastReady = bigBeastTamedAndTransport.length > 0;
+
+  const baseCaravanMaxWeight = 300;
+  const baseCaravanMaxVolume = 300;
+
   // Initialize Caravan Storage if not exists
   if (!mapData.caravanInventory) {
     mapData.caravanInventory = {
-      maxWeight: 150,
-      maxVolume: 150,
+      maxWeight: beastReady ? baseCaravanMaxWeight : Math.round(baseCaravanMaxWeight / 3),
+      maxVolume: beastReady ? baseCaravanMaxVolume : Math.round(baseCaravanMaxVolume / 3),
       currentWeight: 0,
       currentVolume: 0,
       cleanliness: 70,
       items: { relics: 1, ancientMaterials: 2, meat: 10, wood: 20 }
     };
+  } else {
+    mapData.caravanInventory.maxWeight = beastReady ? baseCaravanMaxWeight : Math.round(baseCaravanMaxWeight / 3);
+    mapData.caravanInventory.maxVolume = beastReady ? baseCaravanMaxVolume : Math.round(baseCaravanMaxVolume / 3);
   }
 
   // Sync Caravan inventory items and weights
@@ -953,39 +1039,43 @@ export function tickTribeSimulation(
 
   // --- A. GROW CROPS AND REGROW RESOURCES ON THE GRID ---
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      const cell = mapData.grid[r][c];
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell) {
+          // Grow crops
+          if (cell.farmCrop && cell.farmCrop.stage === 'growing') {
+            cell.farmCrop.progress += 3.5 * deltaTime;
+            if (cell.farmCrop.progress >= 100) {
+              cell.farmCrop.progress = 100;
+              cell.farmCrop.stage = 'harvestable';
+            }
+          }
 
-      // Grow crops
-      if (cell.farmCrop && cell.farmCrop.stage === 'growing') {
-        cell.farmCrop.progress += 3.5 * deltaTime;
-        if (cell.farmCrop.progress >= 100) {
-          cell.farmCrop.progress = 100;
-          cell.farmCrop.stage = 'harvestable';
-        }
-      }
-
-      // Regrowth/Decay of Don't Starve resourceNode
-      if (cell.resourceNode) {
-        const node = cell.resourceNode;
-        if (cell.structure || cell.construction) {
-          // If occupied by a structure or active construction blueprint, it cannot regrow.
-          // Reset timer to 0 so it must pass the full regrow time after building is taken out.
-          node.regrowTimer = 0;
-        } else {
-          const limitAmount = node.type === 'Fiber' ? node.maxAmount * 2 : node.maxAmount;
-          if (node.amount < limitAmount) {
-            node.regrowTimer += node.regrowRate * deltaTime;
-            if (node.regrowTimer >= 1.0) {
-              const added = Math.min(limitAmount - node.amount, Math.floor(node.regrowTimer));
-              node.amount += added;
+          // Regrowth/Decay of Don't Starve resourceNode
+          if (cell.resourceNode) {
+            const node = cell.resourceNode;
+            if (cell.structure || cell.construction) {
+              // If occupied by a structure or active construction blueprint, it cannot regrow.
+              // Reset timer to 0 so it must pass the full regrow time after building is taken out.
               node.regrowTimer = 0;
+            } else {
+              const limitAmount = node.type === 'Fiber' ? node.maxAmount * 2 : node.maxAmount;
+              if (node.amount < limitAmount) {
+                node.regrowTimer += node.regrowRate * deltaTime;
+                if (node.regrowTimer >= 1.0) {
+                  const added = Math.min(limitAmount - node.amount, Math.floor(node.regrowTimer));
+                  node.amount += added;
+                  node.regrowTimer = 0;
 
-              // Soft visual restore
-              if (node.amount > 0) {
-                if (node.type === 'Berries') cell.hasShrub = true;
-                else if (node.type === 'Wood') cell.hasTree = true;
-                else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
+                  // Soft visual restore
+                  if (node.amount > 0) {
+                    if (node.type === 'Berries') cell.hasShrub = true;
+                    else if (node.type === 'Wood') cell.hasTree = true;
+                    else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
+                  }
+                }
               }
             }
           }
@@ -994,9 +1084,25 @@ export function tickTribeSimulation(
     }
   }
 
+  const center = getCampCenter(mapData, size);
+  const depotX = center.x;
+  const depotZ = center.z;
+  const eyeX = mapData.eyePos?.x ?? center.x;
+  const eyeZ = mapData.eyePos?.z ?? center.z;
+  const eyeRadius = mapData.eyeRadius ?? 14.0;
+  const eyeRadiusSq = eyeRadius * eyeRadius;
+
   // --- B. DETAILED TRIBESPEOPLE DECISION & NAVIGATION TICK ---
   const nextTribe = tribe.map((agent) => {
     if (!agent.isAlive) return agent;
+
+    const dx = agent.x - eyeX;
+    const dz = agent.z - eyeZ;
+    const distSq = dx * dx + dz * dz;
+    const isInsideEye = distSq <= eyeRadiusSq;
+
+    const isScoutOrStormrider = 
+      agent.role === 'Scout' && (agent.skills?.Scout?.level ?? 1) >= 5;
 
     const defaultPersonalities: ('Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy')[] = [
       'Brave', 'Curious', 'Cowardly', 'Lazy', 'Ambitious', 'Loyal', 'Greedy'
@@ -1005,12 +1111,15 @@ export function tickTribeSimulation(
     let tempRelationships = agent.relationships ? [...agent.relationships] : [];
 
     // --- Staggered AI Scheduler Timer ---
+    const tickRateSetting = mapData.settings?.pathfindingTickRate ?? 'Normal';
+    const schedulerIntervalMult = tickRateSetting === 'Fast' ? 0.5 : tickRateSetting === 'Slow' ? 2.5 : 1.0;
+
     let aiTickTimer = agent.aiTickTimer ?? (Math.random() * 0.4);
     aiTickTimer -= deltaTime;
     let timerFired = false;
     if (aiTickTimer <= 0) {
       timerFired = true;
-      aiTickTimer = 0.2 + Math.random() * 0.2; // 0.2s to 0.4s intervals
+      aiTickTimer = (0.2 + Math.random() * 0.2) * schedulerIntervalMult; // 0.2s to 0.4s intervals
     }
 
     // --- Retrieve/Compute Proximity Checks ---
@@ -1019,74 +1128,81 @@ export function tickTribeSimulation(
     let hasMentorNearby = (agent as any).cachedHasMentorNearby ?? false;
 
     if (timerFired) {
-      const nearbyAgents = tribe.filter(
-        other => other.id !== agent.id && other.isAlive && Math.abs(other.x - agent.x) < 1.5 && Math.abs(other.z - agent.z) < 1.5
-      );
+      if (isInsideEye) {
+        const nearbyAgents = tribe.filter(
+          other => other.id !== agent.id && other.isAlive && Math.abs(other.x - agent.x) < 1.5 && Math.abs(other.z - agent.z) < 1.5
+        );
 
-      hasMentorNearby = nearbyAgents.some(other => {
-        const rel = tempRelationships.find(r => r.targetId === other.id);
-        return rel && rel.type === 'Mentor';
-      });
+        hasMentorNearby = nearbyAgents.some(other => {
+          const rel = tempRelationships.find(r => r.targetId === other.id);
+          return rel && rel.type === 'Mentor';
+        });
 
-      let tempSpeed = 1.0;
-      let tempMorale = 0.0;
+        let tempSpeed = 1.0;
+        let tempMorale = 0.0;
 
-      nearbyAgents.forEach(other => {
-        let rel = tempRelationships.find(r => r.targetId === other.id);
-        if (!rel) {
-          rel = { targetId: other.id, targetName: other.name, type: 'Friend', value: 10 };
-          tempRelationships.push(rel);
-        }
-
-        if (Math.random() < 0.03 * deltaTime * 15) {
-          let valDelta = 2;
-          if (personality === 'Lazy' && other.personality === 'Ambitious') {
-            valDelta = -6;
-          } else if (personality === 'Ambitious' && other.personality === 'Lazy') {
-            valDelta = -6;
-          } else if (personality === 'Greedy' && other.personality === 'Loyal') {
-            valDelta = -4;
-          } else if (personality === 'Brave' && other.personality === 'Brave') {
-            valDelta = 5;
-          } else if (personality === 'Curious' && other.personality === 'Curious') {
-            valDelta = 5;
+        nearbyAgents.forEach(other => {
+          let rel = tempRelationships.find(r => r.targetId === other.id);
+          if (!rel) {
+            rel = { targetId: other.id, targetName: other.name, type: 'Friend', value: 10 };
+            tempRelationships.push(rel);
           }
-          
-          rel.value = Math.max(-100, Math.min(100, rel.value + valDelta));
 
-          if (rel.value > 45 && rel.type === 'Rival') {
-            rel.type = 'Friend';
-            addLog(`🤝 Harmony Restored: ${agent.name} and ${other.name} settled their past grudges and are now Friends!`, 'info');
-          } else if (rel.value < -35 && rel.type !== 'Rival') {
-            rel.type = 'Rival';
-            addLog(`😡 Bitter Rivalry: ${agent.name} and ${other.name} had a nasty argument and are now Rivals!`, 'warning');
-          } else if (rel.value >= 40 && rel.type !== 'Friend' && rel.type !== 'Family' && rel.type !== 'Mentor' && rel.type !== 'Apprentice') {
-            rel.type = 'Friend';
-            addLog(`🤝 New Friendship: ${agent.name} and ${other.name} became great friends!`, 'info');
+          if (Math.random() < 0.03 * deltaTime * 15) {
+            let valDelta = 2;
+            if (personality === 'Lazy' && other.personality === 'Ambitious') {
+              valDelta = -6;
+            } else if (personality === 'Ambitious' && other.personality === 'Lazy') {
+              valDelta = -6;
+            } else if (personality === 'Greedy' && other.personality === 'Loyal') {
+              valDelta = -4;
+            } else if (personality === 'Brave' && other.personality === 'Brave') {
+              valDelta = 5;
+            } else if (personality === 'Curious' && other.personality === 'Curious') {
+              valDelta = 5;
+            }
+            
+            rel.value = Math.max(-100, Math.min(100, rel.value + valDelta));
+
+            if (rel.value > 45 && rel.type === 'Rival') {
+              rel.type = 'Friend';
+              addLog(`🤝 Harmony Restored: ${agent.name} and ${other.name} settled their past grudges and are now Friends!`, 'info');
+            } else if (rel.value < -35 && rel.type !== 'Rival') {
+              rel.type = 'Rival';
+              addLog(`😡 Bitter Rivalry: ${agent.name} and ${other.name} had a nasty argument and are now Rivals!`, 'warning');
+            } else if (rel.value >= 40 && rel.type !== 'Friend' && rel.type !== 'Family' && rel.type !== 'Mentor' && rel.type !== 'Apprentice') {
+              rel.type = 'Friend';
+              addLog(`🤝 New Friendship: ${agent.name} and ${other.name} became great friends!`, 'info');
+            }
           }
-        }
 
-        if (rel.type === 'Friend') {
-          tempSpeed *= 1.25;
-          tempMorale += 0.6;
-        } else if (rel.type === 'Rival') {
-          tempSpeed *= 0.60;
-          tempMorale -= 1.5;
-          if (Math.random() < 0.003 * deltaTime * 20) {
-            addLog(`😡 Clashing Rivals: ${agent.name} and their rival ${other.name} are yelling and arguing nearby!`, 'warning');
+          if (rel.type === 'Friend') {
+            tempSpeed *= 1.25;
+            tempMorale += 0.6;
+          } else if (rel.type === 'Rival') {
+            tempSpeed *= 0.60;
+            tempMorale -= 1.5;
+            if (Math.random() < 0.003 * deltaTime * 20) {
+              addLog(`😡 Clashing Rivals: ${agent.name} and their rival ${other.name} are yelling and arguing nearby!`, 'warning');
+            }
+          } else if (rel.type === 'Mentor' && other.personality !== 'Lazy') {
+            tempSpeed *= 1.15;
+          } else if (rel.type === 'Apprentice') {
+            tempSpeed *= 1.15;
+          } else if (rel.type === 'Family') {
+            tempSpeed *= 1.15;
+            tempMorale += 0.9;
           }
-        } else if (rel.type === 'Mentor' && other.personality !== 'Lazy') {
-          tempSpeed *= 1.15;
-        } else if (rel.type === 'Apprentice') {
-          tempSpeed *= 1.15;
-        } else if (rel.type === 'Family') {
-          tempSpeed *= 1.15;
-          tempMorale += 0.9;
-        }
-      });
+        });
 
-      socialSpeedModifier = tempSpeed;
-      socialMoraleChange = tempMorale;
+        socialSpeedModifier = tempSpeed;
+        socialMoraleChange = tempMorale;
+      } else {
+        // Outside the eye of the storm: reset active social metrics
+        socialSpeedModifier = 1.0;
+        socialMoraleChange = 0.0;
+        hasMentorNearby = false;
+      }
     }
 
     let speedModifier = 1.0;
@@ -1164,9 +1280,25 @@ export function tickTribeSimulation(
     }
 
     stats.health = Math.max(0, Math.min(100, stats.health + healthChange * deltaTime * 12));
+    
+    // Recover 5 health points per day if alive, less than 100% health, and not starving or dehydrated
+    if (stats.health > 0 && stats.health < 100 && !isStarving && !isDehydrated) {
+      stats.health = Math.min(100, stats.health + 5.0 * deltaTime);
+    }
 
     if (stats.health <= 0) {
-      const deathReason = isStarving ? 'Starvation' : isDehydrated ? 'Dehydration' : 'Exhaustion';
+      let deathReason = 'Exhaustion';
+      if (isStarving) {
+        deathReason = 'Starvation';
+      } else if (isDehydrated) {
+        deathReason = 'Dehydration';
+      } else if (agent.statusText?.includes('Melting')) {
+        deathReason = 'Spore Spitter Toxin';
+      } else if (agent.statusText?.includes('Scream')) {
+        deathReason = 'Predator Attack';
+      } else if (!isInsideEye) {
+        deathReason = 'Storm Exposure';
+      }
       addLog(`💀 ${agent.name} (${agent.role}) has died of ${deathReason} at age ${agent.ageYears}!`, 'death');
       return { ...agent, isAlive: false, deathReason, stats };
     }
@@ -1369,9 +1501,12 @@ export function tickTribeSimulation(
           Build: role === 'Builder' ? 1 : 2,
           Farm: role === 'Farmer' ? 1 : 2,
           Scout: role === 'Scout' ? 1 : 2,
+          Heal: role === 'Healer' ? 1 : 2,
+          CraftMedicine: role === 'Healer' ? 1 : 2,
           Haul: 2,
           Repair: role === 'Builder' ? 2 : 3,
           Study: 2,
+          CaravanPacking: 2,
         };
 
         if (!mapData.tribeCodexLogs) mapData.tribeCodexLogs = [];
@@ -1418,7 +1553,7 @@ export function tickTribeSimulation(
     // Predator fear alert: non-combat role types immediately trigger a flee state when any Apex or pack predator crosses their boundary
     let nearHostilePredator: any = null;
     const isHunterOrScout = agent.role === 'Hunter' || agent.role === 'Scout';
-    if (!isHunterOrScout && mapData.animals) {
+    if (!isHunterOrScout && mapData.animals && isInsideEye) {
       nearHostilePredator = mapData.animals.find(a => 
         !a.isDead && 
         (a.category === 'ApexPredator' || a.category === 'SmallPredator') &&
@@ -1432,8 +1567,9 @@ export function tickTribeSimulation(
       statusText = `😱 Scream! Fleeing wild ${nearHostilePredator.type}!`;
       
       const nearestDefender = tribe.find(t => t.id !== agent.id && t.isAlive && t.role === 'Hunter');
-      const safeX = nearestDefender ? Math.round(nearestDefender.x) : Math.floor(size / 2) + 2;
-      const safeZ = nearestDefender ? Math.round(nearestDefender.z) : Math.floor(size / 2) + 2;
+      const safeCenter = getCampCenter(mapData, size);
+      const safeX = nearestDefender ? Math.round(nearestDefender.x) : safeCenter.x;
+      const safeZ = nearestDefender ? Math.round(nearestDefender.z) : safeCenter.z;
       
       jobTargetCoords = { x: safeX, z: safeZ };
       workProgress = 0;
@@ -1441,12 +1577,18 @@ export function tickTribeSimulation(
       if (Math.random() < 0.08 * deltaTime) {
         addLog(`😱 S.O.S: ${agent.name} is running for safety, screaming "Help! Feral beast ${nearHostilePredator.type}!"`, 'warning');
       }
+    } else if (!isInsideEye && !isScoutOrStormrider) {
+      overriddenJob = 'Haul';
+      activeJobType = 'Haul';
+      jobTargetCoords = { x: depotX, z: depotZ };
+      statusText = '🏃 Outside Safe Zone! Evacuating to Eye...';
+      workProgress = 0;
     } else if (sleepCrit) overriddenJob = 'Sleep';
     else if (thirstCrit) overriddenJob = 'Drink';
     else if (hungerCrit) overriddenJob = 'Eat';
     else if (carriage && carriage.amount > 0) overriddenJob = 'Haul'; // must return what is currently loaded
 
-    if (overriddenJob && !nearHostilePredator) {
+    if (overriddenJob && !nearHostilePredator && isInsideEye) {
       if (activeJobType !== overriddenJob) {
         activeJobType = overriddenJob;
         jobTargetCoords = null; // force find coordinates matching this emergency
@@ -1454,6 +1596,36 @@ export function tickTribeSimulation(
       }
     } else if (nearHostilePredator) {
       activeJobType = 'Haul';
+    }
+
+    // Force Caravan Packing job override when packing ceremony is active
+    const isCritSurvival = sleepCrit || hungerCrit || thirstCrit;
+    if (mapData.isPackingCaravan && !nearHostilePredator && !isCritSurvival) {
+      if (activeJobType !== 'CaravanPacking') {
+        activeJobType = 'CaravanPacking';
+        jobTargetCoords = null;
+        workProgress = 0;
+      }
+    }
+
+    // Override jobs completely during migration travel mode
+    if (mapData.isMigrationTravelActive) {
+      if (activeJobType !== 'MigratingTravel') {
+        activeJobType = 'MigratingTravel';
+        workProgress = 0;
+      }
+      
+      const h = agent.name.charCodeAt(0) + agent.name.charCodeAt(agent.name.length - 1 || 0);
+      const caravanX = mapData.caravanPos?.x ?? eyeX;
+      const caravanZ = mapData.caravanPos?.z ?? eyeZ;
+      const offsetX = ((h % 5) - 2) * 1.5;
+      const offsetZ = (((h + 3) % 5) - 2) * 1.5;
+      
+      jobTargetCoords = {
+        x: Math.max(1, Math.min(size - 2, caravanX + offsetX)),
+        z: Math.max(1, Math.min(size - 2, caravanZ + offsetZ))
+      };
+      statusText = `🚚 Migrating: Travelling in caravan with the clan...`;
     }
 
     // Evaluate priorities and available jobs if idle, lost target, doing a low-priority sweeping fallback,
@@ -1491,12 +1663,28 @@ export function tickTribeSimulation(
       shouldReevaluate = false;
     }
 
+    // Overridden by out-of-Eye emergency evacuation
+    if (!isInsideEye && !isScoutOrStormrider) {
+      shouldReevaluate = false;
+    }
+
     if (shouldReevaluate) {
       const available: { type: JobCategory; x: number; z: number; score: number }[] = [];
 
       // Helper to add job if allowed
       const addCandidate = (type: JobCategory, goalX: number, goalZ: number, basePriority: number, scoreModifier = 0) => {
         if (basePriority <= 0) return; // 0 means disabled
+        
+        // Prevent normal (non-scouts/non-Stormriders) from targeting jobs outside the Eye
+        if (!isScoutOrStormrider) {
+          const dx = goalX - eyeX;
+          const dz = goalZ - eyeZ;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > eyeRadiusSq) {
+            return; // Ignore any candidate outside the safe zone!
+          }
+        }
+
         available.push({
           type,
           x: goalX,
@@ -1505,8 +1693,9 @@ export function tickTribeSimulation(
         });
       };
 
-      const depotX = Math.floor(size / 2);
-      const depotZ = Math.floor(size / 2);
+      const center = getCampCenter(mapData, size);
+      const depotX = center.x;
+      const depotZ = center.z;
 
       const timeOfDay = gameDays !== undefined ? (gameDays % 1.0) : 0.5;
       const isNight = timeOfDay < 0.22 || timeOfDay > 0.78;
@@ -1527,21 +1716,23 @@ export function tickTribeSimulation(
           let isWell = false;
           for (let r = 0; r < size; r++) {
             for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r][c];
-              if (cell.structure?.type === 'WaterWell') {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                  isWell = true;
-                }
-              } else if (cell.biome === 'water' && !isWell) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
+              const cell = mapData.grid[r]?.[c];
+              if (cell) {
+                if (cell.structure?.type === 'WaterWell') {
+                  const d = Math.abs(r - x) + Math.abs(c - z);
+                  if (d < bestDist) {
+                    bestDist = d;
+                    bestX = r;
+                    bestZ = c;
+                    isWell = true;
+                  }
+                } else if (cell.biome === 'water' && !isWell) {
+                  const d = Math.abs(r - x) + Math.abs(c - z);
+                  if (d < bestDist) {
+                    bestDist = d;
+                    bestX = r;
+                    bestZ = c;
+                  }
                 }
               }
             }
@@ -1557,9 +1748,11 @@ export function tickTribeSimulation(
           } else {
             let bestX = -1, bestZ = -1, bestDist = 9999;
             for (let r = 0; r < size; r++) {
+              const row = mapData.grid[r];
+              if (!row) continue;
               for (let c = 0; c < size; c++) {
-                const cell = mapData.grid[r][c];
-                if (cell.resourceNode && cell.resourceNode.type === 'Berries' && cell.resourceNode.amount > 0 && cell.scouted) {
+                const cell = row[c];
+                if (cell && cell.resourceNode && cell.resourceNode.type === 'Berries' && cell.resourceNode.amount > 0 && cell.scouted) {
                   const d = Math.abs(r - x) + Math.abs(c - z);
                   if (d < bestDist) {
                     bestDist = d;
@@ -1578,9 +1771,11 @@ export function tickTribeSimulation(
         if (available.length === 0) {
           const oracleStructures: { type: string; x: number; z: number }[] = [];
           for (let r = 0; r < size; r++) {
+            const row = mapData.grid[r];
+            if (!row) continue;
             for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r][c];
-              if (cell.structure && !cell.construction) {
+              const cell = row[c];
+              if (cell && cell.structure && !cell.construction) {
                 const t = cell.structure.type;
                 if (['ObservationPlatform', 'Observatory', 'RelicArchive', 'MeditationShrine', 'MapHall'].includes(t)) {
                   oracleStructures.push({ type: t, x: r, z: c });
@@ -1597,20 +1792,113 @@ export function tickTribeSimulation(
             let fireplaceX = depotX, fireplaceZ = depotZ;
             let foundFireplace = false;
             for (let r = 0; r < size; r++) {
+              const row = mapData.grid[r];
+              if (!row) continue;
               for (let c = 0; c < size; c++) {
-                if (mapData.grid[r][c].structure?.type === 'Fireplace') {
+                const cell = row[c];
+                if (cell && cell.structure?.type === 'Fireplace') {
                   fireplaceX = r;
                   fireplaceZ = c;
                   foundFireplace = true;
                   break;
                 }
               }
+              if (foundFireplace) break;
             }
             addCandidate('Scout', fireplaceX, fireplaceZ, 3, 0);
             (agent as any).oracleActivityType = foundFireplace ? 'Fireplace' : 'Depot';
           }
         }
       } else {
+        // Healer Specialized Actions
+        if (agent.role === 'Healer') {
+          // A. Heal Injured Villagers (automatic heal for villagers with < 70% health if medicine is available)
+          const medicineQty = mapData.stockpile.medicine ?? 0;
+          if (medicineQty > 0) {
+            const injured = tribe
+              .filter(p => p.isAlive && p.id !== agent.id && p.stats.health < 70)
+              .sort((a, b) => a.stats.health - b.stats.health)[0];
+
+            if (injured) {
+              addCandidate('Heal', injured.x, injured.z, 1, -2.5); // very high score, overrides almost anything except critical survival
+            }
+          }
+
+          // B. Create Medicine (grind medical herbs / brew remedies when medicine is low)
+          const medicineCount = mapData.stockpile.medicine ?? 0;
+          if (medicineCount < 15) {
+            const hasBerries = (mapData.stockpile.berries ?? 0) >= 3;
+            const hasMushrooms = (mapData.stockpile.mushrooms ?? 0) >= 1;
+            const hasRoots = (mapData.stockpile.roots ?? 0) >= 1;
+
+            if (hasBerries || hasMushrooms || hasRoots) {
+              let craftX = depotX;
+              let craftZ = depotZ;
+              let foundHut = false;
+              for (let r = 0; r < size; r++) {
+                const row = mapData.grid[r];
+                if (!row) continue;
+                for (let c = 0; c < size; c++) {
+                  const cell = row[c];
+                  if (cell && cell.structure?.type === 'HealersSanctum') {
+                    craftX = r;
+                    craftZ = c;
+                    foundHut = true;
+                    break;
+                  }
+                }
+                if (foundHut) break;
+              }
+              if (!foundHut) {
+                for (let r = 0; r < size; r++) {
+                  const row = mapData.grid[r];
+                  if (!row) continue;
+                  for (let c = 0; c < size; c++) {
+                    const cell = row[c];
+                    if (cell && cell.structure?.type === 'Fireplace') {
+                      craftX = r;
+                      craftZ = c;
+                      foundHut = true;
+                      break;
+                    }
+                  }
+                  if (foundHut) break;
+                }
+              }
+              addCandidate('CraftMedicine', craftX, craftZ, 2, -1.0);
+            }
+          }
+
+          // C. Gather Medicinal Herbs (if medicine is low and we don't have enough berries/roots/mushrooms)
+          if (medicineCount < 10) {
+            const totalIngredients = (mapData.stockpile.berries ?? 0) + (mapData.stockpile.mushrooms ?? 0) + (mapData.stockpile.roots ?? 0);
+            if (totalIngredients < 4) {
+              let bestX = -1, bestZ = -1, bestDist = 9999;
+              for (let r = 0; r < size; r++) {
+                const row = mapData.grid[r];
+                if (!row) continue;
+                for (let c = 0; c < size; c++) {
+                  const cell = row[c];
+                  if (cell && cell.scouted && cell.loaded !== false) {
+                    const isHerbSource = cell.hasShrub || (cell.resourceNode && ['Berries', 'Roots', 'Mushrooms'].includes(cell.resourceNode.type));
+                    if (isHerbSource) {
+                      const d = Math.abs(r - x) + Math.abs(c - z);
+                      if (d < bestDist) {
+                        bestDist = d;
+                        bestX = r;
+                        bestZ = c;
+                      }
+                    }
+                  }
+                }
+              }
+              if (bestX !== -1) {
+                addCandidate('Gather', bestX, bestZ, 2, -0.5);
+              }
+            }
+          }
+        }
+
         // Evaluate 15 Job Types based on priorities (lower priority value e.g. 1 is highest priority score)
         
         // 1. Sleep: Villagers without the "Tireless" trait must sleep at night.
@@ -1631,21 +1919,23 @@ export function tickTribeSimulation(
         let isWell = false;
         for (let r = 0; r < size; r++) {
           for (let c = 0; c < size; c++) {
-            const cell = mapData.grid[r][c];
-            if (cell.structure?.type === 'WaterWell') {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
-                isWell = true;
-              }
-            } else if (cell.biome === 'water' && !isWell) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
+            const cell = mapData.grid[r]?.[c];
+            if (cell) {
+              if (cell.structure?.type === 'WaterWell') {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                  isWell = true;
+                }
+              } else if (cell.biome === 'water' && !isWell) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                }
               }
             }
           }
@@ -1663,8 +1953,11 @@ export function tickTribeSimulation(
           // direct berry chewing
           let bestX = -1, bestZ = -1, bestDist = 9999;
           for (let r = 0; r < size; r++) {
+            const row = mapData.grid[r];
+            if (!row) continue;
             for (let c = 0; c < size; c++) {
-              if (mapData.grid[r][c].hasShrub && mapData.grid[r][c].scouted) {
+              const cell = row[c];
+              if (cell && cell.hasShrub && cell.scouted) {
                 const d = Math.abs(r - x) + Math.abs(c - z);
                 if (d < bestDist) {
                   bestDist = d;
@@ -1689,8 +1982,11 @@ export function tickTribeSimulation(
           // look for itemsOnGround
           let bestX = -1, bestZ = -1, bestDist = 9999;
           for (let r = 0; r < size; r++) {
+            const row = mapData.grid[r];
+            if (!row) continue;
             for (let c = 0; c < size; c++) {
-              if (mapData.grid[r][c].itemsOnGround && mapData.grid[r][c].scouted) {
+              const cell = row[c];
+              if (cell && cell.itemsOnGround && cell.scouted) {
                 const d = Math.abs(r - x) + Math.abs(c - z);
                 if (d < bestDist) {
                   bestDist = d;
@@ -1718,11 +2014,35 @@ export function tickTribeSimulation(
 
         // Step 5a: First, look specifically for scouted, manually designated resource cells
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            const cell = mapData.grid[r][c];
-            if (cell.gatherDesignated && cell.scouted) {
+            const cell = row[c];
+            if (cell && cell.gatherDesignated && cell.scouted && cell.loaded !== false) {
               const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
               if (cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) {
+                // Check if they need a tool
+                const isWood = cell.hasTree || (cell.resourceNode && cell.resourceNode.type === 'Wood');
+                const isMine = cell.hasRock || (cell.resourceNode && ['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(cell.resourceNode.type));
+                const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
+                const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
+                                   (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
+                                   (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
+                                   (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
+                
+                if (isWood && !hasAxe) {
+                  // Trigger warning!
+                  (mapData as any).lastToolWarning = 'needs axe';
+                  cell.gatherDesignated = false;
+                  continue;
+                }
+                if (isMine && !hasPickaxe) {
+                  // Trigger warning!
+                  (mapData as any).lastToolWarning = 'needs pickaxe';
+                  cell.gatherDesignated = false;
+                  continue;
+                }
+
                 const d = Math.abs(r - x) + Math.abs(c - z);
                 if (d < bestDist) {
                   bestDist = d;
@@ -1739,20 +2059,28 @@ export function tickTribeSimulation(
         if (bestX === -1) {
           const thresholdMap = mapData.autoGatherThresholds || {};
           for (let r = 0; r < size; r++) {
+            const row = mapData.grid[r];
+            if (!row) continue;
             for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r][c];
+              const cell = row[c];
+              if (!cell) continue;
               const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
               
               let satisfiesAutoGather = false;
               if (cell.hasTree) {
                 const limit = thresholdMap['wood'] || 0;
-                if (limit > 0 && mapData.stockpile.wood < limit) {
+                const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
+                if (limit > 0 && mapData.stockpile.wood < limit && hasAxe) {
                   satisfiesAutoGather = true;
                 }
               }
               if (cell.hasRock) {
                 const limit = thresholdMap['stone'] || 0;
-                if (limit > 0 && mapData.stockpile.stone < limit) {
+                const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
+                                   (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
+                                   (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
+                                   (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
+                if (limit > 0 && mapData.stockpile.stone < limit && hasPickaxe) {
                   satisfiesAutoGather = true;
                 }
               }
@@ -1791,13 +2119,23 @@ export function tickTribeSimulation(
                 const isFood = ['Berries', 'Roots', 'Mushrooms', 'Meat'].includes(nodeType);
                 const limitFood = thresholdMap['food'] || 0;
                 
-                if ((limit > 0 && ((mapData.stockpile as any)[rKey] ?? 0) < limit) ||
-                    (isFood && limitFood > 0 && mapData.stockpile.food < limitFood)) {
+                let toolAvailable = true;
+                if (nodeType === 'Wood') {
+                  toolAvailable = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
+                } else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(nodeType)) {
+                  toolAvailable = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
+                                  (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
+                                  (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
+                                  (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
+                }
+
+                if (toolAvailable && ((limit > 0 && ((mapData.stockpile as any)[rKey] ?? 0) < limit) ||
+                    (isFood && limitFood > 0 && mapData.stockpile.food < limitFood))) {
                   satisfiesAutoGather = true;
                 }
               }
 
-              if ((cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) && cell.scouted && satisfiesAutoGather) {
+              if ((cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) && cell.scouted && cell.loaded !== false && satisfiesAutoGather) {
                 const d = Math.abs(r - x) + Math.abs(c - z);
                 if (d < bestDist) {
                   bestDist = d;
@@ -1814,9 +2152,11 @@ export function tickTribeSimulation(
           const hasPrimaryRoleWork = (() => {
             if (agent.role === 'Builder') {
               for (let r = 0; r < size; r++) {
+                const row = mapData.grid[r];
+                if (!row) continue;
                 for (let c = 0; c < size; c++) {
-                  const cell = mapData.grid[r][c];
-                  if (cell.construction || (cell.structure && (cell.structure.dismantling || cell.structure.condition < 95))) {
+                  const cell = row[c];
+                  if (cell && (cell.construction || (cell.structure && (cell.structure.dismantling || cell.structure.condition < 95)))) {
                     return true;
                   }
                 }
@@ -1824,8 +2164,11 @@ export function tickTribeSimulation(
             }
             if (agent.role === 'Farmer') {
               for (let r = 0; r < size; r++) {
+                const row = mapData.grid[r];
+                if (!row) continue;
                 for (let c = 0; c < size; c++) {
-                  if (mapData.grid[r][c].farmCrop) return true;
+                  const cell = row[c];
+                  if (cell && cell.farmCrop) return true;
                 }
               }
             }
@@ -1834,8 +2177,11 @@ export function tickTribeSimulation(
             }
             if (agent.role === 'Scout') {
               for (let r = 0; r < size; r++) {
+                const row = mapData.grid[r];
+                if (!row) continue;
                 for (let c = 0; c < size; c++) {
-                  if (!mapData.grid[r][c].scouted) return true;
+                  const cell = row[c];
+                  if (cell && !cell.scouted) return true;
                 }
               }
             }
@@ -1864,9 +2210,11 @@ export function tickTribeSimulation(
 
         // 6a. Search first for manually designated wild animal hunt/capture/tame targets
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            const cell = mapData.grid[r][c];
-            if (cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
+            const cell = row[c];
+            if (cell && cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
               const ani = cell.wildAnimal;
               if ((ani as any).isHuntDesignated || (ani as any).isCaptureDesignated || (ani as any).isTameDesignated) {
                 const d = Math.abs(r - x) + Math.abs(c - z);
@@ -1874,7 +2222,8 @@ export function tickTribeSimulation(
                   bestDist = d;
                   bestX = r;
                   bestZ = c;
-                  jobMode = (ani as any).isTameDesignated ? 'tame' : 'hunt';
+                  const hasEnoughBerries = (mapData.stockpile.berries ?? 0) >= 3;
+                  jobMode = ((ani as any).isTameDesignated && hasEnoughBerries) ? 'tame' : 'hunt';
                   isDesignatedTarget = true;
                 }
               }
@@ -1885,9 +2234,11 @@ export function tickTribeSimulation(
         // 6b. Search for standard (automatic) wild animals to hunt if no designated ones
         if (bestX === -1) {
           for (let r = 0; r < size; r++) {
+            const row = mapData.grid[r];
+            if (!row) continue;
             for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r][c];
-              if (cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
+              const cell = row[c];
+              if (cell && cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
                 const d = Math.abs(r - x) + Math.abs(c - z);
                 if (d < bestDist) {
                   bestDist = d;
@@ -1904,8 +2255,8 @@ export function tickTribeSimulation(
         if (bestX === -1) {
           for (let r = 0; r < size; r++) {
             for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r][c];
-              if (cell.scouted) {
+              const cell = mapData.grid[r]?.[c];
+              if (cell && cell.scouted) {
                 if (cell.biome === 'water') {
                   const d = Math.abs(r - x) + Math.abs(c - z);
                   if (d < bestDist) {
@@ -1963,13 +2314,16 @@ export function tickTribeSimulation(
       if (agent.priorities.Build > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            const cell = mapData.grid[r][c];
+            const cell = row[c];
+            if (!cell) continue;
             // Skip child tiles of multi-tile structures to ensure builders target the 2x2 parent tile directly!
             if ((cell as any).isMultiTileChildOf) continue;
 
             const hasBuildOrDismantle = cell.construction || (cell.structure && cell.structure.dismantling);
-            if (hasBuildOrDismantle && cell.scouted) {
+            if (hasBuildOrDismantle && cell.scouted && cell.loaded !== false) {
               const d = Math.abs(r - x) + Math.abs(c - z);
               if (d < bestDist) {
                 bestDist = d;
@@ -1988,8 +2342,11 @@ export function tickTribeSimulation(
       if (agent.priorities.Farm > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            if (mapData.grid[r][c].farmCrop && mapData.grid[r][c].scouted) {
+            const cell = row[c];
+            if (cell && cell.farmCrop && cell.scouted && cell.loaded !== false) {
               const d = Math.abs(r - x) + Math.abs(c - z);
               if (d < bestDist) {
                 bestDist = d;
@@ -2008,8 +2365,11 @@ export function tickTribeSimulation(
       if (agent.priorities.Scout > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            if (!mapData.grid[r][c].scouted) {
+            const cell = row[c];
+            if (cell && !cell.scouted && cell.loaded !== false) {
               const d = Math.abs(r - x) + Math.abs(c - z);
               if (d < bestDist) {
                 bestDist = d;
@@ -2028,14 +2388,19 @@ export function tickTribeSimulation(
       if (agent.priorities.Repair > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         for (let r = 0; r < size; r++) {
+          const row = mapData.grid[r];
+          if (!row) continue;
           for (let c = 0; c < size; c++) {
-            const structure = mapData.grid[r][c].structure;
-            if (structure && structure.condition < 95 && mapData.grid[r][c].scouted) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
+            const cell = row[c];
+            if (cell) {
+              const structure = cell.structure;
+              if (structure && structure.condition < 95 && cell.scouted && cell.loaded !== false) {
+                const d = Math.abs(r - x) + Math.abs(c - z);
+                if (d < bestDist) {
+                  bestDist = d;
+                  bestX = r;
+                  bestZ = c;
+                }
               }
             }
           }
@@ -2106,6 +2471,28 @@ export function tickTribeSimulation(
     if (activeJobType && jobTargetCoords) {
       const destX = jobTargetCoords.x;
       const destZ = jobTargetCoords.z;
+      
+      // Barrier Check: Block normal villagers from entering the Storm; allow only trained Scouts / Storm Riders.
+      const eyeX = mapData.eyePos?.x ?? (size / 2);
+      const eyeZ = mapData.eyePos?.z ?? (size / 2);
+      const eyeRadius = mapData.eyeRadius ?? 14.0;
+      const destDist = Math.sqrt((destX - eyeX) ** 2 + (destZ - eyeZ) ** 2);
+      
+      if (destDist > eyeRadius) {
+        const isScoutOrStormrider = 
+          agent.role === 'Scout' && (agent.skills.Scout?.level ?? 1) >= 5;
+          
+        if (!isScoutOrStormrider && !mapData.isMigrationTravelActive) {
+          activeJobType = null;
+          jobTargetCoords = null;
+          workProgress = 0;
+          statusText = "⚠️ Turned back from storm zone";
+          if (Math.random() < 0.04) {
+            addLog(`⚠️ STORM BARRIER: ${agent.name} refused to enter the high-energy storm wall! Only trained Scouts or Stormriders can cross the boundary safely.`, 'warning');
+          }
+        }
+      }
+
       const distance = Math.sqrt((destX - x) ** 2 + (destZ - z) ** 2);
 
       if (distance < 0.6) {
@@ -2120,6 +2507,12 @@ export function tickTribeSimulation(
           if (hasStructureInVillage(mapData, 'ScoutsLookout')) {
             speedMultiplier *= 1.25;
           }
+        } else if (activeJobType === 'Heal' || activeJobType === 'CraftMedicine') {
+          const lvl = agent.skills.Healer?.level ?? 1;
+          speedMultiplier = 1.0 + (lvl - 1) * 0.15;
+          if (hasStructureInVillage(mapData, 'HealersSanctum')) {
+            speedMultiplier *= 1.25;
+          }
         } else if (activeJobType === 'Farm') {
           const lvl = agent.skills.Farmer?.level ?? 1;
           speedMultiplier = 1.0 + (lvl - 1) * 0.15;
@@ -2128,19 +2521,31 @@ export function tickTribeSimulation(
           }
         } else if (activeJobType === 'Gather') {
           let skillName: TribespersonRole = 'Gatherer';
+          let isHandGather = true;
           if (cell?.resourceNode) {
             const nodeType = cell.resourceNode.type;
             if (['Copper', 'Silver', 'Gold', 'Iron', 'Bone', 'Stone'].includes(nodeType)) {
               skillName = 'Artisan';
+              isHandGather = false;
             } else if (['Relics', 'AncientMaterials'].includes(nodeType)) {
               skillName = 'Scout';
+              isHandGather = false;
+            } else if (nodeType === 'Wood') {
+              skillName = 'Gatherer';
+              isHandGather = false;
             } else {
               skillName = 'Gatherer';
+              isHandGather = true;
             }
           } else if (cell?.hasRock) {
             skillName = 'Artisan';
+            isHandGather = false;
+          } else if (cell?.hasTree) {
+            skillName = 'Gatherer';
+            isHandGather = false;
           } else {
             skillName = 'Gatherer';
+            isHandGather = true;
           }
           const lvl = agent.skills[skillName]?.level ?? 1;
           speedMultiplier = 1.0 + (lvl - 1) * 0.15;
@@ -2149,6 +2554,10 @@ export function tickTribeSimulation(
           }
           if (skillName === 'Artisan' && hasStructureInVillage(mapData, 'ArtisansWorkshop')) {
             speedMultiplier *= 1.25;
+          }
+          // Basket 30% speed boost for manual hand-gathering tasks (berries, roots, mushrooms, fiber, water, etc.)
+          if (isHandGather && (mapData.stockpile.grassBasket ?? 0) > 0) {
+            speedMultiplier *= 1.30;
           }
         } else if (activeJobType === 'Hunt') {
           const lvl = agent.skills.Hunter?.level ?? 1;
@@ -2192,7 +2601,7 @@ export function tickTribeSimulation(
         } 
         
         else if (activeJobType === 'Eat') {
-          if (destX === Math.floor(size / 2) && destZ === Math.floor(size / 2) && mapData.stockpile.food > 0) {
+          if (destX === depotX && destZ === depotZ && mapData.stockpile.food > 0) {
             statusText = '🍖 Savoring stockpile tribal meals...';
             
             // Select food item from stockpile to eat
@@ -2479,7 +2888,7 @@ export function tickTribeSimulation(
 
                 // Immediately return resource!
                 activeJobType = 'Haul';
-                jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                jobTargetCoords = { x: depotX, z: depotZ };
                 workProgress = 0;
                 addLog(`🎯 ${agent.name} harvested +${qtyToHarvest} ${node.type}! Hauling cargo...`, 'info');
 
@@ -2497,7 +2906,7 @@ export function tickTribeSimulation(
                 
                 // Immediately return resource!
                 activeJobType = 'Haul';
-                jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                jobTargetCoords = { x: depotX, z: depotZ };
                 workProgress = 0;
                 addLog(`🪓 ${agent.name} felled a log tree! Cargo loaded.`, 'info');
 
@@ -2513,7 +2922,7 @@ export function tickTribeSimulation(
                 carriage = { type: 'stone', amount: 25 };
                 
                 activeJobType = 'Haul';
-                jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                jobTargetCoords = { x: depotX, z: depotZ };
                 workProgress = 0;
                 addLog(`⛏️ ${agent.name} quarried stones! Cargo loaded.`, 'info');
 
@@ -2529,7 +2938,7 @@ export function tickTribeSimulation(
                 carriage = { type: 'food', amount: 20 };
                 
                 activeJobType = 'Haul';
-                jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                jobTargetCoords = { x: depotX, z: depotZ };
                 workProgress = 0;
                 addLog(`🍇 ${agent.name} gathered ripe berries! Cargo loaded.`, 'info');
 
@@ -2786,7 +3195,7 @@ export function tickTribeSimulation(
                 carriage = { type: 'food', amount: finalYield };
                 
                 activeJobType = 'Haul';
-                jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                jobTargetCoords = { x: depotX, z: depotZ };
                 workProgress = 0;
                 addLog(`🌾 Harvested ripe crops! Cargo loaded.`, 'info');
 
@@ -2815,6 +3224,21 @@ export function tickTribeSimulation(
               targetAnimal = mapData.animals.find(a => a.id === cell.wildAnimal?.id && !a.isDead) || null;
             }
 
+            // Prevent normal (non-scout/non-Stormrider) hunters from chasing animals outside the Eye of the Storm
+            if (targetAnimal && !isScoutOrStormrider) {
+              const aniDx = targetAnimal.x - eyeX;
+              const aniDz = targetAnimal.z - eyeZ;
+              const aniDistSq = aniDx * aniDx + aniDz * aniDz;
+              if (aniDistSq > eyeRadiusSq) {
+                // The animal has escaped into the storm! Abandon hunt!
+                addLog(`⚠️ ${agent.name} abandoned the hunt because the prey fled into the deadly storm!`, 'warning');
+                targetAnimal = null;
+                (agent as any).assignedHuntAnimalId = null;
+                activeJobType = null;
+                statusText = '⚠️ Hunt abandoned: Prey fled into the Storm';
+              }
+            }
+
             if (targetAnimal) {
               // Physically track the animal coordinates! Update job target coordinates on the fly!
               jobTargetCoords = { x: Math.round(targetAnimal.x), z: Math.round(targetAnimal.z) };
@@ -2824,10 +3248,10 @@ export function tickTribeSimulation(
               const rangeSq = dx * dx + dz * dz;
 
               // Hunters weapon choice & shooting range:
-              // Hunters use spear at 1.5 blocks, or bow (if role is Scout or level 4+) at 4.5 blocks!
+              // Hunters start with spears and can only use bow at level 4. Bow must be available in stockpile.
               const hLevel = agent.skills.Hunter?.level || 1;
-              const isRanged = agent.role === 'Scout' || hLevel >= 4;
-              const attackRange = isRanged ? 4.5 : 1.4;
+              const isRanged = hLevel >= 4 && (mapData.stockpile.bow ?? 0) > 0;
+              const attackRange = isRanged ? hLevel : 1.4;
 
               if (rangeSq <= attackRange * attackRange) {
                 // Within range! Stop moving and enter Aim/Attack stance
@@ -2841,22 +3265,43 @@ export function tickTribeSimulation(
                   const dmgMult = (hasHunterHut ? 1.25 : 1.0) * (isRanged ? 1.15 : 1.0);
                   const dmg = (18 + agent.attributes.strength * 2.0 + hLevel * 4.5) * dmgMult * deltaTime;
                   
-                  targetAnimal.HP -= dmg;
-                  targetAnimal.fear = 100; // Explodes in fear and flees!
-                  
-                  // Visual tracer projectile indicator (handled in Canvas rendering)
+                  let didHit = true;
                   if (isRanged) {
-                     (agent as any).projectileTracer = {
-                       fromX: agent.x,
-                       fromZ: agent.z,
-                       toX: targetAnimal.x,
-                       toZ: targetAnimal.z,
-                       time: 0.3
-                     };
+                    const hitChance = Math.min(0.95, 0.60 + (hLevel - 4) * 0.08);
+                    didHit = Math.random() < hitChance;
                   }
 
-                  // Dangerous animals attack back
-                  if (['Boar', 'Wolf', 'Bear', 'LargeCat', 'DireWolf'].includes(targetAnimal.type)) {
+                  if (didHit) {
+                    targetAnimal.HP -= dmg;
+                    targetAnimal.fear = 100; // Explodes in fear and flees!
+                    
+                    // Visual tracer projectile indicator (handled in Canvas rendering)
+                    if (isRanged) {
+                       (agent as any).projectileTracer = {
+                         fromX: agent.x,
+                         fromZ: agent.z,
+                         toX: targetAnimal.x,
+                         toZ: targetAnimal.z,
+                         time: 0.3
+                       };
+                    }
+                  } else {
+                    if (isRanged) {
+                       // Show a missed visual tracer with slight drift
+                       const driftX = (Math.random() - 0.5) * 1.5;
+                       const driftZ = (Math.random() - 0.5) * 1.5;
+                       (agent as any).projectileTracer = {
+                         fromX: agent.x,
+                         fromZ: agent.z,
+                         toX: targetAnimal.x + driftX,
+                         toZ: targetAnimal.z + driftZ,
+                         time: 0.3
+                       };
+                    }
+                  }
+
+                  // Dangerous animals attack back if within melee range (1.4 tiles)
+                  if (rangeSq <= 1.4 * 1.4 && ['Boar', 'Wolf', 'Bear', 'LargeCat', 'DireWolf'].includes(targetAnimal.type)) {
                     const hurtPower = targetAnimal.type === 'Bear' ? 24 : (targetAnimal.type === 'Boar' ? 8 : 12);
                     stats.health = Math.max(10, stats.health - hurtPower * deltaTime);
                     stats.fatigue = Math.max(15, stats.fatigue - 4 * deltaTime);
@@ -2885,7 +3330,7 @@ export function tickTribeSimulation(
                       awardSkillXP(agent, 'Hunter', 60, mapData, addLog, hasMentorNearby);
                       
                       activeJobType = 'Haul';
-                      jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                      jobTargetCoords = { x: depotX, z: depotZ };
                       workProgress = 0;
                     } else {
                       // Drop meat on ground directly!
@@ -2950,7 +3395,7 @@ export function tickTribeSimulation(
                   awardSkillXP(agent, 'Hunter', 50, mapData, addLog, hasMentorNearby);
 
                   activeJobType = 'Haul';
-                  jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+                  jobTargetCoords = { x: depotX, z: depotZ };
                   workProgress = 0;
                 }
               } else {
@@ -2966,7 +3411,7 @@ export function tickTribeSimulation(
               addLog(`🎣 Fisherman ${agent.name} caught fresh fish (+15 Meat) and purified lake water (+15 Reservoir Water)!`, 'info');
 
               activeJobType = 'Haul';
-              jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+              jobTargetCoords = { x: depotX, z: depotZ };
               workProgress = 0;
 
               awardSkillXP(agent, 'Hunter', 40, mapData, addLog, hasMentorNearby);
@@ -2978,7 +3423,7 @@ export function tickTribeSimulation(
               addLog(`🚰 ${agent.name} drawn and purified standard water from well (+25 Reservoir Water)!`, 'info');
 
               activeJobType = 'Haul';
-              jobTargetCoords = { x: Math.floor(size / 2), z: Math.floor(size / 2) };
+              jobTargetCoords = { x: depotX, z: depotZ };
               workProgress = 0;
 
               awardSkillXP(agent, 'Hunter', 30, mapData, addLog, hasMentorNearby);
@@ -3005,9 +3450,9 @@ export function tickTribeSimulation(
                 
                 if (workProgress > 2.0) {
                   workProgress = 0;
-                  if (mapData.stockpile.berries >= 1) {
-                    mapData.stockpile.berries -= 1;
-                    mapData.stockpile.food = Math.max(0, mapData.stockpile.food - 1);
+                  if (mapData.stockpile.berries >= 3) {
+                    mapData.stockpile.berries -= 3;
+                    mapData.stockpile.food = Math.max(0, mapData.stockpile.food - 3);
 
                     const hLevel = agent.skills.Hunter?.level || 1;
                     const hasBeastFriend = agent.traits.includes('Beast Friend');
@@ -3087,6 +3532,79 @@ export function tickTribeSimulation(
           }
         } 
         
+        else if (activeJobType === 'CaravanPacking') {
+          if (carriage && carriage.type === 'cargo_crate') {
+            // Deliver cargo crate to caravan cart at fireplace/depot
+            if (distance < 0.6) {
+              const currentProgress = mapData.packingProgress ?? 0;
+              const progressIncrement = 6 + Math.floor(Math.random() * 5); // 6-10% progress per deliver!
+              mapData.packingProgress = Math.min(100, currentProgress + progressIncrement);
+              
+              addLog(`📦 Caravan Packing: ${agent.name} secured a supply crate in the wagon! (${Math.round(mapData.packingProgress)}% complete)`, 'success');
+              
+              carriage = null;
+              jobTargetCoords = null;
+              workProgress = 0;
+              statusText = '📦 Secured cargo! Looking for more supplies...';
+            } else {
+              jobTargetCoords = { x: depotX, z: depotZ };
+              statusText = '📦 Carrying cargo crate to Caravan wagon...';
+            }
+          } else {
+            // Find something to pack!
+            let targetStruct: { x: number; z: number; type: string } | null = null;
+            const gridSize = mapData.grid.length;
+            for (let r = 0; r < gridSize; r++) {
+              const row = mapData.grid[r];
+              if (row) {
+                for (let c = 0; c < gridSize; c++) {
+                  const cl = row[c];
+                  if (cl && cl.structure && cl.structure.type !== 'Fireplace') {
+                    targetStruct = { x: r, z: c, type: cl.structure.type };
+                    break;
+                  }
+                }
+              }
+              if (targetStruct) break;
+            }
+
+            if (targetStruct) {
+              // Dismantle structure!
+              if (jobTargetCoords?.x !== targetStruct.x || jobTargetCoords?.z !== targetStruct.z) {
+                jobTargetCoords = { x: targetStruct.x, z: targetStruct.z };
+                statusText = `🏃 Moving to pack up ${targetStruct.type}...`;
+              } else if (distance < 0.6) {
+                statusText = `🛠️ Dismantling and crating ${targetStruct.type}...`;
+                workProgress += deltaTime * 0.5; // takes ~2 seconds
+                if (workProgress >= 1.0) {
+                  // Structure is packed up! Remove it
+                  const cell = mapData.grid[targetStruct.x]?.[targetStruct.z];
+                  if (cell) {
+                    cell.structure = null;
+                  }
+                  carriage = { type: 'cargo_crate', amount: 1 };
+                  workProgress = 0;
+                  jobTargetCoords = { x: depotX, z: depotZ };
+                }
+              }
+            } else {
+              // Pack general supplies at depot
+              if (jobTargetCoords?.x !== depotX || jobTargetCoords?.z !== depotZ) {
+                jobTargetCoords = { x: depotX, z: depotZ };
+                statusText = `🏃 Heading to storage depot to crate stockpiled goods...`;
+              } else if (distance < 0.6) {
+                statusText = `📦 Packing stockpile resources into transport crates...`;
+                workProgress += deltaTime * 0.5;
+                if (workProgress >= 1.0) {
+                  carriage = { type: 'cargo_crate', amount: 1 };
+                  workProgress = 0;
+                  jobTargetCoords = { x: depotX, z: depotZ };
+                }
+              }
+            }
+          }
+        }
+        
         else if (activeJobType === 'Haul') {
           if (carriage && carriage.amount > 0) {
             const rawDropType = carriage.type as string;
@@ -3096,8 +3614,8 @@ export function tickTribeSimulation(
               let penX = -1, penZ = -1;
               for (let r = 0; r < size; r++) {
                 for (let c = 0; c < size; c++) {
-                  const cell = mapData.grid[r][c];
-                  if (!cell.structure && !cell.construction && cell.biome !== 'water' && checkIsWithinPen(mapData, r, c)) {
+                  const cell = mapData.grid[r]?.[c];
+                  if (cell && !cell.structure && !cell.construction && cell.biome !== 'water' && checkIsWithinPen(mapData, r, c)) {
                     penX = r;
                     penZ = c;
                     break;
@@ -3106,8 +3624,8 @@ export function tickTribeSimulation(
                 if (penX !== -1) break;
               }
 
-              const dropX = penX !== -1 ? penX : Math.floor(size / 2) + 1;
-              const dropZ = penZ !== -1 ? penZ : Math.floor(size / 2) + 1;
+              const dropX = penX !== -1 ? penX : depotX + 1;
+              const dropZ = penZ !== -1 ? penZ : depotZ + 1;
 
               if (destX === dropX && destZ === dropZ) {
                 statusText = '🕸_ Releasing captured animal into enclosure...';
@@ -3135,7 +3653,7 @@ export function tickTribeSimulation(
               } else {
                 jobTargetCoords = { x: dropX, z: dropZ };
               }
-            } else if (destX === Math.floor(size / 2) && destZ === Math.floor(size / 2) || (mapData.grid[destX]?.[destZ]?.structure?.type === 'StorageBin')) {
+            } else if (destX === depotX && destZ === depotZ || (mapData.grid[destX]?.[destZ]?.structure?.type === 'StorageBin')) {
               statusText = '📦 Stockpiling resources at storage bin...';
               if (workProgress > 1.0) {
                 if (rawDropType === 'harvested_beast') {
@@ -3200,47 +3718,122 @@ export function tickTribeSimulation(
             jobTargetCoords = null;
           }
         }
-      } else {
-        // TRAVELING to target coordinates
-        let sp = 1.0;
-        if (agent.traits.includes('Path Finder')) sp = 1.4;
         
-        let pWeight = 0;
-        if (carriage && carriage.amount > 0) {
-          pWeight = carriage.amount * getUnitWeight(carriage.type);
+        else if (activeJobType === 'Heal') {
+          const targetPerson = tribe.find(p => p.isAlive && p.stats.health < 100 && Math.abs(p.x - destX) < 1.1 && Math.abs(p.z - destZ) < 1.1);
+          if (targetPerson) {
+            statusText = `🩺 Treating ${targetPerson.name}'s wounds...`;
+            // speed up progress based on speedMultiplier
+            workProgress += speedMultiplier * deltaTime;
+            if (workProgress > 2.0) {
+              mapData.stockpile.medicine = Math.max(0, (mapData.stockpile.medicine ?? 0) - 1);
+              targetPerson.stats.health = 100; // Fully healed!
+              awardSkillXP(agent, 'Healer', 45, mapData, addLog, hasMentorNearby);
+              addLog(`🩺 Treatment Complete: ${agent.name} treated ${targetPerson.name} with herbal medicine. Wounds fully healed!`, 'success');
+              
+              activeJobType = null;
+              jobTargetCoords = null;
+              workProgress = 0;
+            }
+          } else {
+            activeJobType = null;
+            jobTargetCoords = null;
+            workProgress = 0;
+          }
         }
-        const hasBasket = mapData.stockpile.grassBasket > 0;
-        const maxWeight = 15 + (hasBasket ? 10 : 0);
-        const wRatio = pWeight / maxWeight;
-        const loadPenalty = wRatio > 0.4 ? Math.max(0.3, 1.0 - (wRatio - 0.4) * 1.25) : 1.0;
-
-        let watchTowerSpeedBonus = 1.0;
-        if (agent.role === 'Scout' && watchTowers > 0) {
-          watchTowerSpeedBonus += watchTowers * 0.15;
+        
+        else if (activeJobType === 'CraftMedicine') {
+          statusText = `💊 Grinding herbs & brewing medicine...`;
+          workProgress += speedMultiplier * deltaTime;
+          if (workProgress > 3.0) {
+            let ingredientUsed = '';
+            if ((mapData.stockpile.berries ?? 0) >= 3) {
+              mapData.stockpile.berries -= 3;
+              ingredientUsed = '3 Berries';
+            } else if ((mapData.stockpile.mushrooms ?? 0) >= 1) {
+              mapData.stockpile.mushrooms -= 1;
+              ingredientUsed = '1 Mushroom';
+            } else if ((mapData.stockpile.roots ?? 0) >= 1) {
+              mapData.stockpile.roots -= 1;
+              ingredientUsed = '1 Root';
+            }
+            
+            if (ingredientUsed) {
+              mapData.stockpile.medicine = (mapData.stockpile.medicine ?? 0) + 1;
+              mapData.stockpile.food = mapData.stockpile.berries + mapData.stockpile.roots + mapData.stockpile.mushrooms + mapData.stockpile.meat;
+              awardSkillXP(agent, 'Healer', 40, mapData, addLog, hasMentorNearby);
+              addLog(`💊 Medicine Brewed: ${agent.name} prepared 1 medicine pouch from ${ingredientUsed}! (+1 Medicine)`, 'success');
+            } else {
+              addLog(`⚠️ Medicine brewing cancelled: Insufficient raw ingredients in stockpile!`, 'warning');
+            }
+            
+            activeJobType = null;
+            jobTargetCoords = null;
+            workProgress = 0;
+          }
         }
+      } else {
+        // Continuous safety check: If normal villagers are outside the Eye of the Storm, they must instantly cancel and head back!
+        if (!isInsideEye && !isScoutOrStormrider && !mapData.isMigrationTravelActive) {
+          activeJobType = null;
+          jobTargetCoords = null;
+          workProgress = 0;
+          statusText = "🏃 Fleeing storm back to Eye safety!";
+          const centerPos = getCampCenter(mapData, size);
+          x = x + (centerPos.x - x) * 0.15;
+          z = z + (centerPos.z - z) * 0.15;
+          agent.targetX = centerPos.x;
+          agent.targetZ = centerPos.z;
+        } else {
+          // TRAVELING to target coordinates
+          let sp = 1.0;
+          if (agent.traits.includes('Path Finder')) sp = 1.4;
+          
+          let pWeight = 0;
+          if (carriage && carriage.amount > 0) {
+            pWeight = carriage.amount * getUnitWeight(carriage.type);
+          }
+          const hasBasket = mapData.stockpile.grassBasket > 0;
+          const maxWeight = 15 + (hasBasket ? 10 : 0);
+          const wRatio = pWeight / maxWeight;
+          const loadPenalty = wRatio > 0.4 ? Math.max(0.3, 1.0 - (wRatio - 0.4) * 1.25) : 1.0;
 
-        // Upgraded speed factors for satisfyingly fast, responsive walking
-        const movementFactor = (36.0 + agent.attributes.agility * 3.6) * sp * loadPenalty * watchTowerSpeedBonus;
+          let watchTowerSpeedBonus = 1.0;
+          if (agent.role === 'Scout' && watchTowers > 0) {
+            watchTowerSpeedBonus += watchTowers * 0.15;
+          }
 
-        const dirX = (destX - x) / distance;
-        const dirZ = (destZ - z) / distance;
+          // Upgraded speed factors for satisfyingly fast, responsive walking (Increased by 50% as requested)
+          const movementFactor = (36.0 + agent.attributes.agility * 3.6) * sp * loadPenalty * watchTowerSpeedBonus * 1.5;
 
-        x += dirX * movementFactor * deltaTime;
-        z += dirZ * movementFactor * deltaTime;
+          const dirX = (destX - x) / distance;
+          const dirZ = (destZ - z) / distance;
 
-        // Visual targets for smooth interpolations in GameCanvas
-        agent.targetX = destX;
-        agent.targetZ = destZ;
+          x += dirX * movementFactor * deltaTime;
+          z += dirZ * movementFactor * deltaTime;
 
-        let encumberedMsg = loadPenalty < 0.9 ? ` (🐌 Encumbered)` : '';
-        statusText = `🚶 Traveling to [${destX}, ${destZ}] to ${activeJobType}${encumberedMsg}...`;
+          // Visual targets for smooth interpolations in GameCanvas
+          agent.targetX = destX;
+          agent.targetZ = destZ;
+
+          let encumberedMsg = loadPenalty < 0.9 ? ` (🐌 Encumbered)` : '';
+          statusText = `🚶 Traveling to [${destX}, ${destZ}] to ${activeJobType}${encumberedMsg}...`;
+        }
       }
     } else {
       // -----------------------------------------------------------------------
       // ADAPTIVE TRIBAL AMBIENT IDLE SYSTEM
       // -----------------------------------------------------------------------
-      // Checks if the agent is already in one of our delightful idle activities
-      const isCurrentlyEngaged = 
+      if (!isInsideEye && !isScoutOrStormrider && !mapData.isMigrationTravelActive) {
+        statusText = "🏃 Fleeing storm back to Eye safety!";
+        const centerPos = getCampCenter(mapData, size);
+        x = x + (centerPos.x - x) * 0.15;
+        z = z + (centerPos.z - z) * 0.15;
+        agent.targetX = centerPos.x;
+        agent.targetZ = centerPos.z;
+      } else {
+        // Checks if the agent is already in one of our delightful idle activities
+        const isCurrentlyEngaged = 
         statusText.startsWith('🧘') || 
         statusText.startsWith('🌸') || 
         statusText.startsWith('💤') ||
@@ -3294,7 +3887,7 @@ export function tickTribeSimulation(
               const rx = Math.floor(x) + dx;
               const rz = Math.floor(z) + dz;
               if (rx >= 0 && rx < size && rz >= 0 && rz < size) {
-                if (mapData.grid[rx][rz].biome === 'water') {
+                if (mapData.grid[rx]?.[rz]?.biome === 'water') {
                   waterTiles.push({ rx, rz });
                 }
               }
@@ -3401,6 +3994,7 @@ export function tickTribeSimulation(
         agent.targetZ = z;
       }
     }
+  }
 
     const currentGridX = Math.max(0, Math.min(size - 1, Math.floor(x)));
     const currentGridZ = Math.max(0, Math.min(size - 1, Math.floor(z)));

@@ -25,7 +25,8 @@ import {
   Droplets,
   Heart
 } from 'lucide-react';
-import { Tribesperson, MapData, OtherVillage, OracleMessage, DiscoveredRelic } from '../types';
+import { Tribesperson, MapData, OtherVillage, OracleMessage, DiscoveredRelic, TribespersonRole } from '../types';
+import { createTribesperson } from '../utils/tribeGenerator';
 
 interface OracleHubProps {
   mapData: MapData;
@@ -79,6 +80,11 @@ export const OracleHub: React.FC<OracleHubProps> = ({
   const [tradeCart, setTradeCart] = useState<Record<string, number>>({});
   const [tradeMode, setTradeMode] = useState<'buy' | 'sell'>('buy');
 
+  // Caravan & Expert states
+  const [selectedCaravanMessenger, setSelectedCaravanMessenger] = useState<'scout' | 'armed' | 'oracle'>('scout');
+  const [selectedTradeMission, setSelectedTradeMission] = useState<string>('water_relief');
+  const [selectedExpertRole, setSelectedExpertRole] = useState<TribespersonRole>('Healer');
+
   const oracleLevel = oracle.skills.Oracle?.level ?? 1;
   const oracleXP = oracle.skills.Oracle?.xp ?? 0;
   const oracleXPToNext = oracle.skills.Oracle?.xpToNextLevel ?? 100;
@@ -101,7 +107,8 @@ export const OracleHub: React.FC<OracleHubProps> = ({
 
   // Calculations for Migration Tab
   const unpackedCount = mapData.grid.reduce((acc, row) => {
-    return acc + row.filter(cell => cell.structure && !cell.structure.isPackable && cell.structure.condition < 100).length;
+    if (!row) return acc;
+    return acc + row.filter(cell => cell?.structure && !cell.structure.isPackable && cell.structure.condition < 100).length;
   }, 0);
 
   const elders = tribe.filter(p => p.isAlive && p.ageYears >= 60);
@@ -242,6 +249,14 @@ export const OracleHub: React.FC<OracleHubProps> = ({
   const executeTrade = (village: OtherVillage) => {
     let totalCost = 0;
     
+    // Alliance or Treaty discount
+    let discount = 1.0;
+    if (village.allianceActive) {
+      discount = 0.75; // 25% discount
+    } else if (village.treatyActive) {
+      discount = 0.90; // 10% discount
+    }
+
     // Check buy/sell validity
     for (const item of Object.keys(tradeCart)) {
       const qty = tradeCart[item] || 0;
@@ -252,7 +267,7 @@ export const OracleHub: React.FC<OracleHubProps> = ({
 
       if (tradeMode === 'buy') {
         const price = vg ? vg.price : 10;
-        totalCost += price * qty;
+        totalCost += Math.round(price * discount) * qty;
       } else {
         const basePrice = 4; // standard sell base
         const mult = ng ? ng.priceMultiplier : 1.0;
@@ -328,6 +343,195 @@ export const OracleHub: React.FC<OracleHubProps> = ({
     }
 
     setTradeCart({});
+  };
+
+  const handleSignTreaty = (village: OtherVillage) => {
+    const currentWood = mapData.stockpile.wood || 0;
+    const currentFiber = mapData.stockpile.fiber || 0;
+    if (currentWood < 20 || currentFiber < 20) {
+      addLog(`⚠️ Treaty Blocked: Lacking treaty resources (Requires 20 Wood & 20 Fiber)!`, 'warning');
+      return;
+    }
+    if (village.relationship < 30) {
+      addLog(`⚠️ Treaty Blocked: Selected village relationship must be at least 30! (Current: ${village.relationship})`, 'warning');
+      return;
+    }
+
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile, wood: currentWood - 20, fiber: currentFiber - 20 };
+      next.knownVillages = next.knownVillages?.map(v => {
+        if (v.id === village.id) {
+          return { ...v, treatyActive: true, relationship: Math.min(100, v.relationship + 15) };
+        }
+        return v;
+      });
+      return next;
+    });
+
+    addLog(`📜 TREATY SIGNED: Signed Mutual Trade Accord with ${village.name}! You receive a persistent 10% discount on all buying transactions.`, 'success');
+  };
+
+  const handleFormAlliance = (village: OtherVillage) => {
+    const currentSilver = mapData.stockpile.silver || 0;
+    const currentMedicine = mapData.stockpile.medicine || 0;
+    if (currentSilver < 25 || currentMedicine < 15) {
+      addLog(`⚠️ Alliance Blocked: Lacking alliance resources (Requires 25 Silver & 15 Medicine)!`, 'warning');
+      return;
+    }
+    if (village.relationship < 80 || village.trust < 70) {
+      addLog(`⚠️ Alliance Blocked: Alliance requires at least 80 relationship and 70 trust! (Current: Rel ${village.relationship}, Trust ${village.trust})`, 'warning');
+      return;
+    }
+
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile, silver: currentSilver - 25, medicine: currentMedicine - 15 };
+      next.knownVillages = next.knownVillages?.map(v => {
+        if (v.id === village.id) {
+          return { ...v, allianceActive: true, relationship: 100, trust: 100 };
+        }
+        return v;
+      });
+      return next;
+    });
+
+    addLog(`🌟 SACRED ALLIANCE CONCLUDED: Your tribe entered into a Sacred Storm Alliance with ${village.name}! Unlocked a passive +10 Morale boost and a permanent 25% discount on trade.`, 'success');
+  };
+
+  const handleRequestExpert = (expertRole: TribespersonRole, costResource: string, costQty: number, silverCost: number) => {
+    const currentSilver = mapData.stockpile.silver || 0;
+    const currentRes = mapData.stockpile[costResource] || 0;
+    if (currentSilver < silverCost) {
+      addLog(`⚠️ Cannot request expert: Stockpile lacks ${silverCost} Silver!`, 'warning');
+      return;
+    }
+    if (costResource !== 'silver' && currentRes < costQty) {
+      addLog(`⚠️ Cannot request expert: Stockpile lacks ${costQty} ${costResource}!`, 'warning');
+      return;
+    }
+
+    // Deduct stockpiles
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile };
+      next.stockpile.silver = currentSilver - silverCost;
+      if (costResource !== 'silver') {
+        next.stockpile[costResource] = currentRes - costQty;
+      }
+      return next;
+    });
+
+    // Create tribesperson
+    const newId = `expert_${Date.now()}`;
+    const expert = createTribesperson(newId, mapData);
+    expert.role = expertRole;
+    expert.name = `${expert.name} (${expertRole} Expert)`;
+    
+    // Set high level
+    if (expert.skills && expert.skills[expertRole]) {
+      expert.skills[expertRole].level = 7;
+      expert.skills[expertRole].xp = 0;
+      expert.skills[expertRole].xpToNextLevel = 700;
+    }
+
+    setTribe(prev => [...prev, expert]);
+
+    addLog(`✨ DIPLOMATIC ARRIVAL: ${selectedVillage?.name} dispatched expert ${expert.name} to join your clan!`, 'success');
+  };
+
+  const handleDispatchCaravan = (village: OtherVillage) => {
+    let cargoSent: Record<string, number> = {};
+    let cargoReceived: Record<string, number> = {};
+    let desc = '';
+
+    if (selectedTradeMission === 'water_relief') {
+      cargoSent = { reservoirWater: 15 };
+      desc = 'Water relief cargo';
+    } else if (selectedTradeMission === 'food_relief') {
+      cargoSent = { berries: 30 };
+      desc = 'Food relief cargo';
+    } else if (selectedTradeMission === 'medical_relief') {
+      cargoSent = { medicine: 5 };
+      desc = 'Medical relief cargo';
+    } else if (selectedTradeMission === 'sell_wood') {
+      cargoSent = { wood: 25 };
+      cargoReceived = { silver: 12 };
+      desc = 'Barter: Sell 25 Wood';
+    } else if (selectedTradeMission === 'buy_berries') {
+      cargoSent = { silver: 10 };
+      cargoReceived = { berries: 40 };
+      desc = 'Barter: Buy 40 Berries';
+    }
+
+    let travelCosts: Record<string, number> = {};
+    if (selectedCaravanMessenger === 'scout') {
+      travelCosts = { berries: 10 };
+    } else if (selectedCaravanMessenger === 'armed') {
+      travelCosts = { wood: 15, silver: 5 };
+    } else if (selectedCaravanMessenger === 'oracle') {
+      travelCosts = { reservoirWater: 15, silver: 10 };
+    }
+
+    const allCosts: Record<string, number> = { ...cargoSent };
+    Object.entries(travelCosts).forEach(([item, qty]) => {
+      allCosts[item] = (allCosts[item] || 0) + qty;
+    });
+
+    for (const [item, qty] of Object.entries(allCosts)) {
+      const stock = mapData.stockpile[item] || 0;
+      if (stock < qty) {
+        addLog(`⚠️ Caravan Blocked: Stockpile lacks ${qty} ${item}!`, 'warning');
+        return;
+      }
+    }
+
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile };
+      Object.entries(allCosts).forEach(([item, qty]) => {
+        next.stockpile[item] -= qty;
+      });
+
+      const distance = village.distance || 10;
+      const speed = selectedCaravanMessenger === 'scout' ? 4.0 : selectedCaravanMessenger === 'armed' ? 2.5 : 1.5;
+      const days = Number((distance / speed).toFixed(1));
+
+      const newCaravan = {
+        id: `caravan_${Date.now()}`,
+        villageId: village.id,
+        villageName: village.name,
+        messengerType: selectedCaravanMessenger,
+        daysRemaining: days,
+        cargo: cargoReceived,
+        cargoSent: cargoSent,
+        description: desc
+      };
+
+      next.activeTradeCaravans = [...(prev.activeTradeCaravans || []), newCaravan];
+      return next;
+    });
+
+    addLog(`🛞 CARAVAN DISPATCHED: Caravan launched for ${village.name} (Travel time: ${village.distance} leagues, ~${(village.distance / (selectedCaravanMessenger === 'scout' ? 4.0 : selectedCaravanMessenger === 'armed' ? 2.5 : 1.5)).toFixed(1)} days).`, 'success');
+  };
+
+  const LockedTabOverlay = ({ requiredLevel, title, desc }: { requiredLevel: number; title: string; desc: string }) => {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center p-8 bg-slate-950/40 border border-slate-800 rounded-2xl min-h-[350px]">
+        <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-4 animate-pulse">
+          <Wind size={24} className="text-amber-500/60" />
+        </div>
+        <h3 className="text-sm font-bold text-slate-300 font-mono tracking-wide uppercase mb-1 flex items-center gap-2">
+          🔮 {title} Locked
+        </h3>
+        <p className="text-[10px] text-amber-500 font-mono mb-4 uppercase tracking-widest">
+          Requires Oracle Level {requiredLevel} • Currently Level {oracleLevel}
+        </p>
+        <div className="max-w-md text-xs text-slate-400 font-mono leading-relaxed bg-slate-950/60 p-4 rounded-xl border border-slate-900">
+          {desc}
+        </div>
+      </div>
+    );
   };
 
   const selectedVillage = mapData.knownVillages?.find(v => v.id === selectedVillageId) || mapData.knownVillages?.[0];
@@ -446,9 +650,14 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                     <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-1">
                       <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Days Until Move</span>
                       <h3 className="text-2xl font-bold font-mono text-amber-400">
-                        {currentDays <= 0 ? '0.0' : currentDays.toFixed(1)} Days
+                        {oracleLevel < 2 
+                          ? `~${Math.round(currentDays - 1.5)}-${Math.round(currentDays + 1.5)} Days` 
+                          : `${currentDays <= 0 ? '0.0' : currentDays.toFixed(1)} Days`
+                        }
                       </h3>
-                      <p className="text-[10px] font-mono text-slate-400">Time margin until storm wall hits</p>
+                      <p className="text-[10px] font-mono text-slate-400">
+                        {oracleLevel < 2 ? "Vague reading (Requires lvl 2 for exact timing)" : "Time margin until storm wall hits"}
+                      </p>
                     </div>
                     <div className="bg-slate-950/40 p-4 rounded-2xl border border-slate-800 flex flex-col gap-1">
                       <span className="text-[10px] font-mono text-slate-500 uppercase tracking-wider">Movement Direction</span>
@@ -510,7 +719,9 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                         {/* Direction Arrow */}
                         <div className="absolute right-4 top-4 flex items-center gap-1 bg-slate-900 px-2 py-1 rounded border border-slate-800">
                           <TrendingUp size={10} className="text-amber-500" />
-                          <span className="text-[9px] font-mono text-slate-300">Storm velocity: {mapData.stormSpeed?.toFixed(1) || '1.0'} km/h</span>
+                          <span className="text-[9px] font-mono text-slate-300">
+                            Storm velocity: {oracleLevel < 2 ? "?? km/h (Requires lvl 2)" : `${mapData.stormSpeed?.toFixed(1) || '1.0'} km/h`}
+                          </span>
                         </div>
                       </div>
 
@@ -636,38 +847,50 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                   </div>
 
                   {oracleLevel < 3 ? (
-                    <div className="p-12 text-center flex flex-col items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-2xl">
-                      <Shield size={36} className="text-amber-500 opacity-60" />
-                      <h5 className="font-bold text-slate-300">Scan Locked</h5>
-                      <p className="text-xs text-slate-500 font-mono max-w-sm">
-                        Oracle must reach at least Level 3 (Biome Forecaster) to predict upcoming regions' biomes and unique characteristics!
-                      </p>
-                    </div>
+                    <LockedTabOverlay 
+                      requiredLevel={3} 
+                      title="Biome Seer Radar" 
+                      desc="Gazing beyond the static storm barrier requires a more refined mental focus. Elevate your Oracle to Level 3 (Biome Forecaster) to predict upcoming regions' biomes and unique characteristics."
+                    />
                   ) : (
-                    <div className="grid grid-cols-2 gap-4">
-                      {PREDICTED_BIOMES.map((b, i) => (
-                        <div key={i} className="p-4 bg-slate-950/40 border border-slate-800 rounded-xl flex flex-col gap-2">
-                          <div className="flex justify-between items-center">
-                            <span className="font-bold text-amber-400 text-xs">{b.name}</span>
-                            <span className={`px-2 py-0.2 text-[8px] font-mono rounded font-bold uppercase ${
-                              b.risk === 'Low' ? 'bg-emerald-500/10 text-emerald-400' : b.risk === 'Medium' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
-                            }`}>
-                              Risk: {b.risk}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-400 font-mono leading-relaxed italic">"{b.story}"</p>
-                          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono mt-1 border-t border-slate-800/60 pt-2">
-                            <div>
-                              <span className="text-slate-500 block">Expected resources:</span>
-                              <span className="text-slate-300">{b.expectedRes}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-500 block">Fauna profiles:</span>
-                              <span className="text-slate-300">{b.expectedAni}</span>
-                            </div>
+                    <div className="flex flex-col gap-4">
+                      {oracleLevel >= 9 && (
+                        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center gap-3">
+                          <Sparkles className="text-amber-400 animate-pulse shrink-0" size={24} />
+                          <div>
+                            <span className="text-xs font-bold text-amber-400 font-mono block">🌟 LEVEL 9 PREDICTION PATHWAY (100% CONFIDENCE)</span>
+                            <p className="text-[11px] text-slate-300 font-mono mt-0.5 leading-relaxed">
+                              The deep electrostatic pathways indicate the storm system is drifting in a cyclical migration pattern: <br />
+                              <span className="text-emerald-400 font-bold">Bloomfields</span> ➔ <span className="text-sky-400 font-bold">Petrified Forest</span> ➔ <span className="text-amber-400 font-bold">Salt Flats</span> ➔ <span className="text-rose-400 font-bold">Fossil Fields</span>.
+                            </p>
                           </div>
                         </div>
-                      ))}
+                      )}
+                      <div className="grid grid-cols-2 gap-4">
+                        {PREDICTED_BIOMES.map((b, i) => (
+                          <div key={i} className="p-4 bg-slate-950/40 border border-slate-800 rounded-xl flex flex-col gap-2">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-amber-400 text-xs">{b.name}</span>
+                              <span className={`px-2 py-0.2 text-[8px] font-mono rounded font-bold uppercase ${
+                                b.risk === 'Low' ? 'bg-emerald-500/10 text-emerald-400' : b.risk === 'Medium' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'
+                              }`}>
+                                Risk: {b.risk}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 font-mono leading-relaxed italic">"{b.story}"</p>
+                            <div className="grid grid-cols-2 gap-2 text-[10px] font-mono mt-1 border-t border-slate-800/60 pt-2">
+                              <div>
+                                <span className="text-slate-500 block">Expected resources:</span>
+                                <span className="text-slate-300">{b.expectedRes}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500 block">Fauna profiles:</span>
+                                <span className="text-slate-300">{b.expectedAni}</span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -683,37 +906,100 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                   </div>
 
                   {oracleLevel < 4 ? (
-                    <div className="p-12 text-center flex flex-col items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-2xl">
-                      <TrendingUp size={36} className="text-amber-500 opacity-60" />
-                      <h5 className="font-bold text-slate-300">Radar Offline</h5>
-                      <p className="text-xs text-slate-500 font-mono max-w-sm">
-                        Oracle must reach at least Level 4 (Resource Forecaster) to read upcoming resource densities and metal compositions!
-                      </p>
-                    </div>
+                    <LockedTabOverlay 
+                      requiredLevel={4} 
+                      title="Resource Radar Terminals" 
+                      desc="Decoding metallic density coordinates and underground fresh-water layers requires standard level 4 resonance sensory calibration."
+                    />
                   ) : (
-                    <div className="grid grid-cols-3 gap-4">
-                      {[
-                        { title: 'Scrap Metal & Precursor Ruins', rate: 75, status: 'High Density', color: 'bg-emerald-500' },
-                        { title: 'Subterranean Aquifers / Fresh Water', rate: 45, status: 'Moderate', color: 'bg-amber-500' },
-                        { title: 'Star-Metal Fragments / Meteorites', rate: 15, status: 'Extremely Rare', color: 'bg-rose-500' },
-                        { title: 'Wild Berries & Medicinal Roots', rate: 85, status: 'Abundant', color: 'bg-emerald-500' },
-                        { title: 'Vulnerable Game (Deer, Antelope)', rate: 60, status: 'Common Migration', color: 'bg-emerald-500' },
-                        { title: 'Apex Predators (DireWolf, LargeCat)', rate: 35, status: 'Guarded Territory', color: 'bg-amber-500' },
-                      ].map((r, i) => (
-                        <div key={i} className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl flex flex-col gap-2">
-                          <span className="text-xs font-bold text-slate-300 block">{r.title}</span>
-                          <div className="flex justify-between items-center text-[10px] font-mono">
-                            <span className="text-slate-500">Probability:</span>
-                            <span className="text-slate-300 font-bold">{r.rate}%</span>
+                    <div className="flex flex-col gap-6">
+                      <div className="grid grid-cols-3 gap-4">
+                        {[
+                          { title: 'Scrap Metal & Precursor Ruins', rate: 75, status: 'High Density', color: 'bg-emerald-500', minLevel: 4 },
+                          { title: 'Subterranean Aquifers / Fresh Water', rate: 45, status: 'Moderate', color: 'bg-amber-500', minLevel: 4 },
+                          { title: 'Star-Metal Fragments / Meteorites', rate: 15, status: 'Extremely Rare', color: 'bg-rose-500', minLevel: 4 },
+                          { title: 'Wild Berries & Medicinal Roots', rate: 85, status: 'Abundant', color: 'bg-emerald-500', minLevel: 5, isFauna: true },
+                          { title: 'Vulnerable Game (Deer, Antelope)', rate: 60, status: 'Common Migration', color: 'bg-emerald-500', minLevel: 5, isFauna: true },
+                          { title: 'Apex Predators (DireWolf, LargeCat)', rate: 35, status: 'Guarded Territory', color: 'bg-rose-500', minLevel: 5, isFauna: true },
+                        ].map((r, i) => (
+                          <div key={i} className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl flex flex-col justify-between min-h-[110px]">
+                            {r.isFauna && oracleLevel < 5 ? (
+                              <div className="flex flex-col justify-center items-center h-full text-center p-1 bg-slate-950/20 border border-dashed border-slate-800 rounded-lg">
+                                <span className="text-[9px] font-bold text-slate-500 font-mono block">⚠️ Wildlife Profile Locked</span>
+                                <span className="text-[8px] text-amber-500/80 font-mono mt-0.5">Requires Level 5 Forecaster</span>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-xs font-bold text-slate-300 block">{r.title}</span>
+                                <div className="flex justify-between items-center text-[10px] font-mono mt-1">
+                                  <span className="text-slate-500">Probability:</span>
+                                  <span className="text-slate-300 font-bold">{r.rate}%</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden mt-1">
+                                  <div className={`h-full ${r.color}`} style={{ width: `${r.rate}%` }} />
+                                </div>
+                                <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest text-center mt-1.5 block">
+                                  {r.status}
+                                </span>
+                              </>
+                            )}
                           </div>
-                          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden">
-                            <div className={`h-full ${r.color}`} style={{ width: `${r.rate}%` }} />
-                          </div>
-                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-widest text-center mt-1 block">
-                            {r.status}
-                          </span>
+                        ))}
+                      </div>
+
+                      {/* World Rumors panel */}
+                      <div className="bg-slate-950/30 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                            🔮 Oracle Whisperings & World Rumors
+                          </h4>
+                          <p className="text-[10px] text-slate-400 font-mono">Uncertain signal interference deciphered from distant atmospheric bands</p>
                         </div>
-                      ))}
+
+                        {oracleLevel < 3 ? (
+                          <div className="p-4 text-center border border-dashed border-slate-800 rounded-xl bg-slate-950/40 text-[10px] text-slate-500 font-mono">
+                            Rumor Static Interference: Requires Oracle Level 3 to decrypt background signals.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="p-3 bg-slate-900/40 border border-slate-800 rounded-xl flex flex-col gap-1 font-mono text-[10px]">
+                              <span className="text-amber-400 font-bold block mb-1">🦌 Wandering Herds</span>
+                              <p className="text-slate-300 leading-normal">
+                                {oracleLevel >= 8 
+                                  ? "A herd of 6 Wool-Goats has settled at coordinates (x: 14, z: 22). Perfectly clear for taming."
+                                  : oracleLevel >= 5
+                                  ? "A massive flock of wild Wool-Goats has been detected nesting 4 leagues North-West."
+                                  : "Faint coordinates of migrating herd beasts detected somewhere to the North-West."
+                                }
+                              </p>
+                            </div>
+
+                            <div className="p-3 bg-slate-900/40 border border-slate-800 rounded-xl flex flex-col gap-1 font-mono text-[10px]">
+                              <span className="text-emerald-400 font-bold block mb-1">📡 Precursor Relays</span>
+                              <p className="text-slate-300 leading-normal">
+                                {oracleLevel >= 8
+                                  ? "Deep-bunker relay active at (x: 6, z: 32) transmitting precursor engine schematics."
+                                  : oracleLevel >= 5
+                                  ? "An ancient automated terminal is transmitting static beacon loops in sector 3."
+                                  : "Repeating sub-surface static beep heard from old bunker ruins nearby."
+                                }
+                              </p>
+                            </div>
+
+                            <div className="p-3 bg-slate-900/40 border border-slate-800 rounded-xl flex flex-col gap-1 font-mono text-[10px]">
+                              <span className="text-sky-400 font-bold block mb-1">📦 Secret Caches</span>
+                              <p className="text-slate-300 leading-normal">
+                                {oracleLevel >= 8
+                                  ? "Buried container vault located at (x: 28, z: 15) containing 25 Silver & 4 Ancient Materials."
+                                  : oracleLevel >= 5
+                                  ? "Scattered merchant supply boxes reported half-buried near the salt flats."
+                                  : "Faint whispers of a lost caravan cargo stash somewhere in the region."
+                                }
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -790,7 +1076,15 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                           <div className="border-b border-slate-800/60 pb-3">
                             <div className="flex justify-between items-start">
                               <div>
-                                <h3 className="text-sm font-bold text-amber-400 font-mono">{selectedVillage.name}</h3>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <h3 className="text-sm font-bold text-amber-400 font-mono">{selectedVillage.name}</h3>
+                                  {selectedVillage.treatyActive && (
+                                    <span className="px-1.5 py-0.5 bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[8px] font-bold font-mono rounded">📜 ACCORD ACTIVE</span>
+                                  )}
+                                  {selectedVillage.allianceActive && (
+                                    <span className="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[8px] font-bold font-mono rounded">🌟 SACRED ALLIANCE</span>
+                                  )}
+                                </div>
                                 <p className="text-[10px] text-slate-400 font-mono italic">"{selectedVillage.cultureType || 'Nomadic Clan'}"</p>
                               </div>
                               <div className="text-right text-[10px] font-mono text-slate-400">
@@ -995,49 +1289,149 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                           </div>
 
                           {/* Diplomatic Offerings Center */}
-                          <div className="border-t border-slate-800/60 pt-3 flex flex-col gap-2">
-                            <span className="text-xs font-bold text-slate-300 uppercase tracking-widest font-mono">Diplomatic Actions with {selectedVillage.name}</span>
-                            <div className="grid grid-cols-3 gap-3">
-                              {/* Offering 1: Reservoir water */}
-                              <div className="p-2.5 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1.5 border border-slate-800">
+                          <div className="border-t border-slate-800/60 pt-3 flex flex-col gap-4">
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-widest font-mono">Diplomatic Actions & Accords</span>
+                            
+                            {/* Treaties & Alliances row */}
+                            <div className="grid grid-cols-2 gap-3 bg-slate-900/30 p-3 rounded-lg border border-slate-800/60">
+                              {/* Accord/Treaty Box */}
+                              <div className="flex flex-col justify-between gap-2">
                                 <div>
-                                  <span className="text-[10px] font-bold text-slate-200 block">Offer Reservoir Water (x15)</span>
-                                  <p className="text-[8px] text-slate-400 font-mono mt-0.5">Send clean water. Improves relationship (+12) & trust (+18).</p>
+                                  <span className="text-[10px] font-bold text-slate-200 block uppercase tracking-wider">Mutual Trade Accord (Treaty)</span>
+                                  <p className="text-[8px] text-slate-400 font-mono mt-0.5 leading-relaxed">
+                                    Requires 20 Wood & 20 Fiber. Relationship ≥ 30.<br />
+                                    Unlocks permanent 10% discount on purchase rates.
+                                  </p>
                                 </div>
-                                <button
-                                  onClick={() => handleIncreaseRelationship(selectedVillage.id, 12, 'reservoirWater', 15)}
-                                  className="w-full px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
-                                >
-                                  Send Water
-                                </button>
+                                {selectedVillage.treatyActive ? (
+                                  <div className="text-center p-1.5 bg-sky-500/10 border border-sky-500/20 text-sky-400 font-mono text-[9px] font-bold rounded uppercase tracking-wider">
+                                    📜 Treaty Active (10% Discount)
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handleSignTreaty(selectedVillage)}
+                                    className="w-full px-2 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
+                                  >
+                                    Sign Accord
+                                  </button>
+                                )}
                               </div>
 
-                              {/* Offering 2: Ripe berries */}
-                              <div className="p-2.5 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1.5 border border-slate-800">
+                              {/* Sacred Alliance Box */}
+                              <div className="flex flex-col justify-between gap-2">
                                 <div>
-                                  <span className="text-[10px] font-bold text-slate-200 block">Send Ripe Berries (x30)</span>
-                                  <p className="text-[8px] text-slate-400 font-mono mt-0.5">Offer fresh nutrition. Fosters respect (+8).</p>
+                                  <span className="text-[10px] font-bold text-slate-200 block uppercase tracking-wider">Sacred Storm Alliance</span>
+                                  <p className="text-[8px] text-slate-400 font-mono mt-0.5 leading-relaxed">
+                                    Requires 25 Silver & 15 Medicine. Rel ≥ 80, Trust ≥ 70.<br />
+                                    Unlocks persistent 25% discount & +10 Morale.
+                                  </p>
                                 </div>
-                                <button
-                                  onClick={() => handleIncreaseRelationship(selectedVillage.id, 8, 'berries', 30)}
-                                  className="w-full px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
-                                >
-                                  Send Berries
-                                </button>
+                                {selectedVillage.allianceActive ? (
+                                  <div className="text-center p-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[9px] font-bold rounded uppercase tracking-wider">
+                                    🌟 Alliance Active (25% Discount)
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => handleFormAlliance(selectedVillage)}
+                                    className="w-full px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
+                                  >
+                                    Form Alliance
+                                  </button>
+                                )}
                               </div>
+                            </div>
 
-                              {/* Offering 3: Advanced Medicine */}
-                              <div className="p-2.5 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1.5 border border-slate-800">
-                                <div>
-                                  <span className="text-[10px] font-bold text-slate-200 block">Send Medicine (x5)</span>
-                                  <p className="text-[8px] text-slate-400 font-mono mt-0.5">Offer life-saving apothecary packs. High gain (+18).</p>
+                            {/* Specialist requesting terminal */}
+                            <div className="p-3 bg-slate-900/30 rounded-lg border border-slate-800/60 flex flex-col gap-2">
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-200 block uppercase tracking-wider">Diplomatic Expert Request Terminal</span>
+                                <p className="text-[8px] text-slate-400 font-mono mt-0.5">
+                                  Request a trained Level 7 expert from {selectedVillage.name} to permanently join your tribe.<br />
+                                  Requires Relationship ≥ 40 & Trust ≥ 40. Cost: 15 Silver + 15 specific training materials.
+                                </p>
+                              </div>
+                              {selectedVillage.relationship < 40 || (selectedVillage.trust || 0) < 40 ? (
+                                <div className="text-center p-2 bg-slate-950/40 text-slate-500 font-mono text-[9px] border border-dashed border-slate-800 rounded">
+                                  🔒 REQUEST BLOCKED: Relationship & Trust must be at least 40
                                 </div>
-                                <button
-                                  onClick={() => handleIncreaseRelationship(selectedVillage.id, 18, 'medicine', 5)}
-                                  className="w-full px-2 py-1 bg-pink-600 hover:bg-pink-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
-                                >
-                                  Send Medicine
-                                </button>
+                              ) : (
+                                <div className="flex items-center gap-3 mt-1">
+                                  <div className="flex-1">
+                                    <label className="text-[8px] text-slate-400 font-mono uppercase tracking-wider block mb-1">Select Expert Specialty</label>
+                                    <select
+                                      value={selectedExpertRole}
+                                      onChange={(e) => setSelectedExpertRole(e.target.value as TribespersonRole)}
+                                      className="w-full bg-slate-950 border border-slate-800 text-slate-300 font-mono text-[10px] p-1.5 rounded"
+                                    >
+                                      <option value="Farmer">Farmer Expert (Requires 15 Berries + 15 Silver)</option>
+                                      <option value="Woodcutter">Woodcutter Expert (Requires 15 Wood + 15 Silver)</option>
+                                      <option value="Scavenger">Scavenger Expert (Requires 15 Fiber + 15 Silver)</option>
+                                      <option value="Healer">Healer Expert (Requires 15 Medicine + 15 Silver)</option>
+                                      <option value="Oracle">Oracle Acolyte (Requires 15 Reservoir Water + 15 Silver)</option>
+                                    </select>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      let costRes = 'berries';
+                                      if (selectedExpertRole === 'Woodcutter') costRes = 'wood';
+                                      if (selectedExpertRole === 'Scavenger') costRes = 'fiber';
+                                      if (selectedExpertRole === 'Healer') costRes = 'medicine';
+                                      if (selectedExpertRole === 'Oracle') costRes = 'reservoirWater';
+                                      handleRequestExpert(selectedExpertRole, costRes, 15, 15);
+                                    }}
+                                    className="px-4 py-2 mt-4 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded text-[9px] font-bold font-mono uppercase tracking-wider transition shrink-0"
+                                  >
+                                    Request Specialist
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Standard offerings */}
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider font-mono mb-2">Send Basic Offerings (Increase Relation)</span>
+                              <div className="grid grid-cols-3 gap-3">
+                                {/* Offering 1: Reservoir water */}
+                                <div className="p-2 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1 border border-slate-800">
+                                  <div>
+                                    <span className="text-[10px] font-bold text-slate-200 block">Offer Reservoir Water (x15)</span>
+                                    <p className="text-[8px] text-slate-400 font-mono mt-0.5">Send clean reservoir water (+12 rel, +18 trust).</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleIncreaseRelationship(selectedVillage.id, 12, 'reservoirWater', 15)}
+                                    className="w-full px-2 py-1 bg-sky-600 hover:bg-sky-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
+                                  >
+                                    Send Water
+                                  </button>
+                                </div>
+
+                                {/* Offering 2: Ripe berries */}
+                                <div className="p-2 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1 border border-slate-800">
+                                  <div>
+                                    <span className="text-[10px] font-bold text-slate-200 block">Send Ripe Berries (x30)</span>
+                                    <p className="text-[8px] text-slate-400 font-mono mt-0.5">Offer fresh ripe berries (+8 rel).</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleIncreaseRelationship(selectedVillage.id, 8, 'berries', 30)}
+                                    className="w-full px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
+                                  >
+                                    Send Berries
+                                  </button>
+                                </div>
+
+                                {/* Offering 3: Advanced Medicine */}
+                                <div className="p-2 bg-slate-900/50 rounded-lg flex flex-col justify-between gap-1 border border-slate-800">
+                                  <div>
+                                    <span className="text-[10px] font-bold text-slate-200 block">Send Medicine (x5)</span>
+                                    <p className="text-[8px] text-slate-400 font-mono mt-0.5">Offer medical apothecary packs (+18 rel).</p>
+                                  </div>
+                                  <button
+                                    onClick={() => handleIncreaseRelationship(selectedVillage.id, 18, 'medicine', 5)}
+                                    className="w-full px-2 py-1 bg-pink-600 hover:bg-pink-500 text-white rounded text-[9px] font-bold font-mono transition uppercase tracking-wider"
+                                  >
+                                    Send Medicine
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
@@ -1057,130 +1451,249 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                 <div className="flex flex-col gap-4" id="tab-outside-trade">
                   <div className="flex items-center justify-between border-b border-slate-800 pb-2">
                     <div>
-                      <h4 className="font-bold text-slate-200">Inter-Tribe Trade Terminals</h4>
-                      <p className="text-xs text-slate-400 font-mono">Establish communication channels to exchange regional goods for Silver coins</p>
+                      <h4 className="font-bold text-slate-200">Inter-Tribe Trade & Caravans Terminal</h4>
+                      <p className="text-xs text-slate-400 font-mono">Conduct instant terminal trading or launch long-distance caravan runners through the storm pathways</p>
                     </div>
                   </div>
 
                   {oracleLevel < 2 ? (
-                    <div className="p-12 text-center flex flex-col items-center gap-2 bg-slate-950/40 border border-slate-800 rounded-2xl">
-                      <Handshake size={36} className="text-amber-500 opacity-60" />
-                      <h5 className="font-bold text-slate-300">Trade Terminal Offline</h5>
-                      <p className="text-xs text-slate-500 font-mono max-w-sm">
-                        Oracle must reach at least Level 2 (Weather Reader) to establish reliable caravan runners and trade with other settlements!
-                      </p>
-                    </div>
+                    <LockedTabOverlay 
+                      requiredLevel={2} 
+                      title="Trade Terminal Sync" 
+                      desc="Coordinating long-range caravan paths and calibrating safe runner frequencies requires weather timing. Unlock Level 2 (Weather Reader) to access commerce."
+                    />
                   ) : (
-                    <div className="grid grid-cols-3 gap-6">
-                      {/* Left: Village list */}
-                      <div className="flex flex-col gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-mono block">Select Partner</span>
-                        {mapData.knownVillages?.map(v => (
-                          <button
-                            key={v.id}
-                            onClick={() => { setSelectedVillageId(v.id); setTradeCart({}); }}
-                            className={`p-3 rounded-lg border text-left text-xs font-mono transition ${
-                              selectedVillageId === v.id ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-slate-950/40 border-slate-800 text-slate-300'
-                            }`}
-                          >
-                            {v.name}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Middle: Exchange ledger */}
-                      {selectedVillage && (
-                        <div className="col-span-2 bg-slate-950/40 border border-slate-800 rounded-xl p-4 flex flex-col gap-4">
-                          <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                            <span className="text-xs font-bold text-slate-300">{selectedVillage.name} Ledger</span>
-                            <div className="flex gap-2">
+                    <div className="flex flex-col gap-5">
+                      <div className="grid grid-cols-12 gap-5">
+                        {/* Left: Village list (3 cols) */}
+                        <div className="col-span-3 flex flex-col gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 font-mono block">Select Partner</span>
+                          <div className="flex flex-col gap-2 max-h-[300px] overflow-y-auto pr-1">
+                            {mapData.knownVillages?.map(v => (
                               <button
-                                onClick={() => { setTradeMode('buy'); setTradeCart({}); }}
-                                className={`px-2.5 py-0.5 rounded text-[10px] font-bold font-mono transition ${
-                                  tradeMode === 'buy' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                key={v.id}
+                                onClick={() => { setSelectedVillageId(v.id); setTradeCart({}); }}
+                                className={`p-2.5 rounded-lg border text-left flex flex-col gap-1 transition ${
+                                  selectedVillageId === v.id ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-slate-950/40 border-slate-800 text-slate-300 hover:border-slate-700'
                                 }`}
                               >
-                                BUY GOODS
+                                <span className="font-bold text-xs">{v.name}</span>
+                                <span className="text-[9px] text-slate-400 font-mono">Distance: {v.distance} leagues</span>
                               </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Middle & Right: Exchange Ledger and Caravan (9 cols) */}
+                        {selectedVillage ? (
+                          <div className="col-span-9 grid grid-cols-2 gap-4">
+                            {/* Exchange Ledger (Buy/Sell) */}
+                            <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+                              <div>
+                                <div className="flex justify-between items-center border-b border-slate-800 pb-1.5 mb-2">
+                                  <span className="text-[10px] font-bold text-slate-200 font-mono uppercase">Instant Exchange</span>
+                                  <div className="flex gap-1">
+                                    <button
+                                      onClick={() => { setTradeMode('buy'); setTradeCart({}); }}
+                                      className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono transition ${
+                                        tradeMode === 'buy' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      BUY
+                                    </button>
+                                    <button
+                                      onClick={() => { setTradeMode('sell'); setTradeCart({}); }}
+                                      className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono transition ${
+                                        tradeMode === 'sell' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                      }`}
+                                    >
+                                      SELL
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col gap-1.5 max-h-[170px] overflow-y-auto pr-1">
+                                  {tradeMode === 'buy' ? (
+                                    selectedVillage.availableTradeGoods.map((g) => {
+                                      // calculate discount if treaty or alliance active
+                                      let discount = 1.0;
+                                      if (selectedVillage.allianceActive) discount = 0.75;
+                                      else if (selectedVillage.treatyActive) discount = 0.90;
+                                      const price = Math.round(g.price * discount);
+
+                                      return (
+                                        <div key={g.item} className="flex justify-between items-center p-1.5 bg-slate-900/40 rounded border border-slate-850 text-[10px] font-mono">
+                                          <span className="text-slate-300">{g.item} ({g.quantity})</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-slate-400">{price} Silver</span>
+                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-850">
+                                              <button 
+                                                onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.max(0, (p[g.item] || 0) - 1) }))}
+                                                className="text-amber-500 font-bold px-1"
+                                              >
+                                                -
+                                              </button>
+                                              <span className="min-w-[12px] text-center">{tradeCart[g.item] || 0}</span>
+                                              <button 
+                                                onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.min(g.quantity, (p[g.item] || 0) + 1) }))}
+                                                className="text-amber-500 font-bold px-1"
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    selectedVillage.neededGoods.map((n) => {
+                                      const stock = Math.round(mapData.stockpile[n.item] || 0);
+                                      const price = Math.round(4 * n.priceMultiplier);
+                                      return (
+                                        <div key={n.item} className="flex justify-between items-center p-1.5 bg-slate-900/40 rounded border border-slate-850 text-[10px] font-mono">
+                                          <span className="text-slate-300">{n.item} (We: {stock})</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-emerald-400">{price} Silv</span>
+                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-850">
+                                              <button 
+                                                onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.max(0, (p[n.item] || 0) - 1) }))}
+                                                className="text-amber-500 font-bold px-1"
+                                              >
+                                                -
+                                              </button>
+                                              <span className="min-w-[12px] text-center">{tradeCart[n.item] || 0}</span>
+                                              <button 
+                                                onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.min(stock, (p[n.item] || 0) + 1) }))}
+                                                className="text-amber-500 font-bold px-1"
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="border-t border-slate-800/60 pt-2 mt-2">
+                                {selectedVillage.allianceActive && (
+                                  <div className="text-[8px] text-emerald-400 font-mono mb-1 text-right">🌟 25% Sacred Alliance Discount Applied</div>
+                                ) || selectedVillage.treatyActive && (
+                                  <div className="text-[8px] text-sky-400 font-mono mb-1 text-right">📜 10% Trade Accord Discount Applied</div>
+                                )}
+                                <button
+                                  onClick={() => executeTrade(selectedVillage)}
+                                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] uppercase tracking-wider transition"
+                                >
+                                  Confirm Ledger Trade
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Caravan Dispatch Box */}
+                            <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+                              <div>
+                                <span className="text-[10px] font-bold text-slate-200 font-mono uppercase block border-b border-slate-800 pb-1.5 mb-2">Caravan Expedition Dispatch</span>
+                                
+                                <div className="flex flex-col gap-2 font-mono text-[10px]">
+                                  {/* Messenger type select */}
+                                  <div>
+                                    <label className="text-[8px] text-slate-500 uppercase tracking-wider block mb-0.5">Select Conduit Type</label>
+                                    <select
+                                      value={selectedCaravanMessenger}
+                                      onChange={(e) => setSelectedCaravanMessenger(e.target.value as 'scout' | 'armed' | 'oracle')}
+                                      className="w-full bg-slate-900 border border-slate-800 text-slate-300 p-1 rounded"
+                                    >
+                                      <option value="scout">Scout Runner (4.0 Speed | Cost: 10 Berries)</option>
+                                      <option value="armed">Armed Escort (2.5 Speed | Cost: 15 Wood, 5 Silver)</option>
+                                      <option value="oracle">Oracle Caravan (1.5 Speed | Cost: 15 Water, 10 Silver)</option>
+                                    </select>
+                                  </div>
+
+                                  {/* Mission/Cargo select */}
+                                  <div>
+                                    <label className="text-[8px] text-slate-500 uppercase tracking-wider block mb-0.5">Select Cargo & Mission</label>
+                                    <select
+                                      value={selectedTradeMission}
+                                      onChange={(e) => setSelectedTradeMission(e.target.value)}
+                                      className="w-full bg-slate-900 border border-slate-800 text-slate-300 p-1 rounded"
+                                    >
+                                      <option value="water_relief">Water Aid (Sends 15 Reservoir Water)</option>
+                                      <option value="food_relief">Food Aid (Sends 30 Berries)</option>
+                                      <option value="medical_relief">Medical Aid (Sends 5 Medicine)</option>
+                                      <option value="sell_wood">Sell Wood (Sends 25 Wood | Returns 12 Silver)</option>
+                                      <option value="buy_berries">Purchase Berries (Sends 10 Silver | Returns 40 Berries)</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="bg-slate-900/60 p-1.5 rounded text-[8px] text-slate-400 leading-normal border border-slate-800/40">
+                                    Distance: {selectedVillage.distance} Leagues. Expected Travel Time: ~
+                                    {selectedVillage.distance && Number((selectedVillage.distance / (selectedCaravanMessenger === 'scout' ? 4.0 : selectedCaravanMessenger === 'armed' ? 2.5 : 1.5)).toFixed(1))} Days.
+                                  </div>
+                                </div>
+                              </div>
+
                               <button
-                                onClick={() => { setTradeMode('sell'); setTradeCart({}); }}
-                                className={`px-2.5 py-0.5 rounded text-[10px] font-bold font-mono transition ${
-                                  tradeMode === 'sell' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
-                                }`}
+                                onClick={() => handleDispatchCaravan(selectedVillage)}
+                                className="w-full py-1.5 mt-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-bold rounded-lg text-[10px] uppercase tracking-wider transition"
                               >
-                                SELL TO THEM
+                                Launch Caravan
                               </button>
                             </div>
                           </div>
-
-                          <div className="flex-1 flex flex-col gap-2">
-                            {tradeMode === 'buy' ? (
-                              <div className="flex flex-col gap-1">
-                                {selectedVillage.availableTradeGoods.map((g) => (
-                                  <div key={g.item} className="flex justify-between items-center p-2 bg-slate-900/60 rounded border border-slate-850 text-xs font-mono">
-                                    <span>{g.item} (In stock: {g.quantity})</span>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-slate-400">{g.price} Silver</span>
-                                      <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                        <button 
-                                          onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.max(0, (p[g.item] || 0) - 1) }))}
-                                          className="text-amber-500 font-bold px-1"
-                                        >
-                                          -
-                                        </button>
-                                        <span>{tradeCart[g.item] || 0}</span>
-                                        <button 
-                                          onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.min(g.quantity, (p[g.item] || 0) + 1) }))}
-                                          className="text-amber-500 font-bold px-1"
-                                        >
-                                          +
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="flex flex-col gap-1">
-                                {selectedVillage.neededGoods.map((n) => {
-                                  const stock = mapData.stockpile[n.item] || 0;
-                                  const price = Math.round(4 * n.priceMultiplier);
-                                  return (
-                                    <div key={n.item} className="flex justify-between items-center p-2 bg-slate-900/60 rounded border border-slate-850 text-xs font-mono">
-                                      <span>{n.item} (We have: {stock})</span>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-emerald-400">Pays {price} Silver</span>
-                                        <div className="flex items-center gap-1.5 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                                          <button 
-                                            onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.max(0, (p[n.item] || 0) - 1) }))}
-                                            className="text-amber-500 font-bold px-1"
-                                          >
-                                            -
-                                          </button>
-                                          <span>{tradeCart[n.item] || 0}</span>
-                                          <button 
-                                            onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.min(stock, (p[n.item] || 0) + 1) }))}
-                                            className="text-amber-500 font-bold px-1"
-                                          >
-                                            +
-                                          </button>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
+                        ) : (
+                          <div className="col-span-9 p-12 text-center flex flex-col items-center justify-center gap-2 bg-slate-950/20 border border-slate-800/40 rounded-xl">
+                            <Handshake size={32} className="text-slate-600 opacity-60" />
+                            <p className="text-xs text-slate-500 font-mono">Select a partner settlement on the left to initialize trade channels</p>
                           </div>
+                        )}
+                      </div>
 
-                          <button
-                            onClick={() => executeTrade(selectedVillage)}
-                            className="w-full mt-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs uppercase tracking-wider transition"
-                          >
-                            Confirm Trade Deal
-                          </button>
+                      {/* Bottom Section: Active Caravans Telemetry list */}
+                      <div className="bg-slate-950/30 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
+                        <span className="text-xs font-bold text-slate-200 uppercase tracking-widest font-mono block border-b border-slate-800/60 pb-1.5">
+                          Active Traveling Caravans Telemetry
+                        </span>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          {(mapData.activeTradeCaravans || []).map((caravan) => {
+                            const totalDays = Number(((selectedVillage?.distance || 10) / (caravan.messengerType === 'scout' ? 4.0 : caravan.messengerType === 'armed' ? 2.5 : 1.5)).toFixed(1));
+                            const elapsed = Math.max(0, totalDays - caravan.daysRemaining);
+                            const percent = Math.min(100, Math.round((elapsed / totalDays) * 100));
+
+                            return (
+                              <div key={caravan.id} className="p-3 bg-slate-900/40 border border-slate-800 rounded-xl flex flex-col gap-2 font-mono text-[10px]">
+                                <div className="flex justify-between items-center border-b border-slate-800 pb-1">
+                                  <span className="font-bold text-amber-400">{caravan.villageName} Expedition</span>
+                                  <span className="px-1.5 py-0.2 bg-slate-800 text-slate-300 rounded text-[8px] font-bold uppercase">{caravan.messengerType}</span>
+                                </div>
+                                <div className="flex justify-between text-slate-400 text-[9px]">
+                                  <span>Cargo: {caravan.description}</span>
+                                  <span>{caravan.daysRemaining.toFixed(1)} Days left</span>
+                                </div>
+                                <div className="flex flex-col gap-1 mt-1">
+                                  <div className="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${percent}%` }} />
+                                  </div>
+                                  <div className="flex justify-between text-[8px] text-slate-500">
+                                    <span>Departure</span>
+                                    <span>{percent}% Completed</span>
+                                    <span>Arrival</span>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {(!mapData.activeTradeCaravans || mapData.activeTradeCaravans.length === 0) && (
+                            <div className="col-span-2 text-center p-6 text-[10px] text-slate-500 font-mono border border-dashed border-slate-800 rounded-xl bg-slate-950/20">
+                              📡 Telemetry Silent. No active caravans currently wandering the storm margin sectors.
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )}
                 </div>

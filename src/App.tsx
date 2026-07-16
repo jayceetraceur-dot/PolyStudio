@@ -23,8 +23,8 @@ import {
   Download,
   AlertOctagon
 } from 'lucide-react';
-import { CellInfo, WorldConfig, TimeSpeed, Tribesperson, TribespersonRole, JobCategory, JobPriority, RECIPE_DATABASE, Recipe, CraftingJob } from './types';
-import { generateWorld } from './utils/worldBuilder';
+import { CellInfo, WorldConfig, TimeSpeed, Tribesperson, TribespersonRole, JobCategory, JobPriority, RECIPE_DATABASE, Recipe, CraftingJob, MapData } from './types';
+import { generateWorld, updateWorldChunkLoading } from './utils/worldBuilder';
 import GameCanvas from './components/GameCanvas';
 import Inspector from './components/Inspector';
 import ControlsOverlay from './components/ControlsOverlay';
@@ -35,10 +35,15 @@ import { tickExpeditionsSimulation } from './utils/expeditionSimulator';
 import { runWeeklyVillageSimulation, rollDailyVisitorArrival } from './utils/villageSimulator';
 import { GodTips } from './components/GodTips';
 import { OracleHub } from './components/OracleHub';
+import { tickAIDirector } from './utils/aiDirector';
+import { DirectorDebugPanel } from './components/DirectorDebugPanel';
+import { DirectorEventModal } from './components/DirectorEventModal';
+import { populateInitialMapAnimals } from './utils/ecosystemEngine';
+
 
 const INITIAL_WORLD_SEED = Math.floor(Math.random() * 8999) + 1000;
 const INITIAL_WORLD_CONFIG: WorldConfig = {
-  size: 40,
+  size: 120,
   seed: INITIAL_WORLD_SEED,
   roughness: 1.0,
   forestDensity: 0.65,
@@ -62,15 +67,34 @@ export default function App() {
   const [settings, setSettings] = useState(() => {
     try {
       const stored = localStorage.getItem('diorama_colony_settings');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (!parsed.pathfindingTickRate) parsed.pathfindingTickRate = 'Normal';
+        return parsed;
+      }
     } catch (e) {}
     return {
       volume: 80,
       showGrid: true,
       autoSave: 'off',
-      graphicsLevel: 'High'
+      graphicsLevel: 'High',
+      pathfindingTickRate: 'Normal'
     };
   });
+
+  // Synchronize settings into mapData structure for engine optimizations
+  useEffect(() => {
+    setMapData((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        settings: {
+          graphicsLevel: settings.graphicsLevel || 'High',
+          pathfindingTickRate: settings.pathfindingTickRate || 'Normal'
+        }
+      };
+    });
+  }, [settings]);
 
   // Saves state
   const [saves, setSaves] = useState<any[]>(() => {
@@ -86,6 +110,21 @@ export default function App() {
 
   // 2. Procedural Map State
   const [mapData, setMapData] = useState(() => generateWorld(INITIAL_WORLD_CONFIG));
+
+  const handleUpdateMapData = (updater: (prev: MapData) => MapData) => {
+    setMapData((prev) => {
+      const next = updater({ ...prev });
+      updateWorldChunkLoading(next);
+      return next;
+    });
+  };
+
+  // Monitor physical migration travel completion and trigger seed jump
+  useEffect(() => {
+    if (mapData?.triggerMigrationComplete) {
+      completePhysicalMigration();
+    }
+  }, [mapData?.triggerMigrationComplete]);
 
   // 3. Selection & Inspect targets (Tile Selection)
   const [selectedCell, setSelectedCell] = useState<CellInfo | null>(null);
@@ -363,7 +402,7 @@ export default function App() {
     if (!loadedMapData.predictionHistory) loadedMapData.predictionHistory = [];
 
     setMapData(loadedMapData);
-    setTribe(saveState.tribe);
+    setTribe(saveState.tribe || []);
     setGameDays(saveState.gameDays);
     setWorldId(Math.random());
     const resolvedLogs = Array.isArray(saveState.logs) ? saveState.logs : [];
@@ -418,6 +457,14 @@ export default function App() {
   
   // Game Simulation Event log buffer
   const [logs, setLogs] = useState<{ id: string; text: string; type: 'info' | 'warning' | 'death' | 'level'; timeText: string }[]>([]);
+
+  const [tempWarning, setTempWarning] = useState<string | null>(null);
+  const showTempWarning = (msg: string) => {
+    setTempWarning(msg);
+    setTimeout(() => {
+      setTempWarning(null);
+    }, 3000);
+  };
 
   // Derived properties from gameDays
   const timeOfDay = gameDays % 1.0;
@@ -494,6 +541,24 @@ export default function App() {
       return next;
     });
   };
+
+  // Synchronize selectedCell with the latest grid cell data in real-time
+  useEffect(() => {
+    if (!selectedCell || !mapData) return;
+    const freshCell = mapData.grid[selectedCell.x]?.[selectedCell.z];
+    if (freshCell) {
+      // Check if the data is actually different to avoid infinite renders
+      const hasChanged = 
+        freshCell.hasTree !== selectedCell.hasTree ||
+        freshCell.hasRock !== selectedCell.hasRock ||
+        freshCell.hasShrub !== selectedCell.hasShrub ||
+        freshCell.gatherDesignated !== selectedCell.gatherDesignated ||
+        freshCell.resourceNode?.amount !== selectedCell.resourceNode?.amount;
+      if (hasChanged) {
+        setSelectedCell(freshCell);
+      }
+    }
+  }, [mapData, selectedCell]);
 
   // Handle ESC key to open/pause the game
   useEffect(() => {
@@ -597,22 +662,148 @@ export default function App() {
             }
 
             // 1.7 Advance the Storm!
-            if (nextMap.stormDaysUntilMigration !== undefined) {
-              const previousDays = prevMap.stormDaysUntilMigration ?? 12;
-              nextMap.stormDaysUntilMigration -= deltaDays;
-              
-              if (previousDays > 0 && nextMap.stormDaysUntilMigration <= 0) {
-                addLog(`🔴 THE STORM WALL HAS REACHED THE CAMP! The moving Eye has left you behind! Food is rotting, and survivors are taking catastrophic static damage! MIGRATE IMMEDIATELY!`, 'warning');
+            if (nextMap.eyePos === undefined) {
+              nextMap.eyePos = { x: nextMap.grid.length / 2, z: nextMap.grid.length / 2 };
+            }
+            if (nextMap.eyeRadius === undefined) {
+              nextMap.eyeRadius = 14.0;
+            }
+            if (nextMap.eyeMovementState === undefined) {
+              nextMap.eyeMovementState = 'stable';
+            }
+            if (nextMap.stormSpeed === undefined) {
+              nextMap.stormSpeed = 1.8; // cells per game day
+            }
+            if (!nextMap.futureEyePath || nextMap.futureEyePath.length === 0) {
+              const size = nextMap.grid.length;
+              const futureEyePath: { x: number; z: number }[] = [];
+              let curX = nextMap.eyePos.x;
+              let curZ = nextMap.eyePos.z;
+              let curAngle = Math.random() * Math.PI * 2;
+              for (let i = 0; i < 6; i++) {
+                // Calculate dynamic migration distance scaling with days survived and tribe size
+                const days = nextMap.gameDaysPlayed ?? 0;
+                let baseMin = 12;
+                let baseMax = 18;
+                let dayMultiplier = 1.0 + Math.min(1.2, days * 0.04);
+                let tribeMultiplier = 1.0 + Math.min(0.4, ((tribeRef.current?.length ?? 0) - 4) * 0.05);
+                const randomFactor = 0.85 + Math.random() * 0.3;
+                let finalDist = (baseMin + Math.random() * (baseMax - baseMin)) * dayMultiplier * tribeMultiplier * randomFactor;
+                // Clamp within safe, interesting boundaries based on game phase
+                if (days < 5) finalDist = Math.max(10, Math.min(18, finalDist));
+                else if (days < 15) finalDist = Math.max(15, Math.min(28, finalDist));
+                else finalDist = Math.max(22, Math.min(42, finalDist));
+
+                curAngle += (Math.random() - 0.5) * 0.6;
+                curX = Math.max(4, Math.min(size - 4, curX + Math.cos(curAngle) * finalDist));
+                curZ = Math.max(4, Math.min(size - 4, curZ + Math.sin(curAngle) * finalDist));
+                futureEyePath.push({ x: parseFloat(curX.toFixed(1)), z: parseFloat(curZ.toFixed(1)) });
               }
-              
-              if (nextMap.stormDaysUntilMigration <= 0) {
-                // Decays food
-                nextMap.stockpile.food = Math.max(0, nextMap.stockpile.food - deltaDays * 35.0);
-                if (nextMap.stockpile.berriesFresh > 0) nextMap.stockpile.berriesFresh = Math.max(0, nextMap.stockpile.berriesFresh - deltaDays * 45.0);
-                if (nextMap.stockpile.meatFresh > 0) nextMap.stockpile.meatFresh = Math.max(0, nextMap.stockpile.meatFresh - deltaDays * 45.0);
-                if (nextMap.stockpile.rootsFresh > 0) nextMap.stockpile.rootsFresh = Math.max(0, nextMap.stockpile.rootsFresh - deltaDays * 45.0);
-                if (nextMap.stockpile.mushroomsFresh > 0) nextMap.stockpile.mushroomsFresh = Math.max(0, nextMap.stockpile.mushroomsFresh - deltaDays * 45.0);
+              nextMap.futureEyePath = futureEyePath;
+            }
+
+            const currentSpeed = nextMap.deityModeOverrideSpeed !== undefined ? nextMap.deityModeOverrideSpeed : (nextMap.stormSpeed ?? 1.8);
+            const isDeityPaused = nextMap.deityModePaused === true;
+
+            if (!isDeityPaused) {
+              if (nextMap.eyeMovementState === 'stable') {
+                if (nextMap.stormDaysUntilMigration !== undefined) {
+                  const previousDays = prevMap.stormDaysUntilMigration ?? 12;
+                  nextMap.stormDaysUntilMigration -= deltaDays;
+                  
+                  if (previousDays > 0 && nextMap.stormDaysUntilMigration <= 0) {
+                    if (nextMap.futureEyePath && nextMap.futureEyePath.length > 0) {
+                      nextMap.eyeTargetPos = nextMap.futureEyePath[0];
+                      nextMap.futureEyePath.shift();
+                      nextMap.eyeMovementState = 'migrating';
+                      addLog(`🔮 THE ORACLE'S PREDICTION HAS COME TO PASS! The Storm Eye begins migrating to a new safe-zone! Pack up and move immediately!`, 'warning');
+                    }
+                  }
+                }
               }
+
+              if (nextMap.eyeMovementState === 'migrating' && nextMap.eyeTargetPos) {
+                const dx = nextMap.eyeTargetPos.x - nextMap.eyePos.x;
+                const dz = nextMap.eyeTargetPos.z - nextMap.eyePos.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                const moveDist = currentSpeed * deltaDays;
+
+                if (nextMap.isMigrationTravelActive) {
+                  nextMap.caravanPos = { x: nextMap.eyePos.x, z: nextMap.eyePos.z };
+                  setFocusCoordinates({ x: nextMap.eyePos.x, z: nextMap.eyePos.z });
+                  
+                  if (dist <= moveDist || nextMap.eyePos.x >= nextMap.grid.length - 2.5) {
+                    nextMap.triggerMigrationComplete = true;
+                  }
+                }
+
+                // Update heading string based on vector
+                if (dist > 0.01) {
+                  const headingRad = Math.atan2(dz, dx);
+                  let deg = (headingRad * 180) / Math.PI;
+                  if (deg < 0) deg += 360;
+                  
+                  if (deg >= 337.5 || deg < 22.5) nextMap.stormMovementDirection = 'East';
+                  else if (deg >= 22.5 && deg < 67.5) nextMap.stormMovementDirection = 'Southeast';
+                  else if (deg >= 67.5 && deg < 112.5) nextMap.stormMovementDirection = 'South';
+                  else if (deg >= 112.5 && deg < 157.5) nextMap.stormMovementDirection = 'Southwest';
+                  else if (deg >= 157.5 && deg < 202.5) nextMap.stormMovementDirection = 'West';
+                  else if (deg >= 202.5 && deg < 247.5) nextMap.stormMovementDirection = 'Northwest';
+                  else if (deg >= 247.5 && deg < 292.5) nextMap.stormMovementDirection = 'North';
+                  else if (deg >= 292.5 && deg < 337.5) nextMap.stormMovementDirection = 'Northeast';
+                }
+
+                if (dist <= moveDist) {
+                  nextMap.eyePos = { ...nextMap.eyeTargetPos };
+                  nextMap.eyeMovementState = 'stable';
+                  nextMap.eyeTargetPos = undefined;
+                  
+                  const daysVal = nextMap.gameDaysPlayed ?? 0;
+                  if (daysVal < 5) {
+                    nextMap.stormDaysUntilMigration = 10 + Math.floor(Math.random() * 5); // 10-14 days for early game
+                  } else if (daysVal < 15) {
+                    nextMap.stormDaysUntilMigration = 8 + Math.floor(Math.random() * 5);  // 8-12 days for mid game
+                  } else {
+                    nextMap.stormDaysUntilMigration = 6 + Math.floor(Math.random() * 4);  // 6-9 days for late game
+                  }
+                  
+                  const size = nextMap.grid.length;
+                  const lastWp = (nextMap.futureEyePath && nextMap.futureEyePath.length > 0) 
+                    ? nextMap.futureEyePath[nextMap.futureEyePath.length - 1] 
+                    : nextMap.eyePos;
+                  const curAngle = Math.random() * Math.PI * 2;
+                  
+                  // Calculate dynamic migration distance scaling with days survived and tribe size
+                  let baseMin = 12;
+                  let baseMax = 18;
+                  let dayMultiplier = 1.0 + Math.min(1.2, daysVal * 0.04);
+                  let tribeMultiplier = 1.0 + Math.min(0.4, ((tribeRef.current?.length ?? 0) - 4) * 0.05);
+                  const randomFactor = 0.85 + Math.random() * 0.3;
+                  let finalDist = (baseMin + Math.random() * (baseMax - baseMin)) * dayMultiplier * tribeMultiplier * randomFactor;
+                  if (daysVal < 5) finalDist = Math.max(10, Math.min(18, finalDist));
+                  else if (daysVal < 15) finalDist = Math.max(15, Math.min(28, finalDist));
+                  else finalDist = Math.max(22, Math.min(42, finalDist));
+
+                  const nextX = Math.max(4, Math.min(size - 4, lastWp.x + Math.cos(curAngle) * finalDist));
+                  const nextZ = Math.max(4, Math.min(size - 4, lastWp.z + Math.sin(curAngle) * finalDist));
+                  if (!nextMap.futureEyePath) nextMap.futureEyePath = [];
+                  nextMap.futureEyePath.push({ x: parseFloat(nextX.toFixed(1)), z: parseFloat(nextZ.toFixed(1)) });
+
+                  addLog(`✨ THE STORM EYE HAS STABILIZED! A temporary safe zone has been secured here. Rebuild your encampment and rest before the eye shifts again.`, 'success');
+                } else {
+                  nextMap.eyePos.x += (dx / dist) * moveDist;
+                  nextMap.eyePos.z += (dz / dist) * moveDist;
+                }
+              }
+            }
+
+            // Food decays/rots when outside the eye or during migration
+            if (nextMap.eyeMovementState === 'migrating' || (nextMap.stormDaysUntilMigration !== undefined && nextMap.stormDaysUntilMigration <= 0)) {
+              nextMap.stockpile.food = Math.max(0, nextMap.stockpile.food - deltaDays * 35.0);
+              if (nextMap.stockpile.berriesFresh > 0) nextMap.stockpile.berriesFresh = Math.max(0, nextMap.stockpile.berriesFresh - deltaDays * 45.0);
+              if (nextMap.stockpile.meatFresh > 0) nextMap.stockpile.meatFresh = Math.max(0, nextMap.stockpile.meatFresh - deltaDays * 45.0);
+              if (nextMap.stockpile.rootsFresh > 0) nextMap.stockpile.rootsFresh = Math.max(0, nextMap.stockpile.rootsFresh - deltaDays * 45.0);
+              if (nextMap.stockpile.mushroomsFresh > 0) nextMap.stockpile.mushroomsFresh = Math.max(0, nextMap.stockpile.mushroomsFresh - deltaDays * 45.0);
             }
 
             // 1.8 OFF-SCREEN VILLAGE SIMULATION & PHYSICAL VISITOR TICKS
@@ -655,11 +846,79 @@ export default function App() {
               }
             }
 
+            // Active Trade Caravans Ticking
+            if (nextMap.activeTradeCaravans && nextMap.activeTradeCaravans.length > 0) {
+              const updatedCaravans: any[] = [];
+              nextMap.activeTradeCaravans.forEach((caravan: any) => {
+                const updated = { ...caravan };
+                updated.daysRemaining -= deltaDays;
+                if (updated.daysRemaining <= 0) {
+                  // Caravan completed!
+                  // Add cargo items or silver to stockpile
+                  if (updated.cargo) {
+                    Object.entries(updated.cargo).forEach(([item, qty]: [string, any]) => {
+                      nextMap.stockpile[item] = (nextMap.stockpile[item] || 0) + qty;
+                    });
+                  }
+                  
+                  // Modify target village relationship & trust
+                  if (nextMap.knownVillages) {
+                    nextMap.knownVillages = nextMap.knownVillages.map((v: any) => {
+                      if (v.id === updated.villageId) {
+                        const relBoost = updated.messengerType === 'oracle' ? 18 : updated.messengerType === 'armed' ? 8 : 4;
+                        const trustBoost = Math.round(relBoost * 1.5);
+                        
+                        // Clear active shortages if we sent those as aid!
+                        let majorShortages = [...(v.majorShortages || [])];
+                        let foodVal = v.food ?? 50;
+                        let waterVal = v.water ?? 50;
+                        let medVal = v.medicine ?? 20;
+
+                        if (updated.cargoSent) {
+                          Object.entries(updated.cargoSent).forEach(([itemSent, qtySent]: [string, any]) => {
+                            if (itemSent === 'reservoirWater') {
+                              majorShortages = majorShortages.filter(s => s !== 'Water');
+                              waterVal = Math.min(100, waterVal + 40);
+                            }
+                            if (itemSent === 'berries' || itemSent === 'meat') {
+                              majorShortages = majorShortages.filter(s => s !== 'Food');
+                              foodVal = Math.min(100, foodVal + 40);
+                            }
+                            if (itemSent === 'medicine') {
+                              majorShortages = majorShortages.filter(s => s !== 'Medicine');
+                              medVal = Math.min(100, medVal + 40);
+                            }
+                          });
+                        }
+
+                        return {
+                          ...v,
+                          relationship: Math.min(100, v.relationship + relBoost),
+                          trust: Math.min(100, v.trust + trustBoost),
+                          food: foodVal,
+                          water: waterVal,
+                          medicine: medVal,
+                          majorShortages
+                        };
+                      }
+                      return v;
+                    });
+                  }
+
+                  addLog(`🪙 TRADE COMPLETED: Your ${updated.messengerType === 'oracle' ? 'Oracle Diplomat' : updated.messengerType === 'armed' ? 'Armed Guard' : 'Scout Runner'} caravan has returned from ${updated.villageName}! Stockpiles updated.`, 'success');
+                } else {
+                  updatedCaravans.push(updated);
+                }
+              });
+              nextMap.activeTradeCaravans = updatedCaravans;
+            }
+
             // 2. Accumulate Research Points Passively
             let machinesCount = 0;
             let precursorGenerators = 0;
             let petrifiedGreenhouses = 0;
             for (let r = 0; r < nextMap.grid.length; r++) {
+              if (!nextMap.grid[r]) continue;
               for (let c = 0; c < nextMap.grid[r].length; c++) {
                 const struct = nextMap.grid[r][c]?.structure;
                 if (struct) {
@@ -707,23 +966,42 @@ export default function App() {
                   addLog
                 );
                 
-                // If storm is engulfing, damage living tribespeople!
-                if (nextMap.stormDaysUntilMigration !== undefined && nextMap.stormDaysUntilMigration <= 0) {
-                  // Damage rate: about 15 HP lost per game hour. 15 * 24 = 360 HP lost per game day.
-                  const damageAmount = deltaDays * 360; 
-                  simulated = simulated.map((p) => {
-                    if (p.isAlive) {
+                // Dynamic Circular Safety Check & Storm Damage
+                const checkStormDamage = nextMap.stormWallDamageEnabled !== false;
+                const eyeX = nextMap.eyePos?.x ?? (nextMap.grid.length / 2);
+                const eyeZ = nextMap.eyePos?.z ?? (nextMap.grid.length / 2);
+                const eyeRadius = nextMap.eyeRadius ?? 14.0;
+                const eyeRadiusSq = eyeRadius * eyeRadius;
+
+                simulated = simulated.map((p) => {
+                  if (p.isAlive) {
+                    const dx = p.x - eyeX;
+                    const dz = p.z - eyeZ;
+                    const distSq = dx * dx + dz * dz;
+                    const isOutsideEye = distSq > eyeRadiusSq;
+
+                    const isScoutOrStormrider = 
+                      p.role === 'Scout' && (p.skills?.Scout?.level ?? 1) >= 5;
+
+                    if (isOutsideEye && checkStormDamage && !isScoutOrStormrider) {
+                      const damageAmount = deltaDays * 360; // 15 HP lost per game hour (360 per day)
                       const nextHealth = Math.max(0, p.stats.health - damageAmount);
                       const stats = { ...p.stats, health: nextHealth };
+                      
                       if (nextHealth <= 0) {
-                        addLog(`💀 ${p.name} has been consumed by the lethal static of the Storm Wall!`, 'death');
-                        return { ...p, isAlive: false, deathReason: 'Storm Wall Engulfment', stats };
+                        addLog(`💀 ${p.name} was left behind by the migrating Eye and has been disintegrated by the Storm Wall!`, 'death');
+                        return { ...p, isAlive: false, deathReason: 'Storm Static Disintegration', stats };
+                      }
+                      
+                      // Notify occasionally
+                      if (Math.random() < 0.05 * deltaDays) {
+                        addLog(`⚠️ STORM DAMAGE: ${p.name} is caught outside the Eye of the Storm! (Health degrading!)`, 'warning');
                       }
                       return { ...p, stats };
                     }
-                    return p;
-                  });
-                }
+                  }
+                  return p;
+                });
                 
                 const endTime = performance.now();
                 (nextMap as any).perfSimulationTimeMs = endTime - startTime;
@@ -751,7 +1029,14 @@ export default function App() {
               }
             });
 
-            return nextMap;
+            const directorMap = tickAIDirector(tribeRef.current, nextMap, deltaDays, addLog);
+            updateWorldChunkLoading(directorMap);
+            const lastWarn = (directorMap as any).lastToolWarning;
+            if (lastWarn) {
+              showTempWarning(lastWarn);
+              delete (directorMap as any).lastToolWarning;
+            }
+            return directorMap;
           } catch (mapError: any) {
             console.error("MAP DATA UPDATE TICK CRASH:", mapError);
             setGameError(mapError.message || String(mapError));
@@ -832,8 +1117,8 @@ export default function App() {
             addLog(`⚠️ Cannot place Shelter! It occupies a 2x2 space and exceeds map bounds.`, "warning");
             return;
           }
-          const checkCell = currentMap.grid[nx][nz];
-          if (checkCell.structure || checkCell.construction || checkCell.farmCrop || checkCell.biome === 'water') {
+          const checkCell = currentMap.grid[nx]?.[nz];
+          if (!checkCell || checkCell.structure || checkCell.construction || checkCell.farmCrop || checkCell.biome === 'water') {
             addLog(`⚠️ Cannot place Shelter! The 2x2 space must be flat land and free of other buildings/water/crops.`, "warning");
             return;
           }
@@ -841,8 +1126,8 @@ export default function App() {
       }
     } else {
       // Safety check: Is the tile occupied?
-      const cellCheck = currentMap.grid[x][z];
-      if (cellCheck.structure || cellCheck.construction || cellCheck.farmCrop) {
+      const cellCheck = currentMap.grid[x]?.[z];
+      if (!cellCheck || cellCheck.structure || cellCheck.construction || cellCheck.farmCrop) {
         addLog(`⚠️ Cannot place blueprint! Block [${x}, ${z}] is already occupied. Clear it first!`, "warning");
         return;
       }
@@ -956,27 +1241,71 @@ export default function App() {
       const cell = nextMap.grid[x]?.[z];
       if (!cell) return prev;
 
-      const hasPickaxe = (nextMap.stockpile.flintPickaxe ?? 0) > 0 || (nextMap.stockpile.steelPickaxe ?? 0) > 0;
+      const hasPickaxe = (nextMap.stockpile.flintPickaxe ?? 0) > 0 || 
+                         (nextMap.stockpile.steelPickaxe ?? 0) > 0 ||
+                         (nextMap.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
+                         (nextMap.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
+
+      const hasAxe = (nextMap.stockpile.stoneAxe ?? 0) > 0 ||
+                     (nextMap.caravanInventory?.items?.stoneAxe ?? 0) > 0;
 
       if (actionId === 'gatherWood') {
         if (cell.hasTree || (cell.resourceNode && cell.resourceNode.type === 'Wood')) {
-          cell.gatherDesignated = true;
-          addLog(`🪓 Designated Wood cluster for felling! Gatherers will chop and haul the materials.`, 'info');
-          success = true;
+          if (hasAxe) {
+            cell.gatherDesignated = true;
+            addLog(`🪓 Designated Wood cluster for felling! Gatherers will chop and haul the materials.`, 'info');
+            success = true;
+          } else {
+            addLog(`⚠️ Cannot chop tree! Need an axe in the stockpile.`, 'warning');
+            (nextMap as any).lastToolWarning = 'needs axe';
+          }
         }
       } 
       else if (actionId === 'gatherBerries') {
         if (cell.hasShrub || (cell.resourceNode && cell.resourceNode.category === 'food')) {
           cell.gatherDesignated = true;
-          addLog(`🍇 Designated food cluster for plucking! Gatherers will harvest and haul the products.`, 'info');
+          
+          let amountToHarvest = 0;
+          if (cell.resourceNode && cell.resourceNode.amount > 0) {
+            amountToHarvest = Math.min(3, cell.resourceNode.amount);
+            cell.resourceNode.amount -= amountToHarvest;
+            if (cell.resourceNode.amount <= 0) {
+              cell.hasShrub = false;
+            }
+          } else {
+            cell.resourceNode = {
+              category: 'food',
+              type: 'Berries',
+              amount: 15,
+              maxAmount: 15,
+              regrowTimer: 0,
+              regrowRate: 1.0,
+              quality: 100
+            };
+            amountToHarvest = 3;
+            cell.resourceNode.amount -= amountToHarvest;
+          }
+          
+          if (amountToHarvest > 0) {
+            nextMap.stockpile.berries = (nextMap.stockpile.berries ?? 0) + amountToHarvest;
+            nextMap.stockpile.food = (nextMap.stockpile.berries ?? 0) + (nextMap.stockpile.roots ?? 0) + (nextMap.stockpile.mushrooms ?? 0) + (nextMap.stockpile.meat ?? 0);
+            addLog(`🍇 Manual Pluck: You plucked +${amountToHarvest} Berries directly from the bush! Gatherers will harvest the remaining ${cell.resourceNode?.amount ?? 0} berries.`, 'success');
+          } else {
+            addLog(`🍇 Designated food cluster for plucking! Gatherers will harvest and haul the products.`, 'info');
+          }
           success = true;
         }
       }
       else if (actionId === 'gatherStone') {
         if (cell.hasRock || (cell.resourceNode && cell.resourceNode.type === 'Stone')) {
-          cell.gatherDesignated = true;
-          addLog(`🪨 Designated stone boulder for mining! Artisans/Gatherers will quarry and haul the stone.`, 'info');
-          success = true;
+          if (hasPickaxe) {
+            cell.gatherDesignated = true;
+            addLog(`🪨 Designated stone boulder for mining! Artisans/Gatherers will quarry and haul the stone.`, 'info');
+            success = true;
+          } else {
+            addLog(`⚠️ Cannot mine stone! Need a pickaxe in the stockpile.`, 'warning');
+            (nextMap as any).lastToolWarning = 'needs pickaxe';
+          }
         }
       }
       else if (actionId === 'mineOre') {
@@ -988,6 +1317,7 @@ export default function App() {
             success = true;
           } else {
             addLog(`⚠️ Cannot mine ${nodeType}! Need a pickaxe in the stockpile.`, 'warning');
+            (nextMap as any).lastToolWarning = 'needs pickaxe';
           }
         }
       }
@@ -1152,9 +1482,74 @@ export default function App() {
           nextMap.forceJobReevaluation = (prev.forceJobReevaluation ?? 0) + 1;
         }
       }
+      else if (actionId === 'watchTowerScan') {
+        if (cell.structure?.type === 'WatchTower') {
+          let cellsRevealed = 0;
+          const discoveredLandmarks: string[] = [];
+          const discoveredOres: string[] = [];
+          const discoveredAnimals: string[] = [];
+
+          const radius = 6;
+          for (let dx = -radius; dx <= radius; dx++) {
+            for (let dz = -radius; dz <= radius; dz++) {
+              if (dx * dx + dz * dz <= radius * radius) {
+                const targetX = x + dx;
+                const targetZ = z + dz;
+                const tCell = nextMap.grid[targetX]?.[targetZ];
+                if (tCell) {
+                  if (!tCell.scouted) {
+                    tCell.scouted = true;
+                    cellsRevealed++;
+                  }
+                  if (tCell.landmark && !tCell.landmark.explored) {
+                    discoveredLandmarks.push(tCell.landmark.name);
+                  }
+                  if (tCell.resourceNode && tCell.resourceNode.amount > 0) {
+                    discoveredOres.push(tCell.resourceNode.type || tCell.resourceNode.category);
+                  }
+                  if (tCell.wildAnimal) {
+                    discoveredAnimals.push(tCell.wildAnimal.type);
+                  }
+                }
+              }
+            }
+          }
+
+          const stormDays = nextMap.stormDaysUntilMigration?.toFixed(1) ?? '??';
+          const stormSpeed = nextMap.stormSpeed?.toFixed(1) ?? '1.0';
+          const stormDir = nextMap.stormMovementDirection ?? 'East';
+          const stormDanger = nextMap.stormDangerLevel ?? 'Low';
+
+          addLog(`📡 WatchTower Radar Sweep complete! Scanned sectors within a 6-mile radius. cleared Fog of War over ${cellsRevealed} tiles.`, 'success');
+          
+          if (discoveredLandmarks.length > 0) {
+            const uniqueLms = Array.from(new Set(discoveredLandmarks));
+            addLog(`🔍 Landmarks Detected: [${uniqueLms.join(', ')}] located in scanned sectors.`, 'info');
+          }
+          if (discoveredOres.length > 0) {
+            const uniqueOres = Array.from(new Set(discoveredOres));
+            addLog(`⛏️ Resource Deposits: Detected [${uniqueOres.join(', ')}] mineral/flora pockets.`, 'info');
+          }
+          if (discoveredAnimals.length > 0) {
+            const uniqueAnis = Array.from(new Set(discoveredAnimals));
+            addLog(`🐾 Wildlife Activity: Spotted [${uniqueAnis.join(', ')}] wandering nearby.`, 'info');
+          }
+
+          addLog(`💨 Storm Watch: Wall moving ${stormDir} at ${stormSpeed} km/h (Danger Level: ${stormDanger}). Impact countdown: ${stormDays} days remaining.`, 'level');
+          success = true;
+        }
+      }
       else if (actionId === 'cancelConstruction') {
-        if (cell.construction) {
-          const bType = cell.construction.type;
+        let targetX = x;
+        let targetZ = z;
+        if ((cell as any).isMultiTileChildOf) {
+          targetX = (cell as any).isMultiTileChildOf.x;
+          targetZ = (cell as any).isMultiTileChildOf.z;
+        }
+
+        const parentCell = nextMap.grid[targetX]?.[targetZ];
+        if (parentCell && parentCell.construction) {
+          const bType = parentCell.construction.type;
           
           // Refund 100% construction costs when canceled
           const woodCosts: Record<string, number> = { Shelter: 40, WaterWell: 10, LogWall: 5, StorageBin: 25, Wheat: 0, Tent: 25, Shrine: 15, WatchTower: 40, ArtisanBench: 30, ScienceMachine: 40, RuinousAltar: 50, Fireplace: 20, PetrifiedGreenhouse: 50, PrecursorGenerator: 20, AegisBeacon: 40, GatherersPantry: 35, HuntersHut: 40, BuildersLodge: 50, FarmersGranary: 25, ScoutsLookout: 30, HealersSanctum: 30, ArtisansWorkshop: 40, ObservationPlatform: 30, Observatory: 55, RelicArchive: 45, MeditationShrine: 25, MapHall: 40 };
@@ -1175,16 +1570,38 @@ export default function App() {
           nextMap.stockpile.gold = (nextMap.stockpile.gold ?? 0) + gRefund;
           nextMap.stockpile.silver = (nextMap.stockpile.silver ?? 0) + slRefund;
 
-          cell.construction = undefined;
-          cell.inspectableName = 'Fertile Soil Grassland';
+          parentCell.construction = undefined;
+          parentCell.inspectableName = 'Fertile Soil Grassland';
+          delete (parentCell as any).isMultiTileParent;
+
+          if (bType === 'Shelter') {
+            const childOffsets = [[1, 0], [0, 1], [1, 1]];
+            childOffsets.forEach(([dx, dz]) => {
+              const cCell = nextMap.grid[targetX + dx]?.[targetZ + dz];
+              if (cCell) {
+                cCell.construction = undefined;
+                cCell.inspectableName = 'Fertile Soil Grassland';
+                delete (cCell as any).isMultiTileChildOf;
+              }
+            });
+          }
+
           addLog(`❌ Canceled construction blueprint for ${bType}! Full refund given (+${wRefund} Wood, +${sRefund} Stone, +${fRefund} Food).`, 'info');
           success = true;
           nextMap.forceJobReevaluation = (prev.forceJobReevaluation ?? 0) + 1;
         }
       }
       else if (actionId === 'demolishStructure') {
-        if (cell.structure) {
-          const sType = cell.structure.type;
+        let targetX = x;
+        let targetZ = z;
+        if ((cell as any).isMultiTileChildOf) {
+          targetX = (cell as any).isMultiTileChildOf.x;
+          targetZ = (cell as any).isMultiTileChildOf.z;
+        }
+
+        const parentCell = nextMap.grid[targetX]?.[targetZ];
+        if (parentCell && parentCell.structure) {
+          const sType = parentCell.structure.type;
           
           // Refund 50% construction costs when demolished
           const woodCosts: Record<string, number> = { Shelter: 40, WaterWell: 10, LogWall: 5, StorageBin: 25, Wheat: 0, Tent: 25, Shrine: 15, WatchTower: 40, ArtisanBench: 30, ScienceMachine: 40, RuinousAltar: 50, Fireplace: 20, GatherersPantry: 35, HuntersHut: 40, BuildersLodge: 50, FarmersGranary: 25, ScoutsLookout: 30, HealersSanctum: 30, ArtisansWorkshop: 40, ObservationPlatform: 30, Observatory: 55, RelicArchive: 45, MeditationShrine: 25, MapHall: 40 };
@@ -1205,14 +1622,28 @@ export default function App() {
           nextMap.stockpile.gold = (nextMap.stockpile.gold ?? 0) + gRefund;
           nextMap.stockpile.silver = (nextMap.stockpile.silver ?? 0) + slRefund;
 
-          cell.structure = undefined;
-          cell.inspectableName = 'Fertile Soil Grassland';
+          parentCell.structure = undefined;
+          parentCell.inspectableName = 'Fertile Soil Grassland';
+          delete (parentCell as any).isMultiTileParent;
+
+          if (sType === 'Shelter') {
+            const childOffsets = [[1, 0], [0, 1], [1, 1]];
+            childOffsets.forEach(([dx, dz]) => {
+              const cCell = nextMap.grid[targetX + dx]?.[targetZ + dz];
+              if (cCell) {
+                cCell.structure = undefined;
+                cCell.inspectableName = 'Fertile Soil Grassland';
+                delete (cCell as any).isMultiTileChildOf;
+              }
+            });
+          }
+
           addLog(`💥 Demolished structure ${sType} instantly! Got 50% refund (+${wRefund} Wood, +${sRefund} Stone).`, 'info');
           success = true;
           nextMap.forceJobReevaluation = (prev.forceJobReevaluation ?? 0) + 1;
         }
       }
-      else if (['designateHunt', 'designateCapture', 'tameManualPet', 'domesticSetJobTransport', 'domesticSetJobGuard'].includes(actionId)) {
+      else if (['designateHunt', 'designateCapture', 'tameManualPet', 'domesticSetJobTransport', 'domesticSetJobGuard', 'domesticSetJobHerd'].includes(actionId)) {
         // Find animal closest to selected tile within 1.5 tile radius
         const ani = (() => {
           if (!nextMap.animals) return undefined;
@@ -1250,7 +1681,7 @@ export default function App() {
             success = true;
           }
           else if (actionId === 'tameManualPet') {
-            if (nextMap.stockpile.berries >= 1) {
+            if (nextMap.stockpile.berries >= 3) {
               const currentFlag = !(ani as any).isTameDesignated;
               (ani as any).isTameDesignated = currentFlag;
               if (cell.wildAnimal) {
@@ -1259,19 +1690,25 @@ export default function App() {
               addLog(`🍎 Game Order: Tame designation on wild ${ani.type} toggled to ${currentFlag ? 'ACTIVE' : 'CANCELLED'}. Hunters will approach and feed.`, 'info');
               success = true;
             } else {
-              addLog(`⚠️ Tame designation failed: Need at least 1 Berry in the stockpile to use as bait.`, 'warning');
+              addLog(`⚠️ Tame designation failed: Need at least 3 Berries in the stockpile to use as bait.`, 'warning');
             }
           }
           else if (actionId === 'domesticSetJobTransport') {
             ani.isTame = true;
             (ani as any).assignedJobType = (ani as any).assignedJobType === 'transport' ? 'none' : 'transport';
-            addLog(`🐪 Domestic Duty: ${ani.type} set to pull tribal transport wagons!`, 'info');
+            addLog(`🐪 Domestic Duty: ${ani.type} set to caravan role to pull transport wagons!`, 'info');
             success = true;
           }
           else if (actionId === 'domesticSetJobGuard') {
             ani.isTame = true;
             (ani as any).assignedJobType = (ani as any).assignedJobType === 'guard' ? 'none' : 'guard';
             addLog(`🛡️ Domestic Duty: ${ani.type} guardian role set to defend the village!`, 'success');
+            success = true;
+          }
+          else if (actionId === 'domesticSetJobHerd') {
+            ani.isTame = true;
+            (ani as any).assignedJobType = (ani as any).assignedJobType === 'herd' ? 'none' : 'herd';
+            addLog(`🐑 Domestic Duty: ${ani.type} herding role set to assist farmers with livestock!`, 'success');
             success = true;
           }
         } else {
@@ -1741,6 +2178,16 @@ export default function App() {
     });
   };
 
+  const handleStartPackingCaravan = () => {
+    setMapData((prev) => {
+      const nextMap = { ...prev };
+      nextMap.isPackingCaravan = true;
+      nextMap.packingProgress = 0;
+      return nextMap;
+    });
+    addLog(`🚚 Caravan Packing initiated! Villagers are now packing stockpile goods, dismantling tents, and carrying crates to the Wagon.`, 'info');
+  };
+
   const handleMigrateRegion = () => {
     const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
       ani.isTame && 
@@ -1749,13 +2196,39 @@ export default function App() {
     ) || [];
 
     if (bigBeastTamedAndTransport.length === 0) {
-      addLog(`⚠️ Migration blocked: You need at least one big tamed animal (such as a Silt Camel, Frilled Shield-Horn, or Ancient Dome-Back) assigned to "Pull Wagons" role to transport your caravan cart to a new region!`, 'warning');
-      return;
+      addLog(`🚚 Migrating on foot: Without a tamed draft beast, villagers must carry supplies in backpacks! Keep them inside the storm eye!`, 'warning');
+      setTribe((prev) => prev.map(p => ({ ...p, hasBackpack: true })));
+    } else {
+      addLog(`✨ Physical Migration: ${bigBeastTamedAndTransport[0].type} pulls the caravan wagon! Stay inside the moving eye of the storm!`, 'success');
     }
+
+    setMapData((prev) => {
+      const nextMap = { ...prev };
+      nextMap.isMigrationTravelActive = true;
+      nextMap.isPackingCaravan = false;
+      nextMap.packingProgress = 0;
+      nextMap.caravanPos = { x: nextMap.eyePos?.x ?? 25, z: nextMap.eyePos?.z ?? 25 };
+      nextMap.eyeTargetPos = { x: nextMap.grid.length - 1, z: nextMap.grid.length - 1 };
+      nextMap.eyeMovementState = 'migrating';
+      nextMap.deityModeOverrideSpeed = 10.0; // speed up storm eye movement!
+      return nextMap;
+    });
+  };
+
+  const completePhysicalMigration = () => {
+    const bigBeastTamedAndTransport = mapData.animals?.filter(ani => 
+      ani.isTame && 
+      (ani as any).assignedJobType === 'transport' && 
+      !['JackLeaper', 'TuskedShagBeast', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle', 'Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+    ) || [];
 
     const newSeed = Math.floor(Math.random() * 99999) + 1;
     const newConfig = { ...config, seed: newSeed };
     const nextMap = generateWorld(newConfig);
+
+    nextMap.isPackingCaravan = false;
+    nextMap.packingProgress = 0;
+    nextMap.isMigrationTravelActive = false;
 
     if (mapData.caravanInventory) {
       nextMap.caravanInventory = { ...mapData.caravanInventory };
@@ -1766,17 +2239,25 @@ export default function App() {
     const centerZ = Math.floor(size / 2);
 
     setTribe((prevTribe) => {
-      return prevTribe.map(agent => ({
-        ...agent,
-        x: centerX + (Math.random() * 2 - 1),
-        z: centerZ + (Math.random() * 2 - 1),
-        activeJobType: null,
-        jobTargetCoords: null,
-        workProgress: 0
-      }));
+      return prevTribe.map(agent => {
+        const isFrontGuard = agent.role === 'Scout' || agent.role === 'Hunter';
+        const offsetX = isFrontGuard ? 3.0 : -1.0;
+        return {
+          ...agent,
+          x: centerX + offsetX + (Math.random() * 2 - 1),
+          z: centerZ + (Math.random() * 2 - 1),
+          activeJobType: null,
+          jobTargetCoords: null,
+          workProgress: 0,
+          hasBackpack: false
+        };
+      });
     });
 
-    if (!nextMap.animals) nextMap.animals = [];
+    // Populate the new region with wild ecosystem animals FIRST
+    populateInitialMapAnimals(nextMap);
+
+    // Append the tamed caravan pulling beasts that migrated with the tribe
     bigBeastTamedAndTransport.forEach(beast => {
       nextMap.animals.push({
         ...beast,
@@ -1828,12 +2309,17 @@ export default function App() {
           z: centerZ + (Math.random() * 2 - 1),
           activeJobType: null,
           jobTargetCoords: null,
-          workProgress: 0
+          workProgress: 0,
+          hasBackpack: false
         };
       });
     });
 
-    addLog(`🚚 MIGRATION SUCCESSFUL! Your tribe and caravan wagon have migrated to a brand-new region (Seed: ${newSeed}). Your ${bigBeastTamedAndTransport.map(b => b.type).join(', ')} successfully pulled the wagons!`, 'success');
+    if (bigBeastTamedAndTransport.length === 0) {
+      addLog(`🚚 MIGRATION SUCCESSFUL! Your tribe successfully crossed the storm wall on foot to a brand-new region (Seed: ${newSeed})!`, 'success');
+    } else {
+      addLog(`🚚 MIGRATION SUCCESSFUL! Your caravan wagon successfully arrived in a brand-new region (Seed: ${newSeed}), safely pulled by your ${bigBeastTamedAndTransport[0].type}!`, 'success');
+    }
   };
 
   const handleStudyRelic = () => {
@@ -1988,6 +2474,14 @@ export default function App() {
         isNight ? 'bg-[#04060b]' : 'bg-[#7bc6fc]'
       }`}
     >
+      {/* Tool Missing Temporary Warning Message */}
+      {tempWarning && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 pointer-events-none bg-red-950/90 border border-red-500/50 px-6 py-3 rounded-xl shadow-2xl flex items-center space-x-3 backdrop-blur-md animate-bounce">
+          <span className="text-xl">⚠️</span>
+          <span className="text-white font-mono font-bold tracking-wider text-sm uppercase">({tempWarning})</span>
+        </div>
+      )}
+
       {/* 3D Viewport Layer */}
       <div id="game-canvas-container" className="absolute inset-0 z-0 animate-fade-in">
         <GameCanvas
@@ -2013,6 +2507,23 @@ export default function App() {
           }}
           focusCoordinates={focusCoordinates}
           worldId={worldId}
+          onCameraMove={(pos) => {
+            setMapData((prev) => {
+              if (
+                prev.cameraWorldPos &&
+                Math.abs(prev.cameraWorldPos.x - pos.x) < 0.1 &&
+                Math.abs(prev.cameraWorldPos.z - pos.z) < 0.1
+              ) {
+                return prev;
+              }
+              const next = {
+                ...prev,
+                cameraWorldPos: { x: pos.x, z: pos.z }
+              };
+              updateWorldChunkLoading(next);
+              return next;
+            });
+          }}
         />
       </div>
 
@@ -2056,6 +2567,7 @@ export default function App() {
             onTriggerDisaster={handleTriggerDisaster}
             onFocusCoordinates={handleFocusCoordinates}
             mapData={mapData}
+            onUpdateMapData={handleUpdateMapData}
             selectedCell={selectedCell}
             onChangePriorities={handleChangePriorities}
             onDesignateConstruction={handleDesignateConstruction}
@@ -2067,6 +2579,7 @@ export default function App() {
             onTransferToCaravan={handleTransferToCaravan}
             onTransferToVillage={handleTransferToVillage}
             onMigrateRegion={handleMigrateRegion}
+            onStartPacking={handleStartPackingCaravan}
             onChangeAutoGatherThreshold={handleChangeAutoGatherThreshold}
             isCreativeMode={isCreativeMode}
             onToggleCreativeMode={toggleCreativeMode}
@@ -2077,6 +2590,24 @@ export default function App() {
 
           {/* Performance telemetry diagnostics panel HUD */}
           <PerformancePanel mapData={mapData} tribe={tribe} />
+
+          {/* AI Director Debug & Control panel overlay */}
+          <DirectorDebugPanel 
+            mapData={mapData}
+            setMapData={setMapData}
+            tribe={tribe}
+            setTribe={setTribe}
+            addLog={addLog}
+          />
+
+          {/* AI Director Interactive Decision dialog overlay */}
+          <DirectorEventModal
+            mapData={mapData}
+            setMapData={setMapData}
+            tribe={tribe}
+            setTribe={setTribe}
+            addLog={addLog}
+          />
 
           {/* Interactive Selected Mesh Inspector Overlay (Right Column Panel Slider) */}
           <Inspector
@@ -2338,7 +2869,7 @@ export default function App() {
                       Grid Geometry
                     </label>
                     <div className="grid grid-cols-3 gap-1.5">
-                      {[20, 40, 60].map((s) => (
+                      {[60, 120, 180].map((s) => (
                         <button
                           key={s}
                           onClick={() => setConfig({ ...config, size: s })}
@@ -2348,7 +2879,7 @@ export default function App() {
                               : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:bg-slate-800'
                           }`}
                         >
-                          <div>{s === 20 ? 'Small' : s === 40 ? 'Medium' : 'Large'}</div>
+                          <div>{s === 60 ? 'Small' : s === 120 ? 'Medium' : 'Large'}</div>
                           <div className="text-[8px] font-mono opacity-60 font-medium">{s}x{s} Tiles</div>
                         </button>
                       ))}
@@ -2562,6 +3093,30 @@ export default function App() {
                       {settings.graphicsLevel}
                     </button>
                   </div>
+
+                  {/* AI & Pathfinding tick rate */}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/50 border border-slate-850">
+                    <div className="flex flex-col gap-0.5 max-w-[60%] text-left">
+                      <span className="text-[10px] font-bold text-slate-200">AI Tick Frequency</span>
+                      <span className="text-[8px] font-mono text-slate-500">Fast updates increase precision; Slow updates dramatically improve CPU.</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {(['Slow', 'Normal', 'Fast'] as const).map((rate) => (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => saveSettings({ ...settings, pathfindingTickRate: rate })}
+                          className={`px-2 py-1 text-[8px] font-mono font-bold rounded-md border transition-all ${
+                            settings.pathfindingTickRate === rate
+                              ? 'bg-emerald-650/20 border-emerald-500/40 text-emerald-400'
+                              : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400'
+                          }`}
+                        >
+                          {rate.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
 
                 <button
@@ -2684,6 +3239,30 @@ export default function App() {
                     >
                       {settings.graphicsLevel}
                     </button>
+                  </div>
+
+                  {/* AI & Pathfinding tick rate */}
+                  <div className="flex items-center justify-between p-2 rounded-xl bg-slate-950/50 border border-slate-850">
+                    <div className="flex flex-col gap-0.5 text-left">
+                      <span className="text-[9px] font-bold text-slate-200 uppercase tracking-wide">AI Tick Frequency</span>
+                      <span className="text-[7px] font-mono text-slate-500">Simulation tick intervals.</span>
+                    </div>
+                    <div className="flex gap-1">
+                      {(['Slow', 'Normal', 'Fast'] as const).map((rate) => (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => saveSettings({ ...settings, pathfindingTickRate: rate })}
+                          className={`px-2 py-0.5 text-[7px] font-mono font-bold rounded border transition-all ${
+                            settings.pathfindingTickRate === rate
+                              ? 'bg-emerald-650/20 border-emerald-500/40 text-emerald-400'
+                              : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-400'
+                          }`}
+                        >
+                          {rate.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 

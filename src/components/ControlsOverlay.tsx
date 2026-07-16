@@ -59,6 +59,7 @@ interface ControlsOverlayProps {
   onTransferToCaravan?: (itemKey: string, amount: number) => void;
   onTransferToVillage?: (itemKey: string, amount: number) => void;
   onMigrateRegion?: () => void;
+  onStartPacking?: () => void;
   onChangeAutoGatherThreshold?: (key: string, value: number) => void;
 
   // Game Mode & Care Package props
@@ -67,6 +68,7 @@ interface ControlsOverlayProps {
   nextCarePackageDay: number;
   onOpenCarePackage: () => void;
   gameDays: number;
+  onUpdateMapData?: (updater: (prev: MapData) => MapData) => void;
 }
 
 const ROLE_COLORS: Record<TribespersonRole, string> = {
@@ -106,13 +108,15 @@ export default function ControlsOverlay({
   onTransferToCaravan,
   onTransferToVillage,
   onMigrateRegion,
+  onStartPacking,
   onChangeAutoGatherThreshold,
 
   isCreativeMode,
   onToggleCreativeMode,
   nextCarePackageDay,
   onOpenCarePackage,
-  gameDays
+  gameDays,
+  onUpdateMapData
 }: ControlsOverlayProps) {
   // Config form local states to allow typing before committing
   const [localSize, setLocalSize] = useState(config.size);
@@ -121,6 +125,12 @@ export default function ControlsOverlay({
   const [localRock, setLocalRock] = useState(config.rockDensity);
   const [localRoughness, setLocalRoughness] = useState(config.roughness);
   const [localWater, setLocalWater] = useState(config.waterLevel);
+
+  // Deity Mode Storm and Migration local states
+  const [deityDir, setDeityDir] = useState('North');
+  const [deityDist, setDeityDist] = useState(12);
+  const [deitySpeed, setDeitySpeed] = useState(1.8);
+  const [deityBiomeTarget, setDeityBiomeTarget] = useState('lake');
   
   const [introSeconds, setIntroSeconds] = useState(15);
   useEffect(() => {
@@ -254,9 +264,9 @@ export default function ControlsOverlay({
             </span>
             {!isStockpileHovered ? (
               <div className="flex items-center gap-2.5 text-[10px] font-mono font-bold pl-2 opacity-90">
-                <span className="flex items-center gap-0.5">🪵 {mapData.stockpile.wood}</span>
-                <span className="flex items-center gap-0.5">🪨 {mapData.stockpile.stone}</span>
-                <span className="flex items-center gap-0.5">🍖 {mapData.stockpile.food}</span>
+                <span className="flex items-center gap-0.5">🪵 {Math.round(mapData.stockpile.wood)}</span>
+                <span className="flex items-center gap-0.5">🪨 {Math.round(mapData.stockpile.stone)}</span>
+                <span className="flex items-center gap-0.5">🍖 {Math.round(mapData.stockpile.food)}</span>
                 <span className="text-[8px] text-indigo-550 font-extrabold ml-1 animate-pulse">Expand ▾</span>
               </div>
             ) : (
@@ -281,7 +291,7 @@ export default function ControlsOverlay({
             >
               <span className="text-[14px] mb-0.5" title="Wood">🪵</span>
               <span className="text-[8px] font-mono text-slate-500 uppercase font-bold">Wood</span>
-              <span className="text-xs font-bold font-mono text-amber-600 dark:text-amber-500">{mapData.stockpile.wood}</span>
+              <span className="text-xs font-bold font-mono text-amber-600 dark:text-amber-500">{Math.round(mapData.stockpile.wood)}</span>
               {((mapData.autoGatherThresholds || {})['wood'] ?? 0) > 0 && (
                 <span className="text-[7px] font-mono text-amber-500 bg-amber-500/10 px-1 rounded [line-height:1] mt-0.5" title="Auto-gather when below this quantity">
                   Min: {(mapData.autoGatherThresholds || {})['wood']}
@@ -297,7 +307,7 @@ export default function ControlsOverlay({
             >
               <span className="text-[14px] mb-0.5" title="Stone">🪨</span>
               <span className="text-[8px] font-mono text-slate-500 uppercase font-bold">Stone</span>
-              <span className="text-xs font-bold font-mono text-slate-600 dark:text-slate-400">{mapData.stockpile.stone}</span>
+              <span className="text-xs font-bold font-mono text-slate-600 dark:text-slate-400">{Math.round(mapData.stockpile.stone)}</span>
               {((mapData.autoGatherThresholds || {})['stone'] ?? 0) > 0 && (
                 <span className="text-[7px] font-mono text-slate-400 bg-slate-400/10 px-1 rounded [line-height:1] mt-0.5" title="Auto-gather when below this quantity">
                   Min: {(mapData.autoGatherThresholds || {})['stone']}
@@ -313,7 +323,7 @@ export default function ControlsOverlay({
             >
               <span className="text-[14px] mb-0.5" title="Food">🍖</span>
               <span className="text-[8px] font-mono text-slate-500 uppercase font-bold">Food</span>
-              <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-500">{mapData.stockpile.food}</span>
+              <span className="text-xs font-bold font-mono text-emerald-600 dark:text-emerald-500">{Math.round(mapData.stockpile.food)}</span>
               {((mapData.autoGatherThresholds || {})['food'] ?? 0) > 0 && (
                 <span className="text-[7px] font-mono text-emerald-500 bg-emerald-500/10 px-1 rounded [line-height:1] mt-0.5" title="Auto-gather when below this quantity">
                   Min: {(mapData.autoGatherThresholds || {})['food']}
@@ -330,7 +340,7 @@ export default function ControlsOverlay({
                 <span className="text-[8px] font-mono font-bold tracking-wider text-slate-500 uppercase">🌽 Satiating Foods (Spoilage)</span>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1">
                   <div className="flex justify-between items-center text-[10px] font-mono">
-                    <span className="flex items-center gap-1">🍓 Berries: <strong className="font-sans text-slate-300">{(mapData.stockpile as any).berries ?? 0}</strong></span>
+                    <span className="flex items-center gap-1">🍓 Berries: <strong className="font-sans text-slate-300">{Math.round((mapData.stockpile as any).berries ?? 0)}</strong></span>
                     <div className="flex gap-1">
                       <span className="text-[8px] font-semibold text-slate-500">{(mapData.stockpile as any).berries > 0 ? `${Math.round((mapData.stockpile as any).berriesFresh)}%` : '-'}</span>
                       {(mapData.stockpile as any).berries > 0 && (
@@ -346,7 +356,7 @@ export default function ControlsOverlay({
                     </div>
                   </div>
                   <div className="flex justify-between items-center text-[10px] font-mono">
-                    <span className="flex items-center gap-1">🥕 Roots: <strong className="font-sans text-slate-300">{(mapData.stockpile as any).roots ?? 0}</strong></span>
+                    <span className="flex items-center gap-1">🥕 Roots: <strong className="font-sans text-slate-300">{Math.round((mapData.stockpile as any).roots ?? 0)}</strong></span>
                     <div className="flex gap-1">
                       <span className="text-[8px] font-semibold text-slate-500">{(mapData.stockpile as any).roots > 0 ? `${Math.round((mapData.stockpile as any).rootsFresh)}%` : '-'}</span>
                       {(mapData.stockpile as any).roots > 0 && (
@@ -362,7 +372,7 @@ export default function ControlsOverlay({
                     </div>
                   </div>
                   <div className="flex justify-between items-center text-[10px] font-mono">
-                    <span className="flex items-center gap-1">🍄 Shrooms: <strong className="font-sans text-slate-300">{(mapData.stockpile as any).mushrooms ?? 0}</strong></span>
+                    <span className="flex items-center gap-1">🍄 Shrooms: <strong className="font-sans text-slate-300">{Math.round((mapData.stockpile as any).mushrooms ?? 0)}</strong></span>
                     <div className="flex gap-1">
                       <span className="text-[8px] font-semibold text-slate-500">{(mapData.stockpile as any).mushrooms > 0 ? `${Math.round((mapData.stockpile as any).mushroomsFresh)}%` : '-'}</span>
                       {(mapData.stockpile as any).mushrooms > 0 && (
@@ -378,7 +388,7 @@ export default function ControlsOverlay({
                     </div>
                   </div>
                   <div className="flex justify-between items-center text-[10px] font-mono">
-                    <span className="flex items-center gap-1">🍖 Meat: <strong className="font-sans text-slate-300">{(mapData.stockpile as any).meat ?? 0}</strong></span>
+                    <span className="flex items-center gap-1">🍖 Meat: <strong className="font-sans text-slate-300">{Math.round((mapData.stockpile as any).meat ?? 0)}</strong></span>
                     <div className="flex gap-1">
                       <span className="text-[8px] font-semibold text-slate-500">{(mapData.stockpile as any).meat > 0 ? `${Math.round((mapData.stockpile as any).meatFresh)}%` : '-'}</span>
                       {(mapData.stockpile as any).meat > 0 && (
@@ -402,23 +412,23 @@ export default function ControlsOverlay({
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1 text-[10px] font-mono">
                   <div className="flex justify-between">
                     <span>🌾 Sedge Fiber:</span>
-                    <strong className="text-slate-300 font-sans">{(mapData.stockpile as any).fiber ?? 0}</strong>
+                    <strong className="text-slate-300 font-sans">{Math.round((mapData.stockpile as any).fiber ?? 0)}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span>🦴 Scav Bone:</span>
-                    <strong className="text-slate-300 font-sans font-bold">{(mapData.stockpile as any).bone ?? 0}</strong>
+                    <strong className="text-slate-300 font-sans font-bold">{Math.round((mapData.stockpile as any).bone ?? 0)}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span>💧 Scent Dew:</span>
-                    <strong className="text-slate-300 font-sans">{(mapData.stockpile as any).dew ?? 0}</strong>
+                    <strong className="text-slate-300 font-sans">{Math.round((mapData.stockpile as any).dew ?? 0)}</strong>
                   </div>
                   <div className="flex justify-between">
                     <span>🌊 Reservoir:</span>
-                    <strong className="text-slate-300 font-sans font-bold">{(mapData.stockpile as any).reservoirWater ?? 0}</strong>
+                    <strong className="text-slate-300 font-sans font-bold">{Math.round((mapData.stockpile as any).reservoirWater ?? 0)}</strong>
                   </div>
                   <div className="flex justify-between col-span-2">
                     <span>⛈️ Trapped Rainwater:</span>
-                    <strong className="text-slate-300 font-sans">{(mapData.stockpile as any).rainwater ?? 0}</strong>
+                    <strong className="text-slate-300 font-sans">{Math.round((mapData.stockpile as any).rainwater ?? 0)}</strong>
                   </div>
                 </div>
               </div>
@@ -432,11 +442,11 @@ export default function ControlsOverlay({
                   <div className="grid grid-cols-2 gap-2 mt-1 text-[10px] font-mono">
                     <div className="flex justify-between text-amber-300/95">
                       <span>🏺 Sacred Relics:</span>
-                      <strong className="font-sans">{(mapData.stockpile as any).relics ?? 0}</strong>
+                      <strong className="font-sans">{Math.round((mapData.stockpile as any).relics ?? 0)}</strong>
                     </div>
                     <div className="flex justify-between text-amber-300/95">
                       <span>⚙️ Ancient Alloy:</span>
-                      <strong className="font-sans">{(mapData.stockpile as any).ancientMaterials ?? 0}</strong>
+                      <strong className="font-sans">{Math.round((mapData.stockpile as any).ancientMaterials ?? 0)}</strong>
                     </div>
                   </div>
                 </div>
@@ -600,6 +610,284 @@ export default function ControlsOverlay({
                       🍖 Bounteous Feast
                     </button>
                   </div>
+                </div>
+
+                {/* Deity Eye & Storm Migration Controls */}
+                <div className={`p-2.5 rounded-xl border flex flex-col gap-2 ${isNight ? 'bg-indigo-950/20 border-indigo-900/60' : 'bg-indigo-50/40 border-indigo-200/50'}`}>
+                  <div className="flex items-center justify-between border-b border-indigo-500/20 pb-1">
+                    <div className="flex items-center gap-1.5">
+                      <Compass size={12} className="text-indigo-500 animate-spin-slow" />
+                      <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-indigo-400">Deity Storm & Eye Controls</span>
+                    </div>
+                    {/* Status badge */}
+                    <div className={`text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
+                      mapData.eyeMovementState === 'migrating' 
+                        ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' 
+                        : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                    }`}>
+                      {mapData.eyeMovementState === 'migrating' ? 'Migrating ⚡' : 'Stable ✓'}
+                    </div>
+                  </div>
+
+                  {/* Info Row */}
+                  <div className="grid grid-cols-2 gap-1.5 text-[9px] font-mono text-slate-500">
+                    <div>Eye Pos: <strong className="text-slate-300">({mapData.eyePos?.x?.toFixed(1) ?? 'N/A'}, {mapData.eyePos?.z?.toFixed(1) ?? 'N/A'})</strong></div>
+                    <div>Heading: <strong className="text-slate-300">{mapData.stormMovementDirection ?? 'None'}</strong></div>
+                  </div>
+
+                  {/* Row 1: Speed, Radius, Damage Toggle */}
+                  <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-900/25 rounded-lg border border-slate-800/20">
+                    {/* Radius control */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between text-[8px] font-mono font-semibold text-slate-500">
+                        <span>EYE RADIUS</span>
+                        <span className="text-indigo-400 font-bold">{mapData.eyeRadius ?? 14}</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="5" 
+                        max="30" 
+                        value={mapData.eyeRadius ?? 14} 
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => ({ ...prev, eyeRadius: val }));
+                          }
+                        }}
+                        className="w-full accent-indigo-500 h-1 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Speed override control */}
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex justify-between text-[8px] font-mono font-semibold text-slate-500">
+                        <span>STORM SPEED</span>
+                        <span className="text-indigo-400 font-bold">{deitySpeed} c/d</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0.5" 
+                        max="10" 
+                        step="0.5" 
+                        value={deitySpeed} 
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          setDeitySpeed(val);
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => ({ ...prev, deityModeOverrideSpeed: val }));
+                          }
+                        }}
+                        className="w-full accent-indigo-500 h-1 rounded cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Target Selection: Cardinal planning and distance slider */}
+                  <div className="flex flex-col gap-1.5 p-1.5 bg-slate-900/25 rounded-lg border border-slate-800/20">
+                    <span className="text-[8px] font-mono text-slate-500 font-bold tracking-wider uppercase">Migration Vector Planner</span>
+                    
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {/* Direction selector */}
+                      <div className="flex flex-col gap-0.5">
+                        <label className="text-[8px] font-mono text-slate-500 font-semibold uppercase">Direction</label>
+                        <select 
+                          value={deityDir}
+                          onChange={(e) => setDeityDir(e.target.value)}
+                          className="font-mono text-[9px] p-1 rounded border border-slate-850 bg-slate-900 text-slate-300 outline-none cursor-pointer"
+                        >
+                          <option value="North">North (↑)</option>
+                          <option value="Northeast">Northeast (↗)</option>
+                          <option value="East">East (→)</option>
+                          <option value="Southeast">Southeast (↘)</option>
+                          <option value="South">South (↓)</option>
+                          <option value="Southwest">Southwest (↙)</option>
+                          <option value="West">West (←)</option>
+                          <option value="Northwest">Northwest (↖)</option>
+                        </select>
+                      </div>
+
+                      {/* Distance slider */}
+                      <div className="flex flex-col gap-1">
+                        <div className="flex justify-between text-[8px] font-mono font-semibold text-slate-500 leading-none">
+                          <span>DISTANCE</span>
+                          <span className="text-amber-500 font-bold">{deityDist} cells</span>
+                        </div>
+                        <input 
+                          type="range" 
+                          min="5" 
+                          max="30" 
+                          value={deityDist} 
+                          onChange={(e) => setDeityDist(parseInt(e.target.value))}
+                          className="w-full accent-amber-500 h-1 rounded cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Launch or Stop Buttons */}
+                    <div className="grid grid-cols-2 gap-1 mt-1">
+                      <button
+                        onClick={() => {
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => {
+                              const size = prev.grid.length;
+                              const eyeX = prev.eyePos?.x ?? (size / 2);
+                              const eyeZ = prev.eyePos?.z ?? (size / 2);
+                              
+                              let angle = 0;
+                              if (deityDir === 'East') angle = 0;
+                              else if (deityDir === 'Southeast') angle = Math.PI / 4;
+                              else if (deityDir === 'South') angle = Math.PI / 2;
+                              else if (deityDir === 'Southwest') angle = 3 * Math.PI / 4;
+                              else if (deityDir === 'West') angle = Math.PI;
+                              else if (deityDir === 'Northwest') angle = -3 * Math.PI / 4;
+                              else if (deityDir === 'North') angle = -Math.PI / 2;
+                              else if (deityDir === 'Northeast') angle = -Math.PI / 4;
+
+                              const targetX = Math.max(4, Math.min(size - 4, eyeX + Math.cos(angle) * deityDist));
+                              const targetZ = Math.max(4, Math.min(size - 4, eyeZ + Math.sin(angle) * deityDist));
+
+                              return {
+                                ...prev,
+                                eyeTargetPos: { x: parseFloat(targetX.toFixed(1)), z: parseFloat(targetZ.toFixed(1)) },
+                                eyeMovementState: 'migrating',
+                                deityModePaused: false,
+                              };
+                            });
+                          }
+                        }}
+                        className="py-1 px-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-[9px] font-bold cursor-pointer active:scale-95 transition-all text-center"
+                      >
+                        ⚡ Start Migration
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => ({
+                              ...prev,
+                              eyeMovementState: 'stable',
+                              eyeTargetPos: undefined,
+                            }));
+                          }
+                        }}
+                        className="py-1 px-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-[9px] font-bold cursor-pointer active:scale-95 transition-all text-center"
+                      >
+                        🛑 Abort Migration
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Force Biome, Teleport Selection, Toggle Damage */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {/* Force Biome target */}
+                    <div className="p-1.5 bg-slate-900/25 rounded-lg border border-slate-800/20 flex flex-col gap-1 justify-between">
+                      <span className="text-[8px] font-mono text-slate-500 font-bold uppercase leading-none">Force Next Biome</span>
+                      <select
+                        value={deityBiomeTarget}
+                        onChange={(e) => setDeityBiomeTarget(e.target.value)}
+                        className="font-mono text-[8.5px] p-0.5 rounded border border-slate-850 bg-slate-900 text-slate-300 outline-none cursor-pointer"
+                      >
+                        <option value="lake">Lake Water</option>
+                        <option value="desert">Arid Desert</option>
+                        <option value="meadow">Lush Meadow</option>
+                        <option value="forest">Thick Forest</option>
+                        <option value="mountain">Rocky Slopes</option>
+                      </select>
+                      <button
+                        onClick={() => {
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => {
+                              const matches: { r: number; c: number }[] = [];
+                              const size = prev.grid.length;
+                              for (let r = 0; r < size; r++) {
+                                for (let c = 0; c < size; c++) {
+                                  if (prev.grid[r]?.[c]?.biome === deityBiomeTarget) {
+                                    matches.push({ r, c });
+                                  }
+                                }
+                              }
+
+                              if (matches.length > 0) {
+                                const pick = matches[Math.floor(Math.random() * matches.length)];
+                                return {
+                                  ...prev,
+                                  eyeTargetPos: { x: pick.r, z: pick.c },
+                                  eyeMovementState: 'migrating',
+                                  deityModePaused: false,
+                                };
+                              }
+                              return prev;
+                            });
+                          }
+                        }}
+                        className="py-0.5 rounded bg-violet-600/20 hover:bg-violet-600/40 text-violet-400 font-mono text-[8px] font-bold border border-violet-500/20 cursor-pointer active:scale-95 transition-all text-center mt-1"
+                      >
+                        🎯 Migrate Here
+                      </button>
+                    </div>
+
+                    {/* Instant Teleport & Toggle Damage */}
+                    <div className="p-1.5 bg-slate-900/25 rounded-lg border border-slate-800/20 flex flex-col gap-1 justify-between">
+                      <button
+                        disabled={!selectedCell}
+                        onClick={() => {
+                          if (selectedCell && onUpdateMapData) {
+                            const { x, z } = selectedCell;
+                            onUpdateMapData((prev) => ({
+                              ...prev,
+                              eyePos: { x, z },
+                              eyeMovementState: 'stable',
+                              eyeTargetPos: undefined,
+                            }));
+                          }
+                        }}
+                        className={`py-1 rounded text-center font-mono text-[8px] font-bold border cursor-pointer active:scale-95 transition-all ${
+                          selectedCell 
+                            ? 'bg-amber-600/25 text-amber-400 border-amber-500/30 hover:bg-amber-600/40' 
+                            : 'bg-slate-800/10 text-slate-500 border-slate-800/30 cursor-not-allowed'
+                        }`}
+                      >
+                        ⚡ Teleport to Select
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (onUpdateMapData) {
+                            onUpdateMapData((prev) => ({
+                              ...prev,
+                              stormWallDamageEnabled: prev.stormWallDamageEnabled === false ? true : false,
+                            }));
+                          }
+                        }}
+                        className={`py-1 rounded text-center font-mono text-[8px] font-bold border cursor-pointer active:scale-95 transition-all ${
+                          mapData.stormWallDamageEnabled !== false
+                            ? 'bg-red-500/15 text-red-400 border-red-500/20 hover:bg-red-500/25'
+                            : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/25'
+                        }`}
+                      >
+                        {mapData.stormWallDamageEnabled !== false ? '🔒 Damage: ON' : '🔓 Damage: OFF'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Row 4: Play/Pause toggles */}
+                  <button
+                    onClick={() => {
+                      if (onUpdateMapData) {
+                        onUpdateMapData((prev) => ({
+                          ...prev,
+                          deityModePaused: !prev.deityModePaused,
+                        }));
+                      }
+                    }}
+                    className={`py-1 rounded text-center font-mono text-[9px] font-extrabold border cursor-pointer active:scale-95 transition-all ${
+                      mapData.deityModePaused === true
+                        ? 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500'
+                        : 'bg-amber-600 text-white border-amber-500 hover:bg-amber-500'
+                    }`}
+                  >
+                    {mapData.deityModePaused === true ? '▶ Resume Storm Engine' : '⏸ Pause Storm Engine'}
+                  </button>
                 </div>
               </>
             )}
@@ -875,6 +1163,7 @@ export default function ControlsOverlay({
                 onTransferToCaravan={onTransferToCaravan}
                 onTransferToVillage={onTransferToVillage}
                 onMigrateRegion={onMigrateRegion}
+                onStartPacking={onStartPacking}
               />
             )}
           </div>
@@ -1038,24 +1327,142 @@ export default function ControlsOverlay({
             }`}
             id="logs-scroller-centered"
           >
-            {logs.slice(0, isLogHovered ? 40 : 5).map((log) => {
-              let badgeColor = 'text-indigo-400 dark:text-indigo-300';
-              if (log.type === 'death') badgeColor = 'text-rose-500 font-extrabold';
-              if (log.type === 'warning') badgeColor = 'text-amber-500 font-semibold';
-              if (log.type === 'level') badgeColor = 'text-emerald-400 font-extrabold';
+            {(() => {
+              const vitalLogs = logs.filter(log => {
+                const text = log.text.toLowerCase();
+                const type = log.type;
+                
+                // Explicitly filter out minor player interactions, orders, and routine task notifications
+                if (
+                  text.includes('dispatch order') ||
+                  text.includes('strike order') ||
+                  text.includes('game order') ||
+                  text.includes('assigned role') ||
+                  text.includes('crafting enqueued') ||
+                  text.includes('cancelled crafting') ||
+                  text.includes('logistics:') ||
+                  text.includes('transfer failed') ||
+                  text.includes('warehouse tidy') ||
+                  text.includes('designated dismantle')
+                ) {
+                  return false;
+                }
+
+                // 1. Deaths and lethal events are always vital
+                if (
+                  type === 'death' || 
+                  text.includes('died') || 
+                  text.includes('death') ||
+                  text.includes('slain') || 
+                  text.includes('killed') || 
+                  text.includes('passed away') || 
+                  text.includes('💀') || 
+                  text.includes('disintegrated')
+                ) {
+                  return true;
+                }
+                
+                // 2. Raiders, enemy breaches, watch tower alerts, hostile invasions
+                if (
+                  text.includes('raid') || 
+                  text.includes('raider') || 
+                  text.includes('bandit') || 
+                  text.includes('invade') || 
+                  text.includes('invasion') || 
+                  text.includes('enemy') || 
+                  text.includes('enemies') || 
+                  text.includes('entering') || 
+                  text.includes('entering the eye') || 
+                  text.includes('breached') || 
+                  text.includes('alert:') || 
+                  text.includes('watch tower') || 
+                  text.includes('combat') || 
+                  text.includes('attack') || 
+                  text.includes('hostile')
+                ) {
+                  return true;
+                }
+                
+                // 3. Villagers in danger, starvation, dehydration, injury, or critical health S.O.S
+                if (
+                  text.includes('danger') || 
+                  text.includes('in danger') || 
+                  text.includes('jeopardy') || 
+                  text.includes('starvation') || 
+                  text.includes('starving') || 
+                  text.includes('dehydration') || 
+                  text.includes('dehydrated') || 
+                  text.includes('bleeding') || 
+                  text.includes('wounded') || 
+                  text.includes('unconscious') || 
+                  text.includes('outside the eye') || 
+                  text.includes('caught outside') || 
+                  text.includes('s.o.s') || 
+                  text.includes('screaming') || 
+                  text.includes('running for safety') || 
+                  text.includes('storm damage') ||
+                  text.includes('feral beast')
+                ) {
+                  return true;
+                }
+                
+                // 4. Environmental disasters, storms, predictions, cosmic droughts, crimson molds
+                if (
+                  text.includes('drought') || 
+                  text.includes('mold') || 
+                  text.includes('prediction') || 
+                  text.includes('disaster') || 
+                  text.includes('storm eye') || 
+                  text.includes('stabilized') ||
+                  text.includes('crimson mold') ||
+                  text.includes('solar drought')
+                ) {
+                  return true;
+                }
+                
+                // 5. Major level ups, technology research unlocks, legendary study completions, and migrations
+                if (
+                  text.includes('level up') ||
+                  text.includes('technology unlocked') ||
+                  text.includes('studying completed') ||
+                  text.includes('migration success') ||
+                  text.includes('migration started') ||
+                  text.includes('migrat') ||
+                  text.includes('contact:') || 
+                  text.includes('diplomatic') || 
+                  text.includes('unlocked') || 
+                  text.includes('mastery') || 
+                  text.includes('deity')
+                ) {
+                  return true;
+                }
+                
+                return false;
+              });
 
               return (
-                <div key={log.id} className="flex items-start gap-1 font-mono text-left">
-                  <span className="text-[8px] font-mono text-slate-500 shrink-0 select-none">[{log.timeText}]</span>
-                  <span className={`${badgeColor} leading-3.5`}>
-                    {log.text}
-                  </span>
-                </div>
+                <>
+                  {vitalLogs.slice(0, isLogHovered ? 40 : 5).map((log) => {
+                    let badgeColor = 'text-indigo-400 dark:text-indigo-300';
+                    if (log.type === 'death') badgeColor = 'text-rose-500 font-extrabold';
+                    if (log.type === 'warning') badgeColor = 'text-amber-500 font-semibold';
+                    if (log.type === 'level') badgeColor = 'text-emerald-400 font-extrabold';
+
+                    return (
+                      <div key={log.id} className="flex items-start gap-1 font-mono text-left animate-fade-in">
+                        <span className="text-[8px] font-mono text-slate-500 shrink-0 select-none">[{log.timeText}]</span>
+                        <span className={`${badgeColor} leading-3.5`}>
+                          {log.text}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {vitalLogs.length === 0 && (
+                    <span className="text-slate-500 italic text-[10px] text-center block">No vital alerts.</span>
+                  )}
+                </>
               );
-            })}
-            {logs.length === 0 && (
-              <span className="text-slate-500 italic text-[10px] text-center block">No messages.</span>
-            )}
+            })()}
           </div>
         </div>
       </div>

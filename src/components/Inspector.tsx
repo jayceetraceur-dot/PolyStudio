@@ -841,32 +841,48 @@ export default function Inspector({
                           : 'bg-pink-950/40 hover:bg-pink-900/60 text-pink-300 border border-pink-900/30'
                       }`}
                     >
-                      🍎 {(cellAnimal as any).isTameDesignated ? 'Tame Designated' : 'Order Tame (Costs 1 Berry)'}
+                      🍎 {(cellAnimal as any).isTameDesignated ? 'Tame Designated' : 'Order Tame (Costs 3 Berries)'}
                     </button>
                   </>
                 ) : (
-                  <>
-                    <button
-                      onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'domesticSetJobTransport')}
-                      className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                        (cellAnimal as any).assignedJobType === 'transport'
-                          ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-350 border border-slate-700'
-                      }`}
-                    >
-                      🐪 Pull Wagons
-                    </button>
-                    <button
-                      onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'domesticSetJobGuard')}
-                      className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                        (cellAnimal as any).assignedJobType === 'guard'
-                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                          : 'bg-slate-900 hover:bg-slate-800 text-slate-350 border border-slate-700'
-                      }`}
-                    >
-                      🛡️ Village Guard
-                    </button>
-                  </>
+                  <div className="col-span-2 flex flex-col gap-1.5 w-full mt-1">
+                    <span className="text-[10px] font-mono text-indigo-300">Assign Domesticated Job:</span>
+                    <div className="grid grid-cols-3 gap-1.5 w-full">
+                      <button
+                        onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'domesticSetJobHerd')}
+                        className={`flex flex-col items-center justify-center gap-1 p-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                          (cellAnimal as any).assignedJobType === 'herd'
+                            ? 'bg-sky-600 hover:bg-sky-700 text-white border border-sky-500 shadow-sm'
+                            : 'bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50'
+                        }`}
+                      >
+                        <span className="text-sm">🐑</span>
+                        <span>Herd Helper</span>
+                      </button>
+                      <button
+                        onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'domesticSetJobGuard')}
+                        className={`flex flex-col items-center justify-center gap-1 p-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                          (cellAnimal as any).assignedJobType === 'guard'
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 shadow-sm'
+                            : 'bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50'
+                        }`}
+                      >
+                        <span className="text-sm">🛡️</span>
+                        <span>Guard Duty</span>
+                      </button>
+                      <button
+                        onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'domesticSetJobTransport')}
+                        className={`flex flex-col items-center justify-center gap-1 p-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                          (cellAnimal as any).assignedJobType === 'transport'
+                            ? 'bg-amber-600 hover:bg-amber-700 text-white border border-amber-500 shadow-sm'
+                            : 'bg-slate-900/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50'
+                        }`}
+                      >
+                        <span className="text-sm">🐪</span>
+                        <span>Caravan</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -911,10 +927,10 @@ export default function Inspector({
                 <div className="p-2 rounded-lg bg-amber-950/20 border border-amber-900/30 flex flex-col gap-0.5">
                   <span className="font-bold text-amber-400 block font-mono">⛏️ {selectedCell.resourceNode.type} Ore Vein</span>
                   <span>
-                    {((mapData?.stockpile?.flintPickaxe ?? 0) > 0 || (mapData?.stockpile?.steelPickaxe ?? 0) > 0) ? (
+                    {((mapData?.stockpile?.flintPickaxe ?? 0) > 0 || (mapData?.stockpile?.steelPickaxe ?? 0) > 0 || (mapData?.caravanInventory?.items?.flintPickaxe ?? 0) > 0 || (mapData?.caravanInventory?.items?.steelPickaxe ?? 0) > 0) ? (
                       <span>A rich mineral strain containing raw ore. Your **Gatherers** will automatically mine and haul these raw metals to base using their tool equipment.</span>
                     ) : (
-                      <span className="text-amber-200">⚠️ Locked: Requires a **Flint or Steel Pickaxe** in the stockpile for your Gatherers to harvest. Craft one at the Artisan Bench!</span>
+                      <span className="text-amber-200">⚠️ Locked: Requires a **Flint or Steel Pickaxe** in the stockpile or caravan for your Gatherers to harvest. Craft one at the Artisan Bench!</span>
                     )}
                   </span>
                 </div>
@@ -1336,6 +1352,7 @@ export default function Inspector({
                         stoneAxe: '🪓 Breathstone Cutter',
                         flintPickaxe: '⛏️ Breathstone Pickaxe',
                         spear: '🗡️ Windbone Spear',
+                        bow: '🏹 Tendon Longbow',
                         boiledRoots: '🥣 Clay-Stewed Root Mash',
                         paddedJerkin: '👕 Windbone Vest',
                         saltedMeat: '🍖 Salt-Cured Jerky',
@@ -1348,7 +1365,7 @@ export default function Inspector({
                       return (
                         <div key={key} className="flex justify-between items-center text-xs font-mono bg-slate-950/40 px-2 py-1 rounded">
                           <span className="truncate">{labelMap[key] || key}</span>
-                          <span className="font-bold text-amber-300">{Number(val).toLocaleString()}</span>
+                          <span className="font-bold text-amber-300">{Math.round(Number(val)).toLocaleString()}</span>
                         </div>
                       );
                     })}
@@ -1627,18 +1644,29 @@ export default function Inspector({
               )}
 
               {selectedCell.structure.type === 'Fireplace' && (
-                <button
-                  disabled={(mapData?.stockpile?.wood ?? 0) < 10}
-                  onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'fireplaceStoke')}
-                  className={`w-full py-2 px-3 font-bold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex flex-col items-center gap-1 shadow-md cursor-pointer ${
-                    (mapData?.stockpile?.wood ?? 0) >= 10
-                      ? 'bg-amber-600 hover:bg-amber-500 text-slate-950'
-                      : 'bg-slate-850 text-slate-500 opacity-50 cursor-not-allowed border border-slate-800'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 font-bold">🔥 Stoke Great Fire</span>
-                  <span className="text-[8px] font-mono opacity-80">(Cost: 10 Wood | Reward: +25 Morale to all)</span>
-                </button>
+                <div className="flex flex-col gap-2 w-full">
+                  {onOpenOracleHub && (
+                    <button
+                      onClick={onOpenOracleHub}
+                      className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex flex-col items-center gap-1 shadow-md cursor-pointer border border-indigo-500/30"
+                    >
+                      <span className="flex items-center gap-1.5 font-bold">🔮 Consult Oracle Hub</span>
+                      <span className="text-[8px] font-mono opacity-80">(View Diplomacy, Trade & Prophecies)</span>
+                    </button>
+                  )}
+                  <button
+                    disabled={(mapData?.stockpile?.wood ?? 0) < 10}
+                    onClick={() => onManualAction?.(selectedCell.x, selectedCell.z, 'fireplaceStoke')}
+                    className={`w-full py-2 px-3 font-bold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex flex-col items-center gap-1 shadow-md cursor-pointer ${
+                      (mapData?.stockpile?.wood ?? 0) >= 10
+                        ? 'bg-amber-600 hover:bg-amber-500 text-slate-950'
+                        : 'bg-slate-850 text-slate-500 opacity-50 cursor-not-allowed border border-slate-800'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5 font-bold">🔥 Stoke Great Fire</span>
+                    <span className="text-[8px] font-mono opacity-80">(Cost: 10 Wood | Reward: +25 Morale to all)</span>
+                  </button>
+                </div>
               )}
 
               {selectedCell.structure.type === 'WaterWell' && (
@@ -1750,7 +1778,7 @@ export default function Inspector({
 
               {/* Iron, Copper, Silver, Gold Mining (Requires Pickaxe) */}
               {selectedCell.resourceNode && ['Copper', 'Silver', 'Gold', 'Iron'].includes(selectedCell.resourceNode.type) && (() => {
-                const hasPickaxe = (mapData?.stockpile?.flintPickaxe ?? 0) > 0 || (mapData?.stockpile?.steelPickaxe ?? 0) > 0;
+                const hasPickaxe = (mapData?.stockpile?.flintPickaxe ?? 0) > 0 || (mapData?.stockpile?.steelPickaxe ?? 0) > 0 || (mapData?.caravanInventory?.items?.flintPickaxe ?? 0) > 0 || (mapData?.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
                 return (
                   <button
                     disabled={!hasPickaxe}
@@ -1768,7 +1796,7 @@ export default function Inspector({
                       </span>
                     ) : (
                       <span className="text-[8.5px] font-sans font-normal text-rose-400">
-                        ⚠️ Requires pickaxe (flint/steel) in stock
+                        ⚠️ Requires pickaxe (flint/steel) in stock/caravan
                       </span>
                     )}
                   </button>

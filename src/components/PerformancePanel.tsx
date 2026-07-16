@@ -57,8 +57,8 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({ mapData, tri
   const loadedChunks = Math.ceil(gridSize / 6) * Math.ceil(gridSize / 6);
 
   // Active particles: Estimate campfire smoke, chimney smoke, smelting sparks, and dust particles
-  const campfireCount = mapData.grid?.flatMap(row => row).filter(cell => cell.structure?.type === 'Campfire').length ?? 0;
-  const smeltingCount = mapData.grid?.flatMap(row => row).filter(cell => cell.structure?.type === 'Smelter' || cell.structure?.type === 'Forge').length ?? 0;
+  const campfireCount = mapData.grid?.flatMap(row => row || []).filter(cell => cell?.structure?.type === 'Campfire').length ?? 0;
+  const smeltingCount = mapData.grid?.flatMap(row => row || []).filter(cell => cell?.structure?.type === 'Smelter' || cell?.structure?.type === 'Forge').length ?? 0;
   const activeParticles = campfireCount * 12 + smeltingCount * 25 + activeAnimals * 2 + 5;
 
   // Pathfinding Queue Size: Idle villagers awaiting next staggered scheduler tick to evaluate job targets
@@ -177,10 +177,34 @@ export const PerformancePanel: React.FC<PerformancePanelProps> = ({ mapData, tri
             </div>
           </div>
 
-          {/* Optimization State */}
-          <div className="pt-2 text-[10px] text-slate-500 flex justify-between items-center">
-            <span>STAGGERED SCHEDULES</span>
-            <span className="text-emerald-400 bg-emerald-950/40 px-1 border border-emerald-900/30 rounded">ACTIVE</span>
+          {/* Optimization State & Scalable Settings Overview */}
+          <div className="pt-2.5 space-y-1.5 text-[10px]">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 font-medium">GRAPHICS QUALITY:</span>
+              <span className={`px-1 rounded border text-[9px] font-bold ${
+                mapData.settings?.graphicsLevel === 'Low'
+                  ? 'text-rose-400 bg-rose-950/40 border-rose-900/30'
+                  : 'text-sky-400 bg-sky-950/40 border-sky-900/30'
+              }`}>
+                {(mapData.settings?.graphicsLevel || 'HIGH').toUpperCase()}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 font-medium">AI TICK RATE:</span>
+              <span className={`px-1 rounded border text-[9px] font-bold ${
+                mapData.settings?.pathfindingTickRate === 'Slow'
+                  ? 'text-emerald-450 bg-emerald-950/40 border-emerald-900/30'
+                  : mapData.settings?.pathfindingTickRate === 'Fast'
+                    ? 'text-amber-400 bg-amber-950/40 border-amber-900/30'
+                    : 'text-slate-400 bg-slate-900/40 border-slate-800/30'
+              }`}>
+                {(mapData.settings?.pathfindingTickRate || 'Normal').toUpperCase()}
+              </span>
+            </div>
+            <div className="flex justify-between items-center pt-1 border-t border-slate-900 text-[9px]">
+              <span className="text-slate-500">DYNAMIC CULLING:</span>
+              <span className="text-emerald-400 bg-emerald-950/40 px-1 border border-emerald-900/30 rounded font-bold">ACTIVE</span>
+            </div>
           </div>
         </div>
       )}

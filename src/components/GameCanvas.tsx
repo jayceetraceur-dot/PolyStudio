@@ -3,6 +3,15 @@ import * as THREE from 'three';
 import { CellInfo, MapData, TimeSpeed, Tribesperson } from '../types';
 import { BIOME_COLORS } from '../utils/worldBuilder';
 import { ambientAudioEngine } from '../utils/audioEngine';
+import {
+  createVillagerMesh,
+  updateVillagerEquipment,
+  updateVillagerAnimation,
+  createAnimalMesh,
+  updateAnimalAnimation,
+  setLatestSelectedPerson
+} from '../utils/appearanceSystems';
+
 
 function getThoughtEmoji(person: Tribesperson): string {
   if (!person.isAlive) return '💀';
@@ -52,6 +61,7 @@ interface GameCanvasProps {
   onSelectTribesperson: (person: Tribesperson | null) => void;
   focusCoordinates: { x: number; z: number } | null;
   worldId?: number;
+  onCameraMove?: (pos: { x: number; z: number }) => void;
 }
 
 export default function GameCanvas({
@@ -65,9 +75,13 @@ export default function GameCanvas({
   onSelectTribesperson,
   focusCoordinates,
   worldId,
+  onCameraMove,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const targetFocalPointRef = useRef<THREE.Vector3 | null>(null);
+  const lastCamChunkX = useRef<number | null>(null);
+  const lastCamChunkZ = useRef<number | null>(null);
+  const lastSpatialSoundTimeRef = useRef<number>(0);
 
   // Keep latest props in ref to access them inside non-reactive Three.js loop without tearing down the renderer
   const propsRef = useRef({ 
@@ -80,7 +94,8 @@ export default function GameCanvas({
     selectedTribesperson,
     onSelectTribesperson,
     focusCoordinates,
-    worldId
+    worldId,
+    onCameraMove
   });
 
   useEffect(() => {
@@ -94,9 +109,10 @@ export default function GameCanvas({
       selectedTribesperson,
       onSelectTribesperson,
       focusCoordinates,
-      worldId
+      worldId,
+      onCameraMove
     };
-  }, [mapData, selectedCell, onSelectCell, timeOfDay, timeSpeed, tribe, selectedTribesperson, onSelectTribesperson, focusCoordinates, worldId]);
+  }, [mapData, selectedCell, onSelectCell, timeOfDay, timeSpeed, tribe, selectedTribesperson, onSelectTribesperson, focusCoordinates, worldId, onCameraMove]);
   
   // One-shot camera tracking center trigger
   useEffect(() => {
@@ -114,6 +130,13 @@ export default function GameCanvas({
 
     // Direct fix for duplicates / overlay freeze - completely clear alternative/older elements:
     container.innerHTML = '';
+
+    // Hoist animating collections to avoid temporal dead zone issues inside rebuildDecorations
+    let animatingHammers: THREE.Object3D[] = [];
+    let animatingFireplaceLights: THREE.Object3D[] = [];
+    let animatingFireplaceFlames: THREE.Object3D[] = [];
+    let animatingWindows: THREE.Object3D[] = [];
+    let animatingSwayingPlants: THREE.Object3D[] = [];
 
     // --- 1. SETUP THREE.JS SCENE, CAMERA, & RENDERER ---
     const width = container.clientWidth || 800;
@@ -225,6 +248,8 @@ export default function GameCanvas({
     // --- 5. TILE/BIOME VISUAL MODELS CONTAINER ---
     // To facilitate raycasting, we track all inspectable meshes
     const cellMeshes: THREE.Object3D[] = [];
+    let trackingEntityId: string | null = null;
+    let trackingEntityType: 'person' | 'animal' | null = null;
     const entityGroup = new THREE.Group();
     scene.add(entityGroup);
 
@@ -255,6 +280,130 @@ export default function GameCanvas({
     const decorationsGroup = new THREE.Group();
     scene.add(decorationsGroup);
     let decorationMeshes: THREE.Object3D[] = [];
+    let debrisMeshes: THREE.Mesh[] = [];
+    let innerWallPanels: THREE.Mesh[] = [];
+    let outerWallPanels: THREE.Mesh[] = [];
+
+    // --- STORM WALL VISUAL GROUP ---
+    const stormWallGroup = new THREE.Group();
+    scene.add(stormWallGroup);
+
+    // Dynamic lightning PointLight to create epic ambient storm flashes
+    const stormLightningLight = new THREE.PointLight(0xa5f3fc, 0, 120, 1.2);
+    stormLightningLight.position.set(0, 8, 0);
+    stormWallGroup.add(stormLightningLight);
+
+    // stormWallMesh is now a Group so that existing code scales and rotates it seamlessly
+    const stormWallMesh = new THREE.Group();
+    stormWallGroup.add(stormWallMesh);
+
+    // Create 16 segmented panels for the inner storm wall
+    const panelsCount = 16;
+    const innerThetaLength = (Math.PI * 2) / panelsCount;
+    for (let i = 0; i < panelsCount; i++) {
+      const thetaStart = i * innerThetaLength;
+      // Cylinder segment geometry: radius 14.0, height 18.0, 2 segments
+      const geom = new THREE.CylinderGeometry(14.0, 14.0, 18.0, 2, 1, true, thetaStart, innerThetaLength);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x8c4f1c, // Desert sandstorm warm dusty orange-brown
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const panel = new THREE.Mesh(geom, mat);
+      panel.position.y = 9.0;
+      panel.userData = {
+        angle: thetaStart + innerThetaLength / 2,
+      };
+      stormWallMesh.add(panel);
+      innerWallPanels.push(panel);
+    }
+
+    // stormOuterRingMesh is also a Group
+    const stormOuterRingMesh = new THREE.Group();
+    stormWallGroup.add(stormOuterRingMesh);
+
+    // Create 16 segmented panels for the outer storm wall (slightly larger and taller)
+    const outerThetaLength = (Math.PI * 2) / panelsCount;
+    for (let i = 0; i < panelsCount; i++) {
+      const thetaStart = i * outerThetaLength;
+      // Cylinder segment geometry: radius 14.4, height 22.0
+      const geom = new THREE.CylinderGeometry(14.4, 14.4, 22.0, 2, 1, true, thetaStart, outerThetaLength);
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0x5c2f0c, // Darker surrounding storm wall
+        transparent: true,
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const panel = new THREE.Mesh(geom, mat);
+      panel.position.y = 11.0;
+      panel.userData = {
+        angle: thetaStart + outerThetaLength / 2,
+      };
+      stormOuterRingMesh.add(panel);
+      outerWallPanels.push(panel);
+    }
+
+    // Dynamic wind streak bands inside the storm wall
+    const windStreaksGroup = new THREE.Group();
+    stormWallGroup.add(windStreaksGroup);
+    const streakHeights = [2.0, 6.0, 10.0, 14.0];
+    streakHeights.forEach((h, idx) => {
+      const streakGeom = new THREE.RingGeometry(13.8 + idx * 0.15, 14.1 + idx * 0.15, 32);
+      streakGeom.rotateX(Math.PI / 2);
+      const streakMat = new THREE.MeshBasicMaterial({
+        color: 0xd97706,
+        transparent: true,
+        opacity: 0.15,
+        side: THREE.DoubleSide,
+      });
+      const streak = new THREE.Mesh(streakGeom, streakMat);
+      streak.position.y = h;
+      windStreaksGroup.add(streak);
+    });
+
+    // Create flying sandstorm dust/debris particles
+    const debrisGroup = new THREE.Group();
+    stormWallGroup.add(debrisGroup);
+    const debrisColors = [0x78350f, 0xd97706, 0x451a03, 0x78716c, 0xa16207, 0x854d0e];
+    const debrisCount = 120; // More particles for thick dust feeling
+    for (let i = 0; i < debrisCount; i++) {
+      // Use tiny tetrahedron particles for high-performance organic dust grains
+      const size = 0.03 + Math.random() * 0.09;
+      const geom = new THREE.TetrahedronGeometry(size, 0);
+      const color = debrisColors[Math.floor(Math.random() * debrisColors.length)];
+      const mat = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: 0.3 + Math.random() * 0.5,
+      });
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.userData = {
+        radiusOffset: Math.random() * 3.0 - 1.0, // orbit slightly inside or outside the wall
+        speed: (1.2 + Math.random() * 2.2) * (Math.random() > 0.45 ? 1 : -1), // move with wind direction
+        angle: Math.random() * Math.PI * 2,
+        heightPercent: Math.random(),
+        wobbleSpeed: 2.0 + Math.random() * 3.5,
+        wobbleAmount: 0.12 + Math.random() * 0.4,
+        wobbleOffset: Math.random() * Math.PI * 2,
+        rotSpeedX: 1.0 + Math.random() * 2.5,
+        rotSpeedY: 1.0 + Math.random() * 2.5,
+      };
+      debrisGroup.add(mesh);
+      debrisMeshes.push(mesh);
+    }
+
+    // Group for future path preview dots
+    const debugPathGroup = new THREE.Group();
+    scene.add(debugPathGroup);
+
+    // Group for the packing caravan cart in the diorama
+    const caravanMeshGroup = new THREE.Group();
+    scene.add(caravanMeshGroup);
+
+    let lastUserInteractionTime = 0;
 
     // Procedural Pool assets to save memory and CPU
     const geomPool = {
@@ -361,37 +510,36 @@ export default function GameCanvas({
     // --- SIGNATURE GENERATOR TO PREVENT COSTLY REBUILD CHURN ---
     const getGridDecorationsSignature = (currentMap: MapData) => {
       let signature = '';
-      if (!currentMap || !currentMap.grid) return signature;
-      const size = currentMap.grid.length;
-      for (let x = 0; x < size; x++) {
-        const row = currentMap.grid[x];
-        if (!row) continue;
-        for (let z = 0; z < size; z++) {
-          const cell = row[z];
-          if (!cell) continue;
-          if (
-            cell.hasTree ||
-            cell.hasRock ||
-            cell.hasShrub ||
-            cell.structure ||
-            cell.construction ||
-            cell.farmCrop ||
-            cell.resourceNode ||
-            cell.itemsOnGround ||
-            cell.scouted
-          ) {
-            const treePart = cell.hasTree ? 'T' + (cell.treeHeight != null ? cell.treeHeight.toFixed(1) : '1.5') : '';
-            const rockPart = cell.hasRock ? 'R' + (cell.rockSize != null ? cell.rockSize.toFixed(1) : '1.0') : '';
-            const shrubPart = cell.hasShrub ? 'S' : '';
-            const structPart = cell.structure ? 'ST' + cell.structure.type : '';
-            const constPart = cell.construction ? 'C' + cell.construction.type + (cell.construction.progress != null ? (Math.floor(cell.construction.progress / 20) * 20).toFixed(0) : '0') : '';
-            const cropPart = cell.farmCrop ? 'FC' + cell.farmCrop.type + (cell.farmCrop.stage ?? 0) : '';
-            const resPart = cell.resourceNode ? 'RN' + cell.resourceNode.type : '';
-            const itemPart = cell.itemsOnGround ? 'I' + cell.itemsOnGround.type + (cell.itemsOnGround.amount != null ? (Math.floor(cell.itemsOnGround.amount / 5) * 5).toFixed(0) : '0') : '';
-            const scoutPart = cell.scouted ? 's' : '';
-            
-            signature += `${x},${z}:${treePart}${rockPart}${shrubPart}${structPart}${constPart}${cropPart}${resPart}${itemPart}${scoutPart};`;
-          }
+      if (!currentMap) return signature;
+      
+      const loadedCells = currentMap.chunksByKey 
+        ? Object.values(currentMap.chunksByKey).filter((chunk: any) => chunk.loaded).flatMap((chunk: any) => chunk.cells.flat())
+        : (currentMap.grid ? currentMap.grid.flat().filter(cell => cell && cell.loaded !== false) : []);
+
+      for (const cell of loadedCells) {
+        if (!cell) continue;
+        if (
+          cell.hasTree ||
+          cell.hasRock ||
+          cell.hasShrub ||
+          cell.structure ||
+          cell.construction ||
+          cell.farmCrop ||
+          cell.resourceNode ||
+          cell.itemsOnGround ||
+          cell.scouted
+        ) {
+          const treePart = cell.hasTree ? 'T' + (cell.treeHeight != null ? cell.treeHeight.toFixed(1) : '1.5') : '';
+          const rockPart = cell.hasRock ? 'R' + (cell.rockSize != null ? cell.rockSize.toFixed(1) : '1.0') : '';
+          const shrubPart = cell.hasShrub ? 'S' : '';
+          const structPart = cell.structure ? 'ST' + cell.structure.type : '';
+          const constPart = cell.construction ? 'C' + cell.construction.type + (cell.construction.progress != null ? (Math.floor(cell.construction.progress / 20) * 20).toFixed(0) : '0') : '';
+          const cropPart = cell.farmCrop ? 'FC' + cell.farmCrop.type + (cell.farmCrop.stage ?? 0) : '';
+          const resPart = cell.resourceNode ? 'RN' + cell.resourceNode.type : '';
+          const itemPart = cell.itemsOnGround ? 'I' + cell.itemsOnGround.type + (cell.itemsOnGround.amount != null ? (Math.floor(cell.itemsOnGround.amount / 5) * 5).toFixed(0) : '0') : '';
+          const scoutPart = cell.scouted ? 's' : '';
+          
+          signature += `${cell.x},${cell.z}:${treePart}${rockPart}${shrubPart}${structPart}${constPart}${cropPart}${resPart}${itemPart}${scoutPart};`;
         }
       }
       return signature;
@@ -415,11 +563,16 @@ export default function GameCanvas({
       const yellowGrassInstances: { position: THREE.Vector3; scale: THREE.Vector3; rotation: THREE.Euler }[] = [];
 
       // 3. Loop and recreate assets matching live state
-      const size = currentMap.grid.length;
-      for (let x = 0; x < size; x++) {
-        for (let z = 0; z < size; z++) {
-          const cell = currentMap.grid[x][z];
-          const y = cell.height;
+      const loadedCells = currentMap.chunksByKey 
+        ? Object.values(currentMap.chunksByKey).filter((chunk: any) => chunk.loaded).flatMap((chunk: any) => chunk.cells.flat())
+        : (currentMap.grid ? currentMap.grid.flat().filter(cell => cell && cell.loaded !== false) : []);
+
+      for (const cell of loadedCells) {
+        if (!cell) continue;
+        const x = cell.x;
+        const z = cell.z;
+        const y = cell.height;
+        const startIndex = decorationsGroup.children.length;
 
           // Procedural Landmark Rendering
           if (cell.landmark) {
@@ -978,7 +1131,7 @@ export default function GameCanvas({
 
                 const scrapMesh = new THREE.Mesh(scrapGeom, scrapMat);
                 scrapMesh.position.set(x, y + cell.rockSize * (isAncientMat ? 0.125 : 0.2), z);
-                scrapMesh.rotation.set(...cell.rockRotation);
+                scrapMesh.rotation.set(cell.rockRotation[0] ?? 0, cell.rockRotation[1] ?? 0, cell.rockRotation[2] ?? 0);
                 scrapMesh.castShadow = true;
 
                 scrapMesh.userData = { cell };
@@ -1007,7 +1160,7 @@ export default function GameCanvas({
               rockMesh.position.set(x, y + cell.rockSize * 0.15, z);
               rockMesh.position.x += Math.sin(cell.rockRotation[1] * 3) * 0.12;
               rockMesh.position.z += Math.cos(cell.rockRotation[2] * 3) * 0.12;
-              rockMesh.rotation.set(...cell.rockRotation);
+              rockMesh.rotation.set(cell.rockRotation[0] ?? 0, cell.rockRotation[1] ?? 0, cell.rockRotation[2] ?? 0);
               rockMesh.scale.set(1.1, 0.85, 1.1);
               rockMesh.castShadow = true;
               rockMesh.receiveShadow = true;
@@ -1121,7 +1274,7 @@ export default function GameCanvas({
               }
 
               // Bright central seed bud core
-              const coreMat = new THREE.MeshBasicMaterial({ color: 0xff6200 }); // glowing moisture core
+              const coreMat = new THREE.MeshStandardMaterial({ color: 0xff6200, roughness: 0.8, metalness: 0.1 }); // standard moisture core
               const core = new THREE.Mesh(new THREE.DodecahedronGeometry(0.06, 0), coreMat);
               core.position.set(0, 0.12, 0);
               agaveGroup.add(core);
@@ -1136,7 +1289,7 @@ export default function GameCanvas({
               const sporeGroup = new THREE.Group();
               sporeGroup.position.set(x, y, z);
 
-              const stalkMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff }); // cyan glowing stalk
+              const stalkMat = new THREE.MeshStandardMaterial({ color: 0x00e5ff, roughness: 0.8, metalness: 0.1 }); // standard cyan stalk
               const capMat = new THREE.MeshStandardMaterial({ color: 0xb71c1c, roughness: 0.7, flatShading: true }); // red cap
 
               // Main Spore Bloom Mushroom
@@ -1169,43 +1322,61 @@ export default function GameCanvas({
 
               decorationsGroup.add(sporeGroup);
             } else {
-              // --- SAND FRUIT (Grassland/Rocky protective husk + orange geometric pulp) ---
+              // --- LUSH BERRY BUSH (Leafy green clusters with bright red berries) ---
               const fruitGroup = new THREE.Group();
               fruitGroup.position.set(x, y, z);
 
-              const huskMat = new THREE.MeshStandardMaterial({
-                color: new THREE.Color('#bd9d62'), // sand brown husk
-                roughness: 0.9,
+              const leavesMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color('#2e6f40'), // vibrant bush green
+                roughness: 0.8,
                 flatShading: true
               });
-              const pulpMat = new THREE.MeshStandardMaterial({
-                color: new THREE.Color('#ff6d00'), // glowing sweet pulp
-                roughness: 0.3,
+              
+              const berryMat = new THREE.MeshStandardMaterial({
+                color: new THREE.Color('#ff1744'), // high-contrast vibrant red dots!
+                roughness: 0.6,
                 metalness: 0.1,
-                flatShading: true
               });
 
-              // Protective split shell/husk
-              const leftHusk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 0), huskMat);
-              leftHusk.position.set(-0.04, 0.12, 0);
-              leftHusk.rotation.z = 0.2;
-              leftHusk.castShadow = true;
-              fruitGroup.add(leftHusk);
+              // Create overlapping foliage spheres to make a larger, nice bushy shape
+              const bushParts = [
+                { r: 0.38, x: 0, y: 0.28, z: 0 },
+                { r: 0.30, x: -0.22, y: 0.22, z: 0.12 },
+                { r: 0.30, x: 0.22, y: 0.24, z: -0.12 },
+                { r: 0.24, x: 0.04, y: 0.36, z: 0.18 },
+              ];
 
-              const rightHusk = new THREE.Mesh(new THREE.DodecahedronGeometry(0.15, 0), huskMat);
-              rightHusk.position.set(0.04, 0.12, 0);
-              rightHusk.rotation.z = -0.2;
-              rightHusk.castShadow = true;
-              fruitGroup.add(rightHusk);
+              bushParts.forEach((part, index) => {
+                const leafMesh = new THREE.Mesh(new THREE.TetrahedronGeometry(part.r, 0), leavesMat);
+                leafMesh.position.set(part.x, part.y, part.z);
+                leafMesh.castShadow = true;
+                leafMesh.receiveShadow = true;
+                fruitGroup.add(leafMesh);
 
-              // Bright pulp showing in the middle
-              const pulp = new THREE.Mesh(new THREE.DodecahedronGeometry(0.09, 0), pulpMat);
-              pulp.position.set(0, 0.12, 0);
-              fruitGroup.add(pulp);
+                // Register the primary bush mesh for interactions
+                if (index === 0) {
+                  leafMesh.userData = { cell, swayType: 'berrybush' };
+                  decorationMeshes.push(leafMesh);
+                  cellMeshes.push(leafMesh);
+                }
+              });
 
-              pulp.userData = { cell, swayType: 'sandfruit' };
-              decorationMeshes.push(pulp);
-              cellMeshes.push(pulp);
+              // Add prominent red berries scattered on the bush (represented by beautiful red dots)
+              const berryOffsets = [
+                { x: 0.18, y: 0.45, z: 0.10 },
+                { x: -0.30, y: 0.30, z: 0.18 },
+                { x: 0.30, y: 0.28, z: -0.10 },
+                { x: -0.08, y: 0.36, z: -0.30 },
+                { x: 0.12, y: 0.30, z: 0.30 },
+                { x: -0.18, y: 0.40, z: -0.15 },
+              ];
+
+              berryOffsets.forEach((bOffset) => {
+                const berryMesh = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.065, 0.065), berryMat);
+                berryMesh.position.set(bOffset.x, bOffset.y, bOffset.z);
+                berryMesh.castShadow = true;
+                fruitGroup.add(berryMesh);
+              });
 
               decorationsGroup.add(fruitGroup);
             }
@@ -2339,25 +2510,33 @@ export default function GameCanvas({
                 }
               }
             } else if (crop.type === 'AmberMaize') {
-              // Tall Corn Stalks with bright glowing gold ears!
-              const heightFactor = Math.min(1.1, 0.1 + (progress / 100) * 1.0);
+              // Tall Corn Stalks with bright gold ears!
+              let heightFactor = 0.08;
+              if (stage === 'sown') {
+                heightFactor = 0.05 + (progress / 100) * 0.1;
+              } else if (stage === 'growing') {
+                heightFactor = 0.15 + (progress / 100) * 0.8;
+              } else if (stage === 'harvestable') {
+                heightFactor = 1.1;
+              }
+
               const stalkMat = new THREE.MeshStandardMaterial({ color: 0x33691e, roughness: 0.85, flatShading: true });
-              const cornMat = new THREE.MeshBasicMaterial({ color: 0xffd54f }); // bright glowing yellow-gold
+              const cornMat = new THREE.MeshStandardMaterial({ color: 0xffb300, roughness: 0.7, metalness: 0.1 }); // golden-yellow corn ears
               const huskMat = new THREE.MeshStandardMaterial({ color: 0x689f38, roughness: 0.9, flatShading: true });
 
-              const numMaize = 6;
+              const numMaize = stage === 'sown' ? 3 : 6;
               for (let i = 0; i < numMaize; i++) {
                 const angle = i * (Math.PI * 2 / numMaize) + 0.15;
-                const ox = Math.cos(angle) * 0.15;
-                const oz = Math.sin(angle) * 0.15;
+                const ox = Math.cos(angle) * (stage === 'sown' ? 0.08 : 0.15);
+                const oz = Math.sin(angle) * (stage === 'sown' ? 0.08 : 0.15);
 
-                const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.022, heightFactor, 4), stalkMat);
+                const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.006, stage === 'sown' ? 0.01 : 0.022, heightFactor, 4), stalkMat);
                 stalk.position.set(ox, heightFactor / 2, oz);
                 stalk.castShadow = true;
                 cropGroup.add(stalk);
 
-                // Add corn ears halfway up the stalk if growing/ripe
-                if (progress > 45) {
+                // Add corn ears only if harvestable
+                if (stage === 'harvestable') {
                   const earG = new THREE.Group();
                   earG.position.set(ox, heightFactor * 0.55, oz);
                   
@@ -2376,60 +2555,89 @@ export default function GameCanvas({
               }
             } else if (crop.type === 'VortexCabbage') {
               // Spiraling low-poly cabbage heads on the ground
-              const cabbageSize = Math.max(0.02, (progress / 100) * 0.12);
+              let cabbageSize = 0.015;
+              if (stage === 'sown') {
+                cabbageSize = 0.01 + (progress / 100) * 0.025;
+              } else if (stage === 'growing') {
+                cabbageSize = 0.035 + (progress / 100) * 0.085;
+              } else if (stage === 'harvestable') {
+                cabbageSize = 0.12;
+              }
+
               const leafMat = new THREE.MeshStandardMaterial({ color: 0x00c853, roughness: 0.9, flatShading: true });
               const coreMat = new THREE.MeshStandardMaterial({ color: 0x69f0ae, roughness: 0.8, flatShading: true });
 
-              const numCabbages = 4;
+              const numCabbages = stage === 'sown' ? 2 : 4;
               for (let i = 0; i < numCabbages; i++) {
                 const angle = i * (Math.PI / 2) + 0.5;
-                const ox = Math.cos(angle) * 0.14;
-                const oz = Math.sin(angle) * 0.14;
+                const ox = Math.cos(angle) * (stage === 'sown' ? 0.06 : 0.14);
+                const oz = Math.sin(angle) * (stage === 'sown' ? 0.06 : 0.14);
 
                 const cabG = new THREE.Group();
                 cabG.position.set(ox, cabbageSize * 0.4, oz);
 
-                // Core sphere
-                const core = new THREE.Mesh(new THREE.SphereGeometry(cabbageSize, 5, 5), coreMat);
-                cabG.add(core);
+                if (stage === 'sown') {
+                  // Tiny seedling leaves
+                  for (let leaf = 0; leaf < 2; leaf++) {
+                    const leafM = new THREE.Mesh(new THREE.BoxGeometry(cabbageSize * 2.0, cabbageSize * 0.4, cabbageSize * 0.15), leafMat);
+                    leafM.rotation.y = (leaf * Math.PI) / 2;
+                    leafM.rotation.x = 0.1;
+                    cabG.add(leafM);
+                  }
+                } else {
+                  // Core sphere
+                  const core = new THREE.Mesh(new THREE.SphereGeometry(cabbageSize, 5, 5), coreMat);
+                  cabG.add(core);
 
-                // Outer layered leaves
-                for (let leaf = 0; leaf < 3; leaf++) {
-                  const leafM = new THREE.Mesh(new THREE.BoxGeometry(cabbageSize * 1.6, cabbageSize * 0.9, cabbageSize * 0.2), leafMat);
-                  leafM.rotation.y = (leaf * Math.PI) / 3;
-                  leafM.rotation.x = 0.15;
-                  cabG.add(leafM);
+                  // Outer layered leaves
+                  const leafCount = stage === 'growing' ? 2 : 3;
+                  for (let leaf = 0; leaf < leafCount; leaf++) {
+                    const leafM = new THREE.Mesh(new THREE.BoxGeometry(cabbageSize * 1.6, cabbageSize * 0.9, cabbageSize * 0.2), leafMat);
+                    leafM.rotation.y = (leaf * Math.PI) / 3;
+                    leafM.rotation.x = 0.15;
+                    cabG.add(leafM);
+                  }
                 }
                 cabG.castShadow = true;
                 cropGroup.add(cabG);
               }
             } else if (crop.type === 'Gemberries') {
               // Multi-branch berry shrubs with glowing crimson ruby-berries!
-              const heightFactor = Math.max(0.08, (progress / 100) * 0.45);
+              let heightFactor = 0.05;
+              if (stage === 'sown') {
+                heightFactor = 0.04 + (progress / 100) * 0.08;
+              } else if (stage === 'growing') {
+                heightFactor = 0.12 + (progress / 100) * 0.33;
+              } else if (stage === 'harvestable') {
+                heightFactor = 0.45;
+              }
+
               const branchMat = new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.95 });
               const leafMat = new THREE.MeshStandardMaterial({ color: 0x1b5e20, roughness: 0.9, flatShading: true });
-              const berryMat = new THREE.MeshBasicMaterial({ color: 0xff1744 }); // glowing high-energy crimson red!
+              const berryMat = new THREE.MeshStandardMaterial({ color: 0xff1744, roughness: 0.6, metalness: 0.1 });
 
-              const numBushes = 3;
+              const numBushes = stage === 'sown' ? 2 : 3;
               for (let i = 0; i < numBushes; i++) {
                 const angle = i * (Math.PI * 2 / numBushes) + 0.2;
-                const ox = Math.cos(angle) * 0.15;
-                const oz = Math.sin(angle) * 0.15;
+                const ox = Math.cos(angle) * (stage === 'sown' ? 0.06 : 0.15);
+                const oz = Math.sin(angle) * (stage === 'sown' ? 0.06 : 0.15);
 
                 const bushG = new THREE.Group();
                 bushG.position.set(ox, 0, oz);
 
-                const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.018, heightFactor, 4), branchMat);
+                const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.005, stage === 'sown' ? 0.008 : 0.018, heightFactor, 4), branchMat);
                 branch.position.y = heightFactor / 2;
                 bushG.add(branch);
 
-                const leaves = new THREE.Mesh(new THREE.SphereGeometry(heightFactor * 0.55, 4, 4), leafMat);
-                leaves.position.y = heightFactor * 0.8;
-                leaves.scale.set(1.1, 0.8, 1.1);
-                bushG.add(leaves);
+                if (stage !== 'sown') {
+                  const leaves = new THREE.Mesh(new THREE.SphereGeometry(heightFactor * 0.55, 4, 4), leafMat);
+                  leaves.position.y = heightFactor * 0.8;
+                  leaves.scale.set(1.1, 0.8, 1.1);
+                  bushG.add(leaves);
+                }
 
-                // Crimson glowing berries
-                if (progress > 35) {
+                // Crimson berries only when harvestable
+                if (stage === 'harvestable') {
                   for (let b = 0; b < 4; b++) {
                     const berry = new THREE.Mesh(new THREE.SphereGeometry(0.015, 3, 3), berryMat);
                     const bAngle = b * (Math.PI / 2);
@@ -2446,38 +2654,44 @@ export default function GameCanvas({
               }
             } else if (crop.type === 'Stormroot') {
               // Spiky static-grey leaves with underground storm-bulbs peeking out!
-              const sizeFactor = Math.max(0.02, (progress / 100) * 0.09);
+              let sizeFactor = 0.015;
+              if (stage === 'sown') {
+                sizeFactor = 0.01 + (progress / 100) * 0.02;
+              } else if (stage === 'growing') {
+                sizeFactor = 0.03 + (progress / 100) * 0.06;
+              } else if (stage === 'harvestable') {
+                sizeFactor = 0.09;
+              }
+
               const leafMat = new THREE.MeshStandardMaterial({ color: 0x4a148c, roughness: 0.9, flatShading: true }); // dark purple/indigo leaves
               const bulbMat = new THREE.MeshStandardMaterial({ color: 0x78909c, roughness: 0.7, flatShading: true }); // static grey corm
-              const staticMat = new THREE.MeshBasicMaterial({ color: 0x80deea }); // static spark cyan-blue glow
+              const staticMat = new THREE.MeshStandardMaterial({ color: 0x00acc1, roughness: 0.4, metalness: 0.2 }); // standard static core
 
-              const numRoots = 4;
+              const numRoots = stage === 'sown' ? 2 : 4;
               for (let i = 0; i < numRoots; i++) {
                 const angle = i * (Math.PI / 2) + 0.1;
-                const ox = Math.cos(angle) * 0.14;
-                const oz = Math.sin(angle) * 0.14;
+                const ox = Math.cos(angle) * (stage === 'sown' ? 0.06 : 0.14);
+                const oz = Math.sin(angle) * (stage === 'sown' ? 0.06 : 0.14);
 
                 const rootG = new THREE.Group();
                 rootG.position.set(ox, sizeFactor * 0.2, oz);
 
-                // Bulb peeking out
-                if (progress > 25) {
+                // Bulb peeking out only if harvestable
+                if (stage === 'harvestable') {
                   const bulb = new THREE.Mesh(new THREE.SphereGeometry(sizeFactor, 4, 4), bulbMat);
                   bulb.scale.set(1, 1.4, 1);
                   bulb.castShadow = true;
                   rootG.add(bulb);
 
-                  // Glowing static core peeking out
-                  if (progress > 60) {
-                    const spark = new THREE.Mesh(new THREE.BoxGeometry(sizeFactor * 0.4, sizeFactor * 0.4, sizeFactor * 0.4), staticMat);
-                    spark.position.y = sizeFactor * 0.7;
-                    rootG.add(spark);
-                  }
+                  const spark = new THREE.Mesh(new THREE.BoxGeometry(sizeFactor * 0.4, sizeFactor * 0.4, sizeFactor * 0.4), staticMat);
+                  spark.position.y = sizeFactor * 0.7;
+                  rootG.add(spark);
                 }
 
                 // Spiky dark leaves emerging
-                for (let leaf = 0; leaf < 4; leaf++) {
-                  const blade = new THREE.Mesh(new THREE.ConeGeometry(0.008, sizeFactor * 2.8, 3), leafMat);
+                const leafCount = stage === 'sown' ? 2 : 4;
+                for (let leaf = 0; leaf < leafCount; leaf++) {
+                  const blade = new THREE.Mesh(new THREE.ConeGeometry(0.005, sizeFactor * 2.8, 3), leafMat);
                   blade.rotation.z = (leaf % 2 === 0 ? 0.35 : -0.35);
                   blade.rotation.x = (leaf > 1 ? 0.35 : -0.35);
                   blade.position.y = sizeFactor * 0.4;
@@ -2551,16 +2765,8 @@ export default function GameCanvas({
           let grassChance = 0.0;
           let isYellow = false;
 
-          if (cell.biome === 'grassland' || cell.biome === 'forest') {
-            grassChance = 0.90; // Density increased to 90% (user requested denser grass)
-            isYellow = false;
-          } else if (cell.biome === 'desert') {
-            grassChance = 0.65; // Density increased to 65%
-            isYellow = true;
-          } else if (cell.biome === 'rocky') {
-            grassChance = 0.30; // Density increased to 30%
-            isYellow = false;
-          }
+          // Grass removed as requested by the user. Originally:
+          // if (cell.biome === 'grassland' || cell.biome === 'forest') { grassChance = 0.90; } ...
 
           if (grassChance > 0 && cell.biome !== 'water' && !cell.structure && !cell.construction) {
             // Use deterministic seeded random to prevent grass from regenerating randomly
@@ -2593,6 +2799,12 @@ export default function GameCanvas({
               }
             }
           }
+
+        const endIndex = decorationsGroup.children.length;
+        for (let i = startIndex; i < endIndex; i++) {
+          const child = decorationsGroup.children[i];
+          child.userData = child.userData || {};
+          child.userData.cell = cell;
         }
       }
 
@@ -2648,6 +2860,37 @@ export default function GameCanvas({
         decorationsGroup.add(instancedYellowGrass);
       }
 
+      // Apply storm/danger visual effects to decorations outside the Eye
+      const eyeX = currentMap.eyePos?.x ?? 60;
+      const eyeZ = currentMap.eyePos?.z ?? 60;
+      const eyeRadius = currentMap.eyeRadius ?? 14.0;
+      const insideRadiusSq = (eyeRadius + 2.0) * (eyeRadius + 2.0);
+
+      decorationsGroup.children.forEach((child) => {
+        const cell = child.userData?.cell;
+        if (cell) {
+          const dx = cell.x - eyeX;
+          const dz = cell.z - eyeZ;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > insideRadiusSq) {
+            child.traverse((node: any) => {
+              if (node.isMesh && node.material) {
+                const mats = Array.isArray(node.material) ? node.material : [node.material];
+                mats.forEach((mat) => {
+                  if (mat.color) {
+                    mat.color.lerp(new THREE.Color(0x5c3a21), 0.7); // Blend with deep storm-brown tint
+                  }
+                  if (mat.opacity !== undefined) {
+                    mat.transparent = true;
+                    mat.opacity = Math.min(mat.opacity, 0.65);
+                  }
+                });
+              }
+            });
+          }
+        }
+      });
+
       // Freeze static matrices in decorationsGroup to keep render loop fast
       decorationsGroup.traverse((child) => {
         if (child instanceof THREE.Mesh) {
@@ -2655,10 +2898,31 @@ export default function GameCanvas({
           child.matrixAutoUpdate = false;
         }
       });
+
+      // Collect animated components to avoid expensive scene traversals in the 60fps render loop
+      animatingHammers = [];
+      animatingFireplaceLights = [];
+      animatingFireplaceFlames = [];
+      animatingWindows = [];
+      animatingSwayingPlants = [];
+
+      decorationsGroup.traverse((child) => {
+        if (child.name === 'active_hammer') {
+          animatingHammers.push(child);
+        } else if (child.name === 'fireplace_light') {
+          animatingFireplaceLights.push(child);
+        } else if (child.name === 'fireplace_flame') {
+          animatingFireplaceFlames.push(child);
+        } else if (child.name === 'structure_window') {
+          animatingWindows.push(child);
+        } else if (child.userData && child.userData.swayType) {
+          animatingSwayingPlants.push(child);
+        }
+      });
     };
 
     // --- 6. RENDER PROCEDURAL LANDSCAPE GRID ---
-    const build3DWorld = () => {
+    const build3DWorld = (currentMap: MapData) => {
       // Clear previous
       cellMeshes.length = 0;
       while (entityGroup.children.length > 0) {
@@ -2666,17 +2930,18 @@ export default function GameCanvas({
         entityGroup.remove(obj);
       }
 
-      const size = mapData.grid.length;
+      const size = currentMap.grid ? currentMap.grid.length : 120;
       const centerCoord = size / 2;
 
-      // Adjust focal camera limits based on world size
-      targetFocalPoint.set(centerCoord, 1, centerCoord);
-      focalPoint.copy(targetFocalPoint);
+      // Adjust focal camera limits based on world size only if not initialized
+      if (!targetFocalPoint.x && !targetFocalPoint.z) {
+        targetFocalPoint.set(centerCoord, 1, centerCoord);
+        focalPoint.copy(targetFocalPoint);
+      }
 
       // Render a dark protective bounding bed (plateau cliff base wrapping the bottom layer)
-      // Representing our diorama frame
-      const frameThickness = 1.6;
-      const frameGeom = new THREE.BoxGeometry(size + 1.2, 5.0, size + 1.2);
+      // Representing our diorama frame - enlarged to support infinite scrolling
+      const frameGeom = new THREE.BoxGeometry(5000, 5.0, 5000);
       const dioramaFrameMat = new THREE.MeshStandardMaterial({
         color: 0x1d1e21, // elegant charcoal bedrock slab
         roughness: 0.95,
@@ -2684,80 +2949,101 @@ export default function GameCanvas({
       });
       const frameMesh = new THREE.Mesh(frameGeom, dioramaFrameMat);
       // sit lower down
-      frameMesh.position.set(centerCoord - 0.5, -3.1, centerCoord - 0.5);
+      frameMesh.position.set(60, -3.1, 60);
       frameMesh.receiveShadow = true;
       frameMesh.updateMatrix();
       frameMesh.matrixAutoUpdate = false;
       entityGroup.add(frameMesh);
 
-      // Loop through columns
-      for (let x = 0; x < size; x++) {
-        for (let z = 0; z < size; z++) {
-          const cell = mapData.grid[x][z];
-          
-          let landHeight = cell.height;
-          let isBedrockUndersea = false;
+      // Loop through loaded columns
+      const loadedCells = currentMap.chunksByKey 
+        ? Object.values(currentMap.chunksByKey).filter((chunk: any) => chunk.loaded).flatMap((chunk: any) => chunk.cells.flat())
+        : (currentMap.grid ? currentMap.grid.flat().filter(cell => cell && cell.loaded !== false) : []);
 
-          // Undersea land adjustment - create a physical basin depression
-          if (cell.biome === 'water') {
-            landHeight = Math.max(0.1, cell.height - 0.7); // sink land down to create a basin
-            isBedrockUndersea = true;
-          }
+      const eyeX = currentMap.eyePos?.x ?? 60;
+      const eyeZ = currentMap.eyePos?.z ?? 60;
+      const eyeRadius = currentMap.eyeRadius ?? 14.0;
+      const renderRadiusSq = (eyeRadius + 2.0) * (eyeRadius + 2.0);
 
-          // Create standard columnar slice
-          // Using a single grouped geometry block per tile to make it selectable
-          const baseMaterial = isBedrockUndersea ? materialCache.waterFloor : materialCache[cell.biome] || materialCache.grassland;
-          const tileMat = baseMaterial.clone() as THREE.MeshStandardMaterial;
-          
-          // Slight deterministic color jitter based on cell coordinates x and z
+      for (const cell of loadedCells) {
+        if (!cell) continue;
+        const x = cell.x;
+        const z = cell.z;
+        
+        let landHeight = cell.height;
+        let isBedrockUndersea = false;
+
+        // Undersea land adjustment - create a physical basin depression
+        if (cell.biome === 'water') {
+          landHeight = Math.max(0.1, cell.height - 0.7); // sink land down to create a basin
+          isBedrockUndersea = true;
+        }
+
+        // Create standard columnar slice
+        const baseMaterial = isBedrockUndersea ? materialCache.waterFloor : materialCache[cell.biome] || materialCache.grassland;
+        const tileMat = baseMaterial.clone() as THREE.MeshStandardMaterial;
+        
+        // Apply storm/danger tint if outside the safe Eye area
+        const dx = x - eyeX;
+        const dz = z - eyeZ;
+        const distSq = dx * dx + dz * dz;
+        if (distSq > renderRadiusSq) {
+          tileMat.color.setHex(0x52341b); // Blighted desert storm brown-rust
+          tileMat.roughness = 0.98;
+        } else {
+          // Slight deterministic color jitter inside safe area
           const tileJitterH = (Math.sin(x * 11.3 + z * 31.1) * 0.012);
           const tileJitterS = (Math.cos(x * 19.4 + z * 13.2) * 0.02);
           const tileJitterL = (Math.sin(x * 41.6 + z * 73.9) * 0.045);
           if (tileMat.color) {
             tileMat.color.offsetHSL(tileJitterH, tileJitterS, tileJitterL);
           }
+        }
 
-          const tileMesh = new THREE.Mesh(
-            geomPool.tile,
-            tileMat
-          );
-          
-          // Scale block vertically from Y=0 to elevate height
-          // Center of box must sit at landHeight / 2
-          tileMesh.scale.set(1.0, Math.max(0.1, landHeight), 1.0);
-          tileMesh.position.set(x, landHeight / 2, z);
-          tileMesh.castShadow = !isBedrockUndersea; // Sea floors don't cast shadows
-          tileMesh.receiveShadow = true;
+        const tileMesh = new THREE.Mesh(
+          geomPool.tile,
+          tileMat
+        );
+        
+        // Scale block vertically from Y=0 to elevate height
+        tileMesh.scale.set(1.0, Math.max(0.1, landHeight), 1.0);
+        tileMesh.position.set(x, landHeight / 2, z);
+        tileMesh.castShadow = !isBedrockUndersea; // Sea floors don't cast shadows
+        tileMesh.receiveShadow = true;
 
-          tileMesh.updateMatrix();
-          tileMesh.matrixAutoUpdate = false;
+        tileMesh.updateMatrix();
+        tileMesh.matrixAutoUpdate = false;
 
-          // Wire metadata user data for picking
-          tileMesh.userData = { cell };
-          entityGroup.add(tileMesh);
-          cellMeshes.push(tileMesh);
+        // Wire metadata user data for picking
+        tileMesh.userData = { cell };
+        entityGroup.add(tileMesh);
+        cellMeshes.push(tileMesh);
 
-          // Add a flat translucent aesthetic water sheet if this is sea/lake
-          if (cell.biome === 'water') {
-            const waterThickness = 0.7; // Exactly fills the basin up to the original generated cutoff level
-            const waterMesh = new THREE.Mesh(geomPool.water, translucentWaterMat);
-            
-            waterMesh.scale.set(0.98, waterThickness, 0.98);
-            waterMesh.position.set(x, landHeight + waterThickness / 2, z);
-            waterMesh.userData = { cell };
-            
-            entityGroup.add(waterMesh);
-            cellMeshes.push(waterMesh);
-
-            // Register water node to float slightly during active rendering loop
-            animatingWaterNodes.push({
-              mesh: waterMesh,
-              baseX: x,
-              baseZ: z,
-              baseY: landHeight + waterThickness / 2,
-              bounceOffset: (x * 0.4 + z * 0.6) % (Math.PI * 2),
-            });
+        // Add a flat translucent aesthetic water sheet if this is sea/lake
+        if (cell.biome === 'water') {
+          const waterThickness = 0.7; // Exactly fills the basin up to the original generated cutoff level
+          let waterMat = translucentWaterMat;
+          if (distSq > renderRadiusSq) {
+            waterMat = translucentWaterMat.clone();
+            waterMat.color.setHex(0x3e230e); // Murky/dusty sandstorm water
           }
+          const waterMesh = new THREE.Mesh(geomPool.water, waterMat);
+          
+          waterMesh.scale.set(0.98, waterThickness, 0.98);
+          waterMesh.position.set(x, landHeight + waterThickness / 2, z);
+          waterMesh.userData = { cell };
+          
+          entityGroup.add(waterMesh);
+          cellMeshes.push(waterMesh);
+
+          // Register water node to float slightly during active rendering loop
+          animatingWaterNodes.push({
+            mesh: waterMesh,
+            baseX: x,
+            baseZ: z,
+            baseY: landHeight + waterThickness / 2,
+            bounceOffset: (x * 0.4 + z * 0.6) % (Math.PI * 2),
+          });
         }
       }
 
@@ -2779,48 +3065,66 @@ export default function GameCanvas({
       }
       fishFlock.length = 0;
 
-      // 1. Locate connected water bodies (at least 2x2 grid of water tiles)
-      const visited = Array(size).fill(0).map(() => Array(size).fill(false));
+      // 1. Locate connected water bodies
+      const visited = new Set<string>();
       const waterBodies: { x: number; z: number; cell: any; seaFloorHeight: number; surfaceHeight: number }[][] = [];
 
-      for (let tx = 0; tx < size; tx++) {
-        for (let tz = 0; tz < size; tz++) {
-          const cell = mapData.grid[tx]?.[tz];
-          if (cell && cell.biome === 'water' && !visited[tx][tz]) {
-            const body: { x: number; z: number; cell: any; seaFloorHeight: number; surfaceHeight: number }[] = [];
-            const queue: [number, number][] = [[tx, tz]];
-            visited[tx][tz] = true;
+      // Helper function to safely fetch cells by world coordinate
+      const getCellAtWorld = (currentMap: MapData, cx: number, cz: number) => {
+        if (currentMap.chunksByKey) {
+          const chunkX = Math.floor(cx / 6);
+          const chunkZ = Math.floor(cz / 6);
+          const chunkKey = `${chunkX},${chunkZ}`;
+          const chunk = currentMap.chunksByKey[chunkKey];
+          if (chunk) {
+            const lx = cx - chunk.chunkX * 6;
+            const lz = cz - chunk.chunkZ * 6;
+            return chunk.cells[lx]?.[lz] || null;
+          }
+          return null;
+        }
+        return currentMap.grid?.[cx]?.[cz] || null;
+      };
 
-            while (queue.length > 0) {
-              const [cx, cz] = queue.shift()!;
-              const cCell = mapData.grid[cx]?.[cz];
-              if (cCell) {
-                const seaFloor = Math.max(0.1, cCell.height - 0.7);
-                const surface = cCell.height;
-                body.push({ x: cx, z: cz, cell: cCell, seaFloorHeight: seaFloor, surfaceHeight: surface });
-              }
+      for (const cell of loadedCells) {
+        if (!cell || cell.biome !== 'water') continue;
+        const tx = cell.x;
+        const tz = cell.z;
+        const key = `${tx},${tz}`;
+        if (visited.has(key)) continue;
 
-              const dirs = [
-                [-1, 0], [1, 0], [0, -1], [0, 1]
-              ];
-              for (const [dx, dz] of dirs) {
-                const nx = cx + dx;
-                const nz = cz + dz;
-                if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
-                  const nCell = mapData.grid[nx]?.[nz];
-                  if (nCell && nCell.biome === 'water' && !visited[nx][nz]) {
-                    visited[nx][nz] = true;
-                    queue.push([nx, nz]);
-                  }
-                }
-              }
-            }
+        const body: { x: number; z: number; cell: any; seaFloorHeight: number; surfaceHeight: number }[] = [];
+        const queue: [number, number][] = [[tx, tz]];
+        visited.add(key);
 
-            // Require at least a 2x2 grid of water cells (size >= 4 contiguously)
-            if (body.length >= 4) {
-              waterBodies.push(body);
+        while (queue.length > 0) {
+          const [cx, cz] = queue.shift()!;
+          const cCell = getCellAtWorld(currentMap, cx, cz);
+          if (cCell) {
+            const seaFloor = Math.max(0.1, cCell.height - 0.7);
+            const surface = cCell.height;
+            body.push({ x: cx, z: cz, cell: cCell, seaFloorHeight: seaFloor, surfaceHeight: surface });
+          }
+
+          const dirs = [
+            [-1, 0], [1, 0], [0, -1], [0, 1]
+          ];
+          for (const [dx, dz] of dirs) {
+            const nx = cx + dx;
+            const nz = cz + dz;
+            const nKey = `${nx},${nz}`;
+            
+            const nCell = getCellAtWorld(currentMap, nx, nz);
+            if (nCell && nCell.loaded !== false && nCell.biome === 'water' && !visited.has(nKey)) {
+              visited.add(nKey);
+              queue.push([nx, nz]);
             }
           }
+        }
+
+        // Require at least a 2x2 grid of water cells (size >= 4 contiguously)
+        if (body.length >= 4) {
+          waterBodies.push(body);
         }
       }
 
@@ -2914,7 +3218,7 @@ export default function GameCanvas({
       rebuildDecorations(mapData, 0);
     };
 
-    build3DWorld();
+    build3DWorld(mapData);
 
     // --- 8. FLOATING SELECTOR INDICATOR ---
     const selectorGeom = new THREE.RingGeometry(0.55, 0.63, 6);
@@ -2946,10 +3250,16 @@ export default function GameCanvas({
     // --- 9. EVENT LISTENERS: CAMERA NAVIGATION & DRAGS ---
     const handleKeyDown = (e: KeyboardEvent) => {
       const k = e.key.toLowerCase();
+      if (['w', 'arrowup', 's', 'arrowdown', 'a', 'arrowleft', 'd', 'arrowright'].includes(k)) {
+        trackingEntityId = null;
+        trackingEntityType = null;
+      }
       if (k === 'w' || k === 'arrowup') keysPressed['w'] = true;
       if (k === 's' || k === 'arrowdown') keysPressed['s'] = true;
       if (k === 'a' || k === 'arrowleft') keysPressed['a'] = true;
       if (k === 'd' || k === 'arrowright') keysPressed['d'] = true;
+      if (k === 'q') keysPressed['q'] = true;
+      if (k === 'e') keysPressed['e'] = true;
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -2958,6 +3268,8 @@ export default function GameCanvas({
       if (k === 's' || k === 'arrowdown') keysPressed['s'] = false;
       if (k === 'a' || k === 'arrowleft') keysPressed['a'] = false;
       if (k === 'd' || k === 'arrowright') keysPressed['d'] = false;
+      if (k === 'q') keysPressed['q'] = false;
+      if (k === 'e') keysPressed['e'] = false;
     };
 
     const handleMouseDown = (e: MouseEvent) => {
@@ -2986,6 +3298,10 @@ export default function GameCanvas({
       else if (mouseDownButton === 0) {
         const sens = 0.04;
         
+        // Cancel camera tracking on manual drag panning
+        trackingEntityId = null;
+        trackingEntityType = null;
+
         // Calculate camera forward & right alignment in world space
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         forward.y = 0; // flatten
@@ -3017,6 +3333,24 @@ export default function GameCanvas({
     // Block right-click browser menu to permit flawless RTS right-click camera orbiting
     const preventContextMenu = (e: Event) => e.preventDefault();
 
+    // Fetch cell at coordinate position supporting both flat grid and chunk-based systems
+    const getCellAtWorldLoc = (m: MapData, tx: number, tz: number) => {
+      if (!m) return null;
+      if (m.chunksByKey) {
+        const chunkX = Math.floor(tx / 6);
+        const chunkZ = Math.floor(tz / 6);
+        const chunkKey = `${chunkX},${chunkZ}`;
+        const chunk = m.chunksByKey[chunkKey];
+        if (chunk) {
+          const lx = tx - chunk.chunkX * 6;
+          const lz = tz - chunk.chunkZ * 6;
+          return chunk.cells[lx]?.[lz] || null;
+        }
+        return null;
+      }
+      return m.grid?.[tx]?.[tz] || null;
+    };
+
     // Raycast click picker
     const raycaster = new THREE.Raycaster();
     const mouseRelativePos = new THREE.Vector2();
@@ -3039,18 +3373,23 @@ export default function GameCanvas({
       mouseRelativePos.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(mouseRelativePos, camera);
-      const intersects = raycaster.intersectObjects(cellMeshes, true);
+      const intersects = raycaster.intersectObjects([...cellMeshes, ...actorGroup.children], true);
 
       if (intersects.length > 0) {
         // Retrieve cell or tribesperson bind metadata of picked node
         let cellObj: THREE.Object3D | null = intersects[0].object;
         let cellData: CellInfo | null = null;
         let personData: Tribesperson | null = null;
+        let animalData: any = null;
         
         while (cellObj) {
           if (cellObj.userData) {
             if (cellObj.userData.person) {
               personData = cellObj.userData.person;
+              break;
+            }
+            if (cellObj.userData.animal) {
+              animalData = cellObj.userData.animal;
               break;
             }
             if (cellObj.userData.cell) {
@@ -3064,14 +3403,88 @@ export default function GameCanvas({
         if (personData) {
           propsRef.current.onSelectTribesperson(personData);
           propsRef.current.onSelectCell(null);
+          if (trackingEntityId !== personData.id) {
+            trackingEntityId = null;
+            trackingEntityType = null;
+          }
+        } else if (animalData) {
+          const mapData = propsRef.current.mapData;
+          if (mapData) {
+            const ax = Math.round(animalData.x);
+            const az = Math.round(animalData.z);
+            const cellAtAnimal = getCellAtWorldLoc(mapData, ax, az);
+            if (cellAtAnimal) {
+              propsRef.current.onSelectCell(cellAtAnimal);
+              propsRef.current.onSelectTribesperson(null);
+            }
+          }
+          if (trackingEntityId !== animalData.id) {
+            trackingEntityId = null;
+            trackingEntityType = null;
+          }
         } else if (cellData) {
           propsRef.current.onSelectCell(cellData);
           propsRef.current.onSelectTribesperson(null);
+          trackingEntityId = null;
+          trackingEntityType = null;
         }
       } else {
         // Clear click empty region
         propsRef.current.onSelectCell(null);
         propsRef.current.onSelectTribesperson(null);
+        trackingEntityId = null;
+        trackingEntityType = null;
+      }
+    };
+
+    const handleCanvasDblClick = (e: MouseEvent) => {
+      if (mouseDownButton !== -1 && mouseDownButton !== 0) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseRelativePos.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRelativePos.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouseRelativePos, camera);
+      const intersects = raycaster.intersectObjects([...cellMeshes, ...actorGroup.children], true);
+
+      if (intersects.length > 0) {
+        let cellObj: THREE.Object3D | null = intersects[0].object;
+        let personData: Tribesperson | null = null;
+        let animalData: any = null;
+        
+        while (cellObj) {
+          if (cellObj.userData) {
+            if (cellObj.userData.person) {
+              personData = cellObj.userData.person;
+              break;
+            }
+            if (cellObj.userData.animal) {
+              animalData = cellObj.userData.animal;
+              break;
+            }
+          }
+          cellObj = cellObj.parent;
+        }
+
+        if (personData) {
+          trackingEntityId = personData.id;
+          trackingEntityType = 'person';
+          propsRef.current.onSelectTribesperson(personData);
+          propsRef.current.onSelectCell(null);
+        } else if (animalData) {
+          trackingEntityId = animalData.id;
+          trackingEntityType = 'animal';
+          const mapData = propsRef.current.mapData;
+          if (mapData) {
+            const ax = Math.round(animalData.x);
+            const az = Math.round(animalData.z);
+            const cellAtAnimal = getCellAtWorldLoc(mapData, ax, az);
+            if (cellAtAnimal) {
+              propsRef.current.onSelectCell(cellAtAnimal);
+              propsRef.current.onSelectTribesperson(null);
+            }
+          }
+        }
       }
     };
 
@@ -3084,6 +3497,7 @@ export default function GameCanvas({
     renderer.domElement.addEventListener('wheel', handleWheel, { passive: false });
     renderer.domElement.addEventListener('contextmenu', preventContextMenu);
     renderer.domElement.addEventListener('click', handleCanvasClick);
+    renderer.domElement.addEventListener('dblclick', handleCanvasDblClick);
 
     // Initial load finish confirmation
     setIsReady(true);
@@ -3093,6 +3507,33 @@ export default function GameCanvas({
     let frameId: number;
     let lastRenderedMapDataRef: MapData | null = null;
     let lastGridSignature = '';
+    let lastLoadedChunksSignature = '';
+    let lastChunkLoadToken = -1;
+    let lastDecorationsRevision = -1;
+    let frameCount = 0;
+
+    const getLoadedChunksSignature = (currentMap: MapData) => {
+      let signature = '';
+      if (!currentMap) return signature;
+      if (currentMap.chunksByKey) {
+        for (const [key, chunk] of Object.entries(currentMap.chunksByKey)) {
+          if (chunk.loaded) {
+            signature += `${key};`;
+          }
+        }
+      } else if (currentMap.grid) {
+        const size = currentMap.grid.length;
+        for (let x = 0; x < size; x += 6) {
+          for (let z = 0; z < size; z += 6) {
+            const cell = currentMap.grid[x]?.[z];
+            if (cell && cell.loaded !== false) {
+              signature += `${Math.floor(x/6)},${Math.floor(z/6)};`;
+            }
+          }
+        }
+      }
+      return signature;
+    };
 
     const animateLoop = () => {
       frameId = requestAnimationFrame(animateLoop);
@@ -3102,13 +3543,43 @@ export default function GameCanvas({
 
       const latestProps = propsRef.current;
 
-      // Realtime Decoration Sync: trigger when game state triggers structural/decoration changes
+      // Realtime Chunk & Decoration Sync using ultra-fast revision tokens
       if (latestProps.mapData) {
-        const currentSig = getGridDecorationsSignature(latestProps.mapData);
-        if (currentSig !== lastGridSignature) {
-          lastGridSignature = currentSig;
-          rebuildDecorations(latestProps.mapData, elapsed);
+        const chunkLoadToken = latestProps.mapData.chunkLoadToken ?? 0;
+        const decorationsRev = latestProps.mapData.decorationsRevision ?? 0;
+
+        let needsWorldRebuild = chunkLoadToken !== lastChunkLoadToken;
+        let needsDecorationsRebuild = decorationsRev !== lastDecorationsRevision;
+
+        // Fallback staggered check (every 30 frames) to be 100% sure we didn't miss any direct modifications
+        frameCount++;
+        if (frameCount >= 30) {
+          frameCount = 0;
+          
+          const currentChunksSig = getLoadedChunksSignature(latestProps.mapData);
+          if (currentChunksSig !== lastLoadedChunksSignature) {
+            lastLoadedChunksSignature = currentChunksSig;
+            needsWorldRebuild = true;
+          }
+
+          const currentSig = getGridDecorationsSignature(latestProps.mapData);
+          if (currentSig !== lastGridSignature) {
+            lastGridSignature = currentSig;
+            needsDecorationsRebuild = true;
+          }
         }
+
+        if (needsWorldRebuild) {
+          lastChunkLoadToken = chunkLoadToken;
+          build3DWorld(latestProps.mapData); // Rebuild 3D terrain tiles dynamically!
+          needsDecorationsRebuild = true; // Always rebuild decorations when world chunks change
+        }
+
+        if (needsDecorationsRebuild) {
+          lastDecorationsRevision = decorationsRev;
+          rebuildDecorations(latestProps.mapData, elapsed); // Rebuild decoration meshes!
+        }
+        
         lastRenderedMapDataRef = latestProps.mapData;
       }
 
@@ -3127,67 +3598,73 @@ export default function GameCanvas({
         fireplaceGlowFactor = 1.0;
       }
 
-      // Rotate active workshop hammers and apply dynamic wind sways to alien plants on every frame!
-      scene.traverse((child) => {
-        if (child.name === 'active_hammer') {
-          child.rotation.z = Math.sin(elapsed * 12.0) * 0.45 + 0.35;
-        } else if (child.name === 'fireplace_light' && child instanceof THREE.PointLight) {
-          // dim light in the daytime
-          child.intensity = 0.02 + 2.48 * fireplaceGlowFactor; // ranges from 0.02 (day) to 2.5 (night)
-          child.distance = 1.2 + 4.8 * fireplaceGlowFactor;    // ranges from 1.2 (day) to 6.0 (night)
-        } else if (child.name === 'fireplace_flame' && child instanceof THREE.Mesh) {
-          // make flame smaller in the daytime + add some subtle flicker
-          const baseScale = 0.18 + 0.82 * fireplaceGlowFactor; // ranges from 0.18 (day) to 1.0 (night)
-          const flicker = Math.sin(elapsed * 24.0) * 0.02;
-          const scaleVal = Math.max(0.1, baseScale + flicker);
-          child.scale.set(scaleVal, scaleVal, scaleVal);
-        } else if (child.name === 'structure_window' && child instanceof THREE.Mesh) {
-          // Gradual illumination of windows at night:
-          // Fully unlit in daytime, smoothly scaling to 2.5 emission intensity at night.
-          let windowLightFactor = 0;
-          if (tOfDay >= 0.7 && tOfDay < 0.85) {
-            // dusk golden glow fade-in
-            windowLightFactor = (tOfDay - 0.7) / 0.15;
-          } else if (tOfDay >= 0.85 || tOfDay < 0.2) {
-            // night broad glow
-            windowLightFactor = 1.0;
-          } else if (tOfDay >= 0.2 && tOfDay < 0.35) {
-            // dawn golden glow fade-out
-            windowLightFactor = 1.0 - (tOfDay - 0.2) / 0.15;
-          }
-          if (child.material && 'emissiveIntensity' in child.material) {
-            (child.material as any).emissiveIntensity = windowLightFactor * 2.5;
-          }
-        } else if (child.userData && child.userData.swayType) {
-          // Apply custom wind-sway mechanics depending on botanical classification
+      // Read graphics quality setting to toggle expensive features on the fly
+      const isLowGraphics = latestProps.mapData?.settings?.graphicsLevel === 'Low';
+      if (sunLight) sunLight.castShadow = !isLowGraphics;
+      if (moonLight) moonLight.castShadow = !isLowGraphics;
+
+      // Rotate active workshop hammers
+      animatingHammers.forEach((child) => {
+        child.rotation.z = Math.sin(elapsed * 12.0) * 0.45 + 0.35;
+      });
+
+      // Animate fireplace lights (dim/distance depending on day/night)
+      animatingFireplaceLights.forEach((child) => {
+        if (child instanceof THREE.PointLight) {
+          child.intensity = 0.02 + 2.48 * fireplaceGlowFactor;
+          child.distance = 1.2 + 4.8 * fireplaceGlowFactor;
+        }
+      });
+
+      // Animate fireplace flames (scaling + flicker)
+      animatingFireplaceFlames.forEach((child) => {
+        const baseScale = 0.18 + 0.82 * fireplaceGlowFactor;
+        const flicker = Math.sin(elapsed * 24.0) * 0.02;
+        const scaleVal = Math.max(0.1, baseScale + flicker);
+        child.scale.set(scaleVal, scaleVal, scaleVal);
+      });
+
+      // Gradually illuminate structure windows at night
+      animatingWindows.forEach((child) => {
+        let windowLightFactor = 0;
+        if (tOfDay >= 0.7 && tOfDay < 0.85) {
+          windowLightFactor = (tOfDay - 0.7) / 0.15;
+        } else if (tOfDay >= 0.85 || tOfDay < 0.2) {
+          windowLightFactor = 1.0;
+        } else if (tOfDay >= 0.2 && tOfDay < 0.35) {
+          windowLightFactor = 1.0 - (tOfDay - 0.2) / 0.15;
+        }
+        const mesh = child as any;
+        if (mesh.material && 'emissiveIntensity' in mesh.material) {
+          mesh.material.emissiveIntensity = windowLightFactor * 2.5;
+        }
+      });
+
+      // Apply dynamic wind sways to plants (completely disabled on low graphics to save massive CPU)
+      if (!isLowGraphics) {
+        animatingSwayingPlants.forEach((child) => {
           const sType = child.userData.swayType;
           const px = child.position.x + (child.parent?.position.x ?? 0);
           const pz = child.position.z + (child.parent?.position.z ?? 0);
 
           if (sType === 'whipgrass') {
-            // Whipgrass: Long, highly flexible, bends deeply and rapidly in the wind
             child.rotation.z = Math.sin(elapsed * 3.6 + px * 1.5) * 0.12;
             child.rotation.x = Math.cos(elapsed * 3.2 + pz * 1.2) * 0.08;
           } else if (sType === 'rootweave') {
-            // Rootweave Grass: Low, spiky, and slightly stiff
             child.rotation.z = Math.sin(elapsed * 2.4 + px * 2.0) * 0.045;
           } else if (sType === 'dunethorn') {
-            // Dune Thorn: Thick, heavy gnarled woody branches with high wind resistance
             child.rotation.z = Math.sin(elapsed * 1.2 + px * 0.8) * 0.016;
             child.rotation.x = Math.cos(elapsed * 1.1 + pz * 0.8) * 0.012;
           } else if (sType === 'succulent') {
-            // Armored Succulent: Thick, water-heavy leaf structures that sway extremely slowly
             child.rotation.z = Math.sin(elapsed * 0.8 + px * 0.5) * 0.01;
           } else if (sType === 'sporebloom') {
-            // Spore Bloom: Rubber-like stalk, elastic bobbing cap
             child.rotation.z = Math.sin(elapsed * 2.8 + px * 1.8) * 0.04;
             child.rotation.y = Math.cos(elapsed * 1.4) * 0.03;
           } else if (sType === 'sandfruit') {
-            // Sand Fruit: Thick protective husks swaying subtly
             child.rotation.z = Math.sin(elapsed * 1.6 + px * 1.2) * 0.02;
           }
-        }
-      });
+        });
+      }
 
       // 1. WASD camera target shifting (relative to current theta angle)
       const moveSpeed = 0.35 * (cameraDistance / 28);
@@ -3215,13 +3692,372 @@ export default function GameCanvas({
         shiftVector.addScaledVector(rightDir, moveSpeed);
       }
 
-      // Keep focus bounds within map size margins to keep diorama centered
-      const margin = 5;
-      const sizeLimit = latestProps.mapData.grid.length;
+      // Q and E rotation
+      const rotSpeed = 1.5 * delta;
+      if (keysPressed['q']) {
+        targetTheta -= rotSpeed;
+      }
+      if (keysPressed['e']) {
+        targetTheta += rotSpeed;
+      }
+
+      // Keep focus bounds within map size margins to keep diorama centered - expanded for procedural scroll
+      const minLimit = -1000;
+      const maxLimit = 2000;
       
       targetFocalPoint.add(shiftVector);
-      targetFocalPoint.x = Math.max(-margin, Math.min(sizeLimit + margin, targetFocalPoint.x));
-      targetFocalPoint.z = Math.max(-margin, Math.min(sizeLimit + margin, targetFocalPoint.z));
+      targetFocalPoint.x = Math.max(minLimit, Math.min(maxLimit, targetFocalPoint.x));
+      targetFocalPoint.z = Math.max(minLimit, Math.min(maxLimit, targetFocalPoint.z));
+
+      // Convert camera position to chunk coordinates and trigger loading if it shifts
+      const camChunkX = Math.floor(targetFocalPoint.x / 6);
+      const camChunkZ = Math.floor(targetFocalPoint.z / 6);
+      if (camChunkX !== lastCamChunkX.current || camChunkZ !== lastCamChunkZ.current) {
+        lastCamChunkX.current = camChunkX;
+        lastCamChunkZ.current = camChunkZ;
+        if (latestProps.onCameraMove) {
+          latestProps.onCameraMove({ x: targetFocalPoint.x, z: targetFocalPoint.z });
+        }
+      }
+
+      // --- 1.5 Smoothly track Entity (or Eye center position when not active with keyboard or dragging) ---
+      const keysUsed = keysPressed['w'] || keysPressed['a'] || keysPressed['s'] || keysPressed['d'];
+      if (keysUsed) {
+        lastUserInteractionTime = elapsed;
+        trackingEntityId = null;
+        trackingEntityType = null;
+      }
+
+      // Check external selected entity change to keep tracking in sync
+      const currentSelectedPersonId = latestProps.selectedTribesperson?.id || null;
+      if (trackingEntityType === 'person' && trackingEntityId !== currentSelectedPersonId) {
+        trackingEntityId = null;
+        trackingEntityType = null;
+      }
+      const currentSelectedCellCoords = latestProps.selectedCell ? `${latestProps.selectedCell.x},${latestProps.selectedCell.z}` : null;
+      if (trackingEntityType === 'animal') {
+        const trackedAnimal = latestProps.mapData?.animals?.find((a: any) => a.id === trackingEntityId);
+        if (trackedAnimal) {
+          const ax = Math.round(trackedAnimal.x);
+          const az = Math.round(trackedAnimal.z);
+          if (currentSelectedCellCoords !== `${ax},${az}`) {
+            trackingEntityId = null;
+            trackingEntityType = null;
+          }
+        } else {
+          trackingEntityId = null;
+          trackingEntityType = null;
+        }
+      }
+
+      let entityTargetX: number | null = null;
+      let entityTargetZ: number | null = null;
+
+      if (trackingEntityId) {
+        if (trackingEntityType === 'person') {
+          const person = latestProps.tribe?.find((t: any) => t.id === trackingEntityId);
+          if (person && person.isAlive) {
+            entityTargetX = person.x;
+            entityTargetZ = person.z;
+          } else {
+            trackingEntityId = null;
+            trackingEntityType = null;
+          }
+        } else if (trackingEntityType === 'animal') {
+          const animal = latestProps.mapData?.animals?.find((a: any) => a.id === trackingEntityId);
+          if (animal && !animal.isDead) {
+            entityTargetX = animal.x;
+            entityTargetZ = animal.z;
+          } else {
+            trackingEntityId = null;
+            trackingEntityType = null;
+          }
+        }
+      }
+
+      if (entityTargetX !== null && entityTargetZ !== null) {
+        targetFocalPoint.x = entityTargetX;
+        targetFocalPoint.z = entityTargetZ;
+      } else {
+        const hasEyePos = latestProps.mapData?.eyePos !== undefined;
+        const isMigrating = latestProps.mapData?.eyeMovementState === 'migrating';
+
+        if (hasEyePos && (elapsed - lastUserInteractionTime > 3.0 || isMigrating)) {
+          const eyeX = latestProps.mapData.eyePos.x;
+          const eyeZ = latestProps.mapData.eyePos.z;
+          targetFocalPoint.x += (eyeX - targetFocalPoint.x) * 0.04;
+          targetFocalPoint.z += (eyeZ - targetFocalPoint.z) * 0.04;
+        }
+      }
+
+      // --- 1.6 Update Storm Wall position, scale, and spin rotation ---
+      if (latestProps.mapData) {
+        const eyeX = latestProps.mapData.eyePos?.x ?? 60;
+        const eyeZ = latestProps.mapData.eyePos?.z ?? 60;
+        const eyeRadius = latestProps.mapData.eyeRadius ?? 14.0;
+
+        stormWallGroup.position.set(eyeX, 0, eyeZ);
+
+        // Cylinder base radius in geom is 14.0
+        const scaleFactor = eyeRadius / 14.0;
+        stormWallMesh.scale.set(scaleFactor, 1.0, scaleFactor);
+        stormOuterRingMesh.scale.set(scaleFactor, 1.0, scaleFactor);
+
+        // Rotations
+        stormWallMesh.rotation.y = -elapsed * 0.08;
+        stormOuterRingMesh.rotation.y = elapsed * 0.22;
+
+        // Dynamic Lightning flickers/flashes inside the sandstorm
+        if (Math.random() < 0.012) {
+          stormLightningLight.intensity = 1.8 + Math.random() * 2.2;
+          // Randomly position the lightning point inside the storm wall to create asymmetric glow
+          const flashAngle = Math.random() * Math.PI * 2;
+          stormLightningLight.position.set(Math.cos(flashAngle) * eyeRadius, 4.0 + Math.random() * 8.0, Math.sin(flashAngle) * eyeRadius);
+        } else {
+          stormLightningLight.intensity *= 0.82; // rapid decay for snappy flashes
+        }
+
+        // Camera-facing opacity fading for inner and outer panels to keep center village readable
+        const camAngle = Math.atan2(camera.position.z - eyeZ, camera.position.x - eyeX);
+        const fadeRange = Math.PI / 1.8; // Wider smooth fade window (around 100 degrees)
+
+        innerWallPanels.forEach((panel) => {
+          const baseAngle = panel.userData.angle;
+          const worldAngle = baseAngle + stormWallMesh.rotation.y;
+          // Map Three.js cylinder angle to standard polar angle
+          const panelPolarAngle = Math.atan2(Math.cos(worldAngle), Math.sin(worldAngle));
+          
+          let diff = Math.abs(panelPolarAngle - camAngle);
+          diff = diff % (Math.PI * 2);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+          const minOpacity = 0.02; // extremely low opacity so it does not block the view
+          const maxOpacity = 0.45;
+
+          if (diff < fadeRange) {
+            const ratio = diff / fadeRange;
+            (panel.material as THREE.MeshBasicMaterial).opacity = minOpacity + ratio * (maxOpacity - minOpacity);
+          } else {
+            (panel.material as THREE.MeshBasicMaterial).opacity = maxOpacity;
+          }
+        });
+
+        outerWallPanels.forEach((panel) => {
+          const baseAngle = panel.userData.angle;
+          const worldAngle = baseAngle + stormOuterRingMesh.rotation.y;
+          // Map Three.js cylinder angle to standard polar angle
+          const panelPolarAngle = Math.atan2(Math.cos(worldAngle), Math.sin(worldAngle));
+          
+          let diff = Math.abs(panelPolarAngle - camAngle);
+          diff = diff % (Math.PI * 2);
+          if (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+          const minOpacity = 0.01;
+          const maxOpacity = 0.35;
+
+          if (diff < fadeRange) {
+            const ratio = diff / fadeRange;
+            (panel.material as THREE.MeshBasicMaterial).opacity = minOpacity + ratio * (maxOpacity - minOpacity);
+          } else {
+            (panel.material as THREE.MeshBasicMaterial).opacity = maxOpacity;
+          }
+        });
+
+        // Orbit and animate the sandstorm debris around the storm wall boundary
+        debrisMeshes.forEach((mesh) => {
+          const ud = mesh.userData;
+          ud.angle += delta * ud.speed;
+          
+          const currentRadius = eyeRadius + ud.radiusOffset;
+          const wobble = Math.sin(elapsed * ud.wobbleSpeed + ud.wobbleOffset) * ud.wobbleAmount;
+          
+          const posX = Math.cos(ud.angle) * currentRadius;
+          const posZ = Math.sin(ud.angle) * currentRadius;
+          const posY = 0.5 + ud.heightPercent * 16.0 + wobble;
+          
+          mesh.position.set(posX, posY, posZ);
+          
+          mesh.rotation.x += delta * (ud.rotSpeedX || 2.0);
+          mesh.rotation.y += delta * (ud.rotSpeedY || 1.5);
+        });
+      }
+
+      // --- 1.6.5 Update and Render Caravan Wagon/Cart in Diorama ---
+      let fireplacePos: { x: number; y: number; z: number } | null = null;
+      if (latestProps.mapData?.grid) {
+        const size = latestProps.mapData.grid.length;
+        for (let r = 0; r < size; r++) {
+          const row = latestProps.mapData.grid[r];
+          if (row) {
+            for (let c = 0; c < size; c++) {
+              const cell = row[c];
+              if (cell && cell.structure?.type === 'Fireplace') {
+                fireplacePos = { x: r, y: cell.height, z: c };
+                break;
+              }
+            }
+          }
+          if (fireplacePos) break;
+        }
+      }
+
+      const isTraveling = latestProps.mapData?.isMigrationTravelActive;
+      const caravanPos = latestProps.mapData?.caravanPos;
+      const bigBeastTamedAndTransport = latestProps.mapData?.animals?.filter((ani: any) => 
+        ani.isTame && 
+        ani.assignedJobType === 'transport' && 
+        !['JackLeaper', 'TuskedShagBeast', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle', 'Rabbit', 'Sheep', 'WildGoat'].includes(ani.type)
+      ) || [];
+
+      if ((fireplacePos && latestProps.mapData?.isPackingCaravan) || (isTraveling && caravanPos && bigBeastTamedAndTransport.length > 0)) {
+        caravanMeshGroup.visible = true;
+        if (isTraveling && caravanPos) {
+          caravanMeshGroup.position.set(caravanPos.x, 0.45, caravanPos.z);
+          
+          if (latestProps.mapData?.eyeTargetPos) {
+            const dx = latestProps.mapData.eyeTargetPos.x - caravanPos.x;
+            const dz = latestProps.mapData.eyeTargetPos.z - caravanPos.z;
+            caravanMeshGroup.rotation.y = Math.atan2(dx, dz) + Math.PI;
+          }
+        } else if (fireplacePos) {
+          caravanMeshGroup.position.set(fireplacePos.x + 1.2, fireplacePos.y + 0.1, fireplacePos.z + 1.2);
+          caravanMeshGroup.rotation.y = 0;
+        }
+        
+        const progress = latestProps.mapData.packingProgress ?? 0;
+        const progressKey = `${progress}_${latestProps.mapData.caravanInventory.items ? Object.keys(latestProps.mapData.caravanInventory.items).length : 0}`;
+        if ((caravanMeshGroup as any).lastProgressKey !== progressKey) {
+          (caravanMeshGroup as any).lastProgressKey = progressKey;
+          
+          // Clear children safely
+          while (caravanMeshGroup.children.length > 0) {
+            const child = caravanMeshGroup.children[0];
+            if ((child as any).geometry) (child as any).geometry.dispose();
+            if ((child as any).material) {
+              if (Array.isArray((child as any).material)) {
+                (child as any).material.forEach((m: any) => m.dispose());
+              } else {
+                (child as any).material.dispose();
+              }
+            }
+            caravanMeshGroup.remove(child);
+          }
+          
+          // Platform
+          const platGeom = new THREE.BoxGeometry(1.4, 0.15, 2.0);
+          const platMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9, flatShading: true });
+          const platform = new THREE.Mesh(platGeom, platMat);
+          platform.position.y = 0.35;
+          caravanMeshGroup.add(platform);
+          
+          // Wheels
+          const wheelGeom = new THREE.CylinderGeometry(0.35, 0.35, 0.15, 8);
+          wheelGeom.rotateZ(Math.PI / 2);
+          const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.8, flatShading: true });
+          const wheelFL = new THREE.Mesh(wheelGeom, wheelMat);
+          wheelFL.position.set(-0.75, 0.35, 0.6);
+          const wheelFR = new THREE.Mesh(wheelGeom, wheelMat);
+          wheelFR.position.set(0.75, 0.35, 0.6);
+          const wheelBL = new THREE.Mesh(wheelGeom, wheelMat);
+          wheelBL.position.set(-0.75, 0.35, -0.6);
+          const wheelBR = new THREE.Mesh(wheelGeom, wheelMat);
+          wheelBR.position.set(0.75, 0.35, -0.6);
+          caravanMeshGroup.add(wheelFL);
+          caravanMeshGroup.add(wheelFR);
+          caravanMeshGroup.add(wheelBL);
+          caravanMeshGroup.add(wheelBR);
+          
+          // Shafts
+          const shaftGeom = new THREE.BoxGeometry(0.08, 0.08, 1.2);
+          const shaftL = new THREE.Mesh(shaftGeom, platMat);
+          shaftL.position.set(-0.3, 0.35, 1.1);
+          const shaftR = new THREE.Mesh(shaftGeom, platMat);
+          shaftR.position.set(0.3, 0.35, 1.1);
+          caravanMeshGroup.add(shaftL);
+          caravanMeshGroup.add(shaftR);
+          
+          // Piled Cargo bundles based on progress
+          if (progress > 10) {
+            const bundle1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.5, 0.6), new THREE.MeshStandardMaterial({ color: 0xcd853f, roughness: 0.9, flatShading: true }));
+            bundle1.position.set(-0.25, 0.7, -0.35);
+            caravanMeshGroup.add(bundle1);
+          }
+          if (progress > 35) {
+            const bundle2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.45, 0.7), new THREE.MeshStandardMaterial({ color: 0x8b4513, roughness: 0.9, flatShading: true }));
+            bundle2.position.set(0.25, 0.68, -0.3);
+            caravanMeshGroup.add(bundle2);
+          }
+          if (progress > 60) {
+            const bundle3 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.7, 6), new THREE.MeshStandardMaterial({ color: 0x92400e, roughness: 0.9, flatShading: true }));
+            bundle3.rotation.z = Math.PI / 2;
+            bundle3.position.set(0, 1.0, -0.35);
+            caravanMeshGroup.add(bundle3);
+          }
+          if (progress > 85) {
+            const flagGeom = new THREE.ConeGeometry(0.12, 0.4, 4);
+            flagGeom.rotateX(Math.PI / 2);
+            const flag = new THREE.Mesh(flagGeom, new THREE.MeshStandardMaterial({ color: 0x4f46e5, roughness: 0.8 }));
+            flag.position.set(0, 1.3, 0.35);
+            caravanMeshGroup.add(flag);
+          }
+          
+          // Pack animal harness in front
+          const harnessBeast = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.8, 1.2), new THREE.MeshStandardMaterial({ color: 0xbc7c43, roughness: 0.9, flatShading: true }));
+          harnessBeast.position.set(0, 0.65, 2.0);
+          caravanMeshGroup.add(harnessBeast);
+          
+          const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: 0xbc7c43, roughness: 0.9, flatShading: true }));
+          head.position.set(0, 1.15, 2.4);
+          caravanMeshGroup.add(head);
+          
+          const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.08), platMat);
+          yoke.position.set(0, 0.6, 1.5);
+          caravanMeshGroup.add(yoke);
+        }
+      } else {
+        caravanMeshGroup.visible = false;
+      }
+
+      // --- 1.7 Update debug pathway preview dots ---
+      while (debugPathGroup.children.length > 0) {
+        debugPathGroup.remove(debugPathGroup.children[0]);
+      }
+
+      if (latestProps.mapData?.futureEyePath) {
+        const getCellHeightAtWorld = (m: MapData, tx: number, tz: number) => {
+          if (m.chunksByKey) {
+            const chunkX = Math.floor(tx / 6);
+            const chunkZ = Math.floor(tz / 6);
+            const chunkKey = `${chunkX},${chunkZ}`;
+            const chunk = m.chunksByKey[chunkKey];
+            if (chunk) {
+              const lx = tx - chunk.chunkX * 6;
+              const lz = tz - chunk.chunkZ * 6;
+              return chunk.cells[lx]?.[lz]?.height ?? 0;
+            }
+            return 0;
+          }
+          return m.grid?.[tx]?.[tz]?.height ?? 0;
+        };
+
+        latestProps.mapData.futureEyePath.forEach((pt: any) => {
+          const dotGeom = new THREE.SphereGeometry(0.2, 8, 8);
+          const dotMat = new THREE.MeshBasicMaterial({
+            color: 0x3b82f6,
+            transparent: true,
+            opacity: 0.75,
+          });
+          const dotMesh = new THREE.Mesh(dotGeom, dotMat);
+          
+          const cellY = getCellHeightAtWorld(latestProps.mapData, Math.round(pt.x), Math.round(pt.z));
+          
+          dotMesh.position.set(pt.x, cellY + 0.15, pt.z);
+          debugPathGroup.add(dotMesh);
+        });
+      }
+
+      // --- 1.8 Chunk Streaming and Camera Culling ---
+      // Handled in a single unified, highly optimized pass below after camera coordinates are updated.
 
       // 2. Linear interpolate dampening on camera values for high-end cinematic smoothness
       const dampRatio = 0.12;
@@ -3238,28 +4074,72 @@ export default function GameCanvas({
       );
       camera.lookAt(focalPoint);
 
-      // 3.5. Distance-based view/focal-distance culling optimization
-      const maxCullDist = Math.max(22, cameraDistance * 1.05 + 8);
-      const maxCullDistSq = maxCullDist * maxCullDist;
+      // 3.5. Distance-based view/focal-distance and Storm Eye culling optimization
+      if (latestProps.mapData) {
+        const eyeX = latestProps.mapData.eyePos?.x ?? 60;
+        const eyeZ = latestProps.mapData.eyePos?.z ?? 60;
+        const eyeRadius = latestProps.mapData.eyeRadius ?? 14.0;
+        
+        // Render only inside the storm and right surrounding it (margin of 4.5 tiles)
+        const renderRadius = eyeRadius + 4.5;
+        const renderRadiusSq = renderRadius * renderRadius;
 
-      entityGroup.children.forEach((child) => {
-        // Keep active underlying bedrock frame mesh always loaded
-        if (child.position.y < -2) {
-          child.visible = true;
-          return;
-        }
-        const dx = child.position.x - focalPoint.x;
-        const dz = child.position.z - focalPoint.z;
-        const distSq = dx * dx + dz * dz;
-        child.visible = distSq < maxCullDistSq;
-      });
+        const maxCullDist = Math.max(22, cameraDistance * 1.05 + 8);
+        const maxCullDistSq = maxCullDist * maxCullDist;
 
-      decorationsGroup.children.forEach((child) => {
-        const dx = child.position.x - focalPoint.x;
-        const dz = child.position.z - focalPoint.z;
-        const distSq = dx * dx + dz * dz;
-        child.visible = distSq < maxCullDistSq;
-      });
+        entityGroup.children.forEach((child) => {
+          // Keep active underlying bedrock frame mesh always loaded
+          if (child.position.y < -2) {
+            child.visible = true;
+            return;
+          }
+          const dxEye = child.position.x - eyeX;
+          const dzEye = child.position.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+
+          const dxCam = child.position.x - focalPoint.x;
+          const dzCam = child.position.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+
+          child.visible = (distEyeSq <= renderRadiusSq) && (distCamSq < maxCullDistSq);
+        });
+
+        decorationsGroup.children.forEach((child) => {
+          const dxEye = child.position.x - eyeX;
+          const dzEye = child.position.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+
+          const dxCam = child.position.x - focalPoint.x;
+          const dzCam = child.position.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+
+          child.visible = (distEyeSq <= renderRadiusSq) && (distCamSq < maxCullDistSq);
+        });
+
+        actorGroup.children.forEach((child) => {
+          const dxEye = child.position.x - eyeX;
+          const dzEye = child.position.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+
+          const dxCam = child.position.x - focalPoint.x;
+          const dzCam = child.position.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+
+          child.visible = (distEyeSq <= renderRadiusSq) && (distCamSq < maxCullDistSq);
+        });
+
+        fishGroup.children.forEach((child) => {
+          const dxEye = child.position.x - eyeX;
+          const dzEye = child.position.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+
+          const dxCam = child.position.x - focalPoint.x;
+          const dzCam = child.position.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+
+          child.visible = (distEyeSq <= renderRadiusSq) && (distCamSq < maxCullDistSq);
+        });
+      }
 
       // 4. Update the highlight selector ring if a tile is selected
       if (latestProps.selectedCell) {
@@ -3297,33 +4177,88 @@ export default function GameCanvas({
 
       // 5b. Ambient Low-Poly Audio State Tracker
       if (Math.floor(elapsed * 60) % 15 === 0) {
-        const focusGridX = Math.max(0, Math.min(mapData.grid.length - 1, Math.round(focalPoint.x)));
-        const focusGridZ = Math.max(0, Math.min(mapData.grid.length - 1, Math.round(focalPoint.z)));
-        const focusCell = mapData.grid[focusGridX]?.[focusGridZ];
+        const focusGridX = Math.round(focalPoint.x);
+        const focusGridZ = Math.round(focalPoint.z);
+        
+        const getCellAtWorldLoc = (currentMap: MapData, cx: number, cz: number) => {
+          if (currentMap.chunksByKey) {
+            const chunkX = Math.floor(cx / 6);
+            const chunkZ = Math.floor(cz / 6);
+            const chunkKey = `${chunkX},${chunkZ}`;
+            const chunk = currentMap.chunksByKey[chunkKey];
+            if (chunk) {
+              const lx = cx - chunk.chunkX * 6;
+              const lz = cz - chunk.chunkZ * 6;
+              return chunk.cells[lx]?.[lz] || null;
+            }
+            return null;
+          }
+          return currentMap.grid?.[cx]?.[cz] || null;
+        };
+
+        const focusCell = getCellAtWorldLoc(latestProps.mapData, focusGridX, focusGridZ);
         const activeBiome = focusCell ? focusCell.biome : 'grassland';
         const isNight = latestProps.timeOfDay < 0.25 || latestProps.timeOfDay > 0.75;
         ambientAudioEngine.updateAmbientZone(activeBiome, isNight);
+
+        // Periodic spatial audio dispatcher (every 2.2 seconds) with distance attenuation relative to focalPoint
+        const now = elapsed;
+        if (now - lastSpatialSoundTimeRef.current > 2.2) {
+          lastSpatialSoundTimeRef.current = now;
+          
+          const eyeX = latestProps.mapData.eyePos?.x ?? 60;
+          const eyeZ = latestProps.mapData.eyePos?.z ?? 60;
+          const eyeRadius = latestProps.mapData.eyeRadius ?? 14.0;
+          const camToEyeDist = Math.hypot(focalPoint.x - eyeX, focalPoint.z - eyeZ);
+          
+          if (camToEyeDist > eyeRadius - 4.0) {
+            ambientAudioEngine.playSpatialSound('storm_rumble', focalPoint.x, focalPoint.z, focalPoint.x, focalPoint.z);
+          } else {
+            const nearbyAnimals = latestProps.mapData.animals?.filter((a: any) => !a.isDead && Math.hypot(a.x - focalPoint.x, a.z - focalPoint.z) < 14) || [];
+            const nearbyVillagers = latestProps.tribe?.filter((v: any) => v.isAlive && Math.hypot(v.x - focalPoint.x, v.z - focalPoint.z) < 14) || [];
+            
+            const rand = Math.random();
+            if (rand < 0.35 && nearbyAnimals.length > 0) {
+              const animal = nearbyAnimals[Math.floor(Math.random() * nearbyAnimals.length)];
+              if (animal.type === 'SporeSpitterPlant') {
+                ambientAudioEngine.playSpatialSound('spore_spit', animal.x, animal.z, focalPoint.x, focalPoint.z);
+              } else if (animal.category === 'Herbivore') {
+                ambientAudioEngine.playSpatialSound('alien_chirp', animal.x, animal.z, focalPoint.x, focalPoint.z);
+              } else {
+                ambientAudioEngine.playSpatialSound('animal_cry', animal.x, animal.z, focalPoint.x, focalPoint.z);
+              }
+            } else if (rand < 0.70 && nearbyVillagers.length > 0) {
+              const villager = nearbyVillagers[Math.floor(Math.random() * nearbyVillagers.length)];
+              if (villager.activeJobType === 'Build' || villager.activeJobType === 'Mine' || villager.activeJobType === 'Chop') {
+                ambientAudioEngine.playSpatialSound('villager_work', villager.x, villager.z, focalPoint.x, focalPoint.z);
+              } else {
+                ambientAudioEngine.playSpatialSound('villager_chat', villager.x, villager.z, focalPoint.x, focalPoint.z);
+              }
+            }
+          }
+        }
       }
 
       // 6. Day-Night lighting rotation and matching visual dome coloring
       let sunAngle = latestProps.timeOfDay * Math.PI * 2 - Math.PI / 2;
       
-      const r = mapData.config.size * 1.5;
-      const mid = mapData.config.size / 2;
+      const r = (mapData.config?.size ?? 120) * 1.5;
+      const midX = focalPoint.x;
+      const midZ = focalPoint.z;
 
       // Rotate Sun position
       sunLight.position.set(
-        mid + Math.cos(sunAngle) * r,
+        midX + Math.cos(sunAngle) * r,
         Math.sin(sunAngle) * r,
-        mid + Math.cos(sunAngle) * r * 0.3
+        midZ + Math.cos(sunAngle) * r * 0.3
       );
 
       // Rotate moon position directly opposite to the sun
       let moonAngle = sunAngle + Math.PI;
       moonLight.position.set(
-        mid + Math.cos(moonAngle) * r,
+        midX + Math.cos(moonAngle) * r,
         Math.sin(moonAngle) * r,
-        mid + Math.cos(moonAngle) * r * 0.3
+        midZ + Math.cos(moonAngle) * r * 0.3
       );
 
       // Calculate sky color palette ratios based on time of day
@@ -3419,239 +4354,83 @@ export default function GameCanvas({
         };
 
         if (!actorMeshGroup) {
-          actorMeshGroup = new THREE.Group();
-
           const activeColor = ROLE_COLORS[person.role] || person.color || '#cccccc';
+          actorMeshGroup = createVillagerMesh(person, activeColor, materialCache);
 
-          // Torso Body & Clothes
-          const isFemale = person.gender === 'Female';
-          let bodyMesh: THREE.Mesh;
-
-          if (isFemale) {
-            // Elegant A-line low-poly dress
-            const bodyGeom = new THREE.CylinderGeometry(0.08, 0.22, 0.44, 5);
-            const bodyMat = new THREE.MeshStandardMaterial({
-              color: new THREE.Color(activeColor),
-              roughness: 0.75,
-              flatShading: true,
-            });
-            bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
-            bodyMesh.name = 'clothes';
-            bodyMesh.position.y = 0.26;
-            bodyMesh.castShadow = true;
-            bodyMesh.receiveShadow = true;
-            actorMeshGroup.add(bodyMesh);
-
-            // Dress hemline accent
-            const hemGeom = new THREE.CylinderGeometry(0.22, 0.24, 0.08, 5);
-            const hemMat = new THREE.MeshStandardMaterial({
-              color: new THREE.Color(activeColor).clone().multiplyScalar(0.65),
-              roughness: 0.8,
-              flatShading: true
-            });
-            const hemMesh = new THREE.Mesh(hemGeom, hemMat);
-            hemMesh.name = 'cap'; // using cap to change with role
-            hemMesh.position.y = 0.08;
-            hemMesh.castShadow = true;
-            actorMeshGroup.add(hemMesh);
-          } else {
-            // Male: Tunic shirt + distinct low-poly legs
-            const bodyGeom = new THREE.CylinderGeometry(0.12, 0.16, 0.38, 4);
-            const bodyMat = new THREE.MeshStandardMaterial({
-              color: new THREE.Color(activeColor),
-              roughness: 0.75,
-              flatShading: true,
-            });
-            bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
-            bodyMesh.name = 'clothes';
-            bodyMesh.position.y = 0.29;
-            bodyMesh.castShadow = true;
-            bodyMesh.receiveShadow = true;
-            actorMeshGroup.add(bodyMesh);
-
-            // Legs/trousers
-            const legMat = new THREE.MeshStandardMaterial({
-              color: 0x474f54, // Slate cargo pants
-              roughness: 0.85,
-              flatShading: true
-            });
-            const leftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.15, 4), legMat);
-            leftLeg.position.set(-0.06, 0.08, 0);
-            leftLeg.castShadow = true;
-            actorMeshGroup.add(leftLeg);
-
-            const rightLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.15, 4), legMat);
-            rightLeg.position.set(0.06, 0.08, 0);
-            rightLeg.castShadow = true;
-            actorMeshGroup.add(rightLeg);
-
-            // Little shoes
-            const shoeMat = new THREE.MeshStandardMaterial({ color: 0x221c1a, roughness: 0.9, flatShading: true });
-            const leftShoe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.09), shoeMat);
-            leftShoe.position.set(-0.06, 0.02, 0.02);
-            leftShoe.castShadow = true;
-            actorMeshGroup.add(leftShoe);
-
-            const rightShoe = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.09), shoeMat);
-            rightShoe.position.set(0.06, 0.02, 0.02);
-            rightShoe.castShadow = true;
-            actorMeshGroup.add(rightShoe);
-          }
-
-          // Arms - Low poly arms dangling
-          const handMat = new THREE.MeshStandardMaterial({ color: 0xffdbac, roughness: 0.8, flatShading: true });
-          const armMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(activeColor), roughness: 0.75, flatShading: true });
-          
-          const leftArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.25, 4), armMat);
-          leftArm.name = 'clothes';
-          leftArm.position.set(isFemale ? -0.14 : -0.16, isFemale ? 0.32 : 0.35, 0);
-          leftArm.rotation.z = Math.PI / 12;
-          leftArm.castShadow = true;
-          actorMeshGroup.add(leftArm);
-
-          const rightArm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.25, 4), armMat);
-          rightArm.name = 'clothes';
-          rightArm.position.set(isFemale ? 0.14 : 0.16, isFemale ? 0.32 : 0.35, 0);
-          rightArm.rotation.z = -Math.PI / 12;
-          rightArm.castShadow = true;
-          actorMeshGroup.add(rightArm);
-
-          // Little skin-tone hands at bottom of arms
-          const leftHand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 4, 3), handMat);
-          leftHand.position.set(isFemale ? -0.17 : -0.19, isFemale ? 0.19 : 0.21, 0.01);
-          leftHand.castShadow = true;
-          actorMeshGroup.add(leftHand);
-
-          const rightHand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 4, 3), handMat);
-          rightHand.position.set(isFemale ? 0.17 : 0.19, isFemale ? 0.19 : 0.21, 0.01);
-          rightHand.castShadow = true;
-          actorMeshGroup.add(rightHand);
-
-          // Head sphere
-          const headGeom = new THREE.SphereGeometry(0.13, 5, 4);
-          const headMat = new THREE.MeshStandardMaterial({
-            color: 0xffdbac, // skin tone peach
-            roughness: 0.8,
-            flatShading: true,
+          // Add selectable children to cellMeshes for Raycasting selection
+          actorMeshGroup.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              child.userData = { person };
+              cellMeshes.push(child);
+            }
           });
-          const headMesh = new THREE.Mesh(headGeom, headMat);
-          headMesh.position.y = 0.56;
-          headMesh.castShadow = true;
-          actorMeshGroup.add(headMesh);
-
-          // Two cute beady black eyes
-          const eyeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.5 });
-          const leftEye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.024), eyeMat);
-          leftEye.position.set(-0.045, 0.57, 0.10);
-          actorMeshGroup.add(leftEye);
-
-          const rightEye = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.024, 0.024), eyeMat);
-          rightEye.position.set(0.045, 0.57, 0.10);
-          actorMeshGroup.add(rightEye);
-
-          // Hair Generation - unique hair colors per villager
-          const hairColors = ['#2c1a11', '#191512', '#b38241', '#852110', '#564233'];
-          const hCode = person.name.charCodeAt(0) + person.name.charCodeAt(person.name.length - 1 || 0);
-          const hairChoice = hairColors[hCode % hairColors.length];
-          const hairMat = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(hairChoice),
-            roughness: 0.9,
-            flatShading: true
-          });
-
-          // Hair crown cap
-          const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.134, 5, 3), hairMat);
-          hairCap.position.set(0, 0.58, -0.01);
-          hairCap.scale.set(1.02, 1.0, 1.04);
-          hairCap.castShadow = true;
-          actorMeshGroup.add(hairCap);
-
-          if (isFemale) {
-            // Cute braided side buns / twin tails for Female
-            const leftPigtail = new THREE.Mesh(new THREE.DodecahedronGeometry(0.05, 0), hairMat);
-            leftPigtail.position.set(-0.13, 0.55, -0.04);
-            leftPigtail.castShadow = true;
-            actorMeshGroup.add(leftPigtail);
-
-            const rightPigtail = new THREE.Mesh(new THREE.DodecahedronGeometry(0.05, 0), hairMat);
-            rightPigtail.position.set(0.13, 0.55, -0.04);
-            rightPigtail.castShadow = true;
-            actorMeshGroup.add(rightPigtail);
-          } else {
-            // Spiky front tuft + beard for Male
-            const spikeTuft = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.12, 4), hairMat);
-            spikeTuft.position.set(0, 0.69, 0.02);
-            spikeTuft.rotation.x = Math.PI / 4;
-            spikeTuft.castShadow = true;
-            actorMeshGroup.add(spikeTuft);
-
-            const beardMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 0.07), hairMat);
-            beardMesh.position.set(0, 0.47, 0.07);
-            beardMesh.castShadow = true;
-            actorMeshGroup.add(beardMesh);
-          }
-
-          // Floating Role Indicator Jewel - sits floating magically above head
-          const capGeom = new THREE.OctahedronGeometry(0.06, 0);
-          const capMat = new THREE.MeshStandardMaterial({
-            color: new THREE.Color(activeColor).clone().multiplyScalar(1.2),
-            roughness: 0.1,
-            metalness: 0.9,
-            flatShading: true,
-          });
-          const capMesh = new THREE.Mesh(capGeom, capMat);
-          capMesh.name = 'cap';
-          capMesh.position.set(0, 0.82, 0); // floats over hair crown
-          actorMeshGroup.add(capMesh);
-
-          // Label components with reference for raycasting Selection
-          bodyMesh.userData = { person };
-          headMesh.userData = { person };
-          capMesh.userData = { person };
-
-          // Add to selectable arrays
-          cellMeshes.push(bodyMesh, headMesh, capMesh);
 
           actorGroup.add(actorMeshGroup);
           actorMeshesMap.set(person.id, actorMeshGroup);
         }
 
-        // Dynamically update clothes and role indicators color on real-time role modifications
-        const dynamicColor = ROLE_COLORS[person.role] || person.color;
-        actorMeshGroup.traverse((child) => {
-          if (child instanceof THREE.Mesh) {
-            if (child.name === 'clothes') {
-              child.material.color.set(dynamicColor);
-            } else if (child.name === 'cap') {
-              // Primary color with diamond pop
-              child.material.color.set(dynamicColor).multiplyScalar(1.1);
-            }
-          }
-        });
+        // Calculate visibility early
+        let isActorVisible = true;
+        if (latestProps.mapData) {
+          const eyeX = latestProps.mapData.eyePos?.x ?? 60;
+          const eyeZ = latestProps.mapData.eyePos?.z ?? 60;
+          const eyeRadius = latestProps.mapData.eyeRadius ?? 14.0;
+          const renderRadiusSq = (eyeRadius + 4.5) * (eyeRadius + 4.5);
+          
+          const maxCullDist = Math.max(22, cameraDistance * 1.05 + 8);
+          const maxCullDistSq = maxCullDist * maxCullDist;
+          
+          const dxEye = person.x - eyeX;
+          const dzEye = person.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+          
+          const dxCam = person.x - focalPoint.x;
+          const dzCam = person.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+          
+          isActorVisible = (distEyeSq <= renderRadiusSq) && (distCamSq < maxCullDistSq);
+        }
+
+        actorMeshGroup.visible = isActorVisible;
+
+        if (!isActorVisible) {
+          // Apply coordinates directly and skip detailed animations/height calculations
+          actorMeshGroup.position.set(person.x, person.y || 1.05, person.z);
+          return;
+        }
 
         // Live walking bob animation cycle
         const speedSq = (person.targetX - person.x) ** 2 + (person.targetZ - person.z) ** 2;
         const isMoving = speedSq > 0.01 && latestProps.timeSpeed !== 'paused';
 
-        let walkBobSpeed = 11.0;
-        let walkBobHeight = 0.06;
-        if (latestProps.timeSpeed === 'fast') walkBobSpeed = 22.0;
-        if (latestProps.timeSpeed === 'super') walkBobSpeed = 38.0;
-
-        const bobY = isMoving ? Math.abs(Math.sin(elapsed * walkBobSpeed)) * walkBobHeight : 0;
-
         // Discrete height mapping matching the sharp flat tops of our low-poly diorama blocks
         const getDiscreteHeight = (px: number, pz: number) => {
-          const grid = latestProps.mapData?.grid;
-          if (!grid) return person.y;
-          const size = grid.length;
-          const cx = Math.max(0, Math.min(size - 1, Math.round(px)));
-          const cz = Math.max(0, Math.min(size - 1, Math.round(pz)));
-          const cell = grid[cx]?.[cz];
+          const cx = Math.round(px);
+          const cz = Math.round(pz);
+          const currentMap = latestProps.mapData;
+          if (!currentMap) return person.y;
+          
+          const getCellAtWorldLoc = (m: MapData, tx: number, tz: number) => {
+            if (m.chunksByKey) {
+              const chunkX = Math.floor(tx / 6);
+              const chunkZ = Math.floor(tz / 6);
+              const chunkKey = `${chunkX},${chunkZ}`;
+              const chunk = m.chunksByKey[chunkKey];
+              if (chunk) {
+                const lx = tx - chunk.chunkX * 6;
+                const lz = tz - chunk.chunkZ * 6;
+                return chunk.cells[lx]?.[lz] || null;
+              }
+              return null;
+            }
+            return m.grid?.[tx]?.[tz] || null;
+          };
+
+          const cell = getCellAtWorldLoc(currentMap, cx, cz);
           if (!cell) return 1.0;
           
-          // Provide an extra 0.04 elevation buffer so shoes sit perfectly on top of physical boxes
-          return cell.height + 0.04;
+          // Provide a minor elevation buffer so shoes sit perfectly on top of physical boxes
+          return cell.height + 0.01;
         };
 
         const terrainY = getDiscreteHeight(person.x, person.z);
@@ -3661,17 +4440,12 @@ export default function GameCanvas({
           let diff = angle - actorMeshGroup.rotation.y;
           let diffNormalized = Math.atan2(Math.sin(diff), Math.cos(diff));
           actorMeshGroup.rotation.y += diffNormalized * 0.15;
-          actorMeshGroup.rotation.x = 0.08; // Lean forward
-        } else {
-          actorMeshGroup.rotation.x = 0;
-          // Idle breathing sway
-          actorMeshGroup.position.y = terrainY + Math.sin(elapsed * 2) * 0.01 + 0.05;
         }
 
         // Butter-smooth position interpolation decoupling Three.JS renders from React tick limits
         const targetX = person.x;
         const targetZ = person.z;
-        const targetY = terrainY + bobY + 0.05;
+        const targetY = terrainY;
 
         const distSq = (actorMeshGroup.position.x - targetX) ** 2 + (actorMeshGroup.position.z - targetZ) ** 2;
         if (distSq > 4.0 || (actorMeshGroup.position.x === 0 && actorMeshGroup.position.z === 0)) {
@@ -3682,119 +4456,12 @@ export default function GameCanvas({
           actorMeshGroup.position.y = THREE.MathUtils.lerp(actorMeshGroup.position.y, targetY, 0.22);
         }
 
-        // Render carried item or specialized tool equipment dynamically
-        let carriageGroup = actorMeshGroup.getObjectByName('carriage');
-        if (carriageGroup) {
-          actorMeshGroup.remove(carriageGroup);
-        }
+        // Active job or role equipment
+        const isWorking = !!person.activeJobType && !person.carriage;
+        updateVillagerEquipment(actorMeshGroup, person, isWorking);
 
-        const cGroup = new THREE.Group();
-        cGroup.name = 'carriage';
-        actorMeshGroup.add(cGroup);
-
-        if (person.carriage) {
-          const cType = person.carriage.type;
-          cGroup.position.set(0, 0.28, 0.22); // Hold cargo forward
-
-          let carriedMesh;
-          if (cType === 'wood') {
-            carriedMesh = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.04, 0.04, 0.25, 4),
-              materialCache.woodTrunk || new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9 })
-            );
-            carriedMesh.rotation.z = Math.PI / 2;
-          } else if (cType === 'stone') {
-            carriedMesh = new THREE.Mesh(
-              new THREE.DodecahedronGeometry(0.065, 0),
-              new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9, flatShading: true })
-            );
-          } else if (cType === 'captive_animal') {
-            // Render a bound cage box with sheep/rabbit ears popping out
-            carriedMesh = new THREE.Mesh(
-              new THREE.BoxGeometry(0.12, 0.12, 0.12),
-              new THREE.MeshStandardMaterial({ color: 0xc2a688, roughness: 0.9, flatShading: true })
-            );
-            const ears = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.07, 0.03), new THREE.MeshStandardMaterial({ color: 0xeeeeee }));
-            ears.position.set(0, 0.06, 0.03);
-            carriedMesh.add(ears);
-          } else if (cType === 'harvested_beast') {
-            // Render wrapped game meat / hides block
-            carriedMesh = new THREE.Mesh(
-              new THREE.BoxGeometry(0.13, 0.09, 0.13),
-              new THREE.MeshStandardMaterial({ color: 0x9e2a2b, roughness: 0.8, flatShading: true })
-            );
-          } else {
-            // Food
-            carriedMesh = new THREE.Mesh(
-              new THREE.SphereGeometry(0.06, 5, 4),
-              materialCache.berryRed || new THREE.MeshStandardMaterial({ color: 0xcc2222, roughness: 0.8, flatShading: true })
-            );
-          }
-          carriedMesh.castShadow = true;
-          cGroup.add(carriedMesh);
-        } else {
-          // If NOT carrying something, let's render active job tools for visual immersion!
-          cGroup.position.set(0.14, 0.28, 0.11);
-          
-          const toolMesh = new THREE.Group();
-          const handleMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.95 }); // Wooden shaft
-          const metalMat = new THREE.MeshStandardMaterial({ color: 0x708090, roughness: 0.3, metalness: 0.85 }); // Grey copper/steel
-
-          if (person.role === 'Hunter') {
-            // Spear Tool
-            const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.45, 4), handleMat);
-            shaft.rotation.x = Math.PI / 2;
-            const point = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.07, 4), metalMat);
-            point.position.y = 0.24;
-            point.rotation.x = -Math.PI / 2;
-            shaft.add(point);
-            toolMesh.add(shaft);
-          } else if (person.role === 'Builder') {
-            // Mallet Hammer Tool
-            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.20, 4), handleMat);
-            const head = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 0.04), metalMat);
-            head.position.y = 0.09;
-            handle.add(head);
-            toolMesh.add(handle);
-          } else if (person.role === 'Gatherer') {
-            // Broad axe
-            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 4), handleMat);
-            const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.07, 0.015), metalMat);
-            blade.position.set(0.025, 0.08, 0);
-            handle.add(blade);
-            toolMesh.add(handle);
-          } else if (person.role === 'Artisan') {
-            // Mining Pickaxe
-            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 4), handleMat);
-            const arc = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.01, 4, 8, Math.PI), metalMat);
-            arc.position.set(0, 0.09, 0);
-            arc.rotation.z = -Math.PI / 2;
-            handle.add(arc);
-            toolMesh.add(handle);
-          } else if (person.role === 'Farmer') {
-            // Crop Hoe
-            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 4), handleMat);
-            const plate = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.01, 0.035), metalMat);
-            plate.position.set(0, 0.09, 0.02);
-            handle.add(plate);
-            toolMesh.add(handle);
-          } else if (person.role === 'Scout') {
-            // Compound Bow
-            const bowArc = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.008, 4, 8, Math.PI), handleMat);
-            bowArc.position.set(0, 0, 0.01);
-            toolMesh.add(bowArc);
-          }
-          
-          toolMesh.rotation.x = Math.PI / 5;
-          cGroup.add(toolMesh);
-        }
-
-        // Visual selection indicator representation
-        if (latestProps.selectedTribesperson && latestProps.selectedTribesperson.id === person.id) {
-          actorMeshGroup.scale.set(1.25, 1.25, 1.25);
-        } else {
-          actorMeshGroup.scale.set(1.0, 1.0, 1.0);
-        }
+        // State-machine-driven animations
+        updateVillagerAnimation(actorMeshGroup, person, elapsed, latestProps.timeSpeed || 'normal', isMoving, terrainY);
       });
 
       // Render active physical visitors (Caravans, Messengers, Refugees, Specialists)
@@ -3866,21 +4533,21 @@ export default function GameCanvas({
             actorMeshesMap.set(visitorId, visitorMeshGroup);
           }
 
-          // Positioning around fireplace (0, 0)
+          // Positioning around fireplace
           const size = latestProps.mapData?.config?.size || 40;
           const radius = 1.6 + k * 0.35;
           const angle = (k * 2 * Math.PI) / visitorGroup.count + elapsed * 0.1;
-          const targetX = Math.cos(angle) * radius;
-          const targetZ = Math.sin(angle) * radius;
           
-          // Get ground height
-          const centerR = Math.floor(size / 2);
-          const centerC = Math.floor(size / 2);
-          const centerCell = latestProps.mapData?.grid?.[centerR]?.[centerC];
-          const targetY = centerCell ? centerCell.height : 0.2;
+          const cx = fireplacePos ? fireplacePos.x : Math.floor(size / 2);
+          const cz = fireplacePos ? fireplacePos.z : Math.floor(size / 2);
+          const cy = fireplacePos ? fireplacePos.y : 0.2;
 
-          visitorMeshGroup.position.set(targetX, targetY, targetZ);
-          visitorMeshGroup.lookAt(new THREE.Vector3(0, targetY, 0));
+          const targetWorldX = cx + Math.cos(angle) * radius;
+          const targetWorldZ = cz + Math.sin(angle) * radius;
+          const targetY = cy + 0.04;
+
+          visitorMeshGroup.position.set(targetWorldX, targetY, targetWorldZ);
+          visitorMeshGroup.lookAt(new THREE.Vector3(cx, targetY, cz));
 
           // Idle breathing sway
           visitorMeshGroup.position.y += Math.sin(elapsed * 2.0 + k) * 0.012;
@@ -3905,522 +4572,48 @@ export default function GameCanvas({
         let animalMeshGroup = animalMeshesMap.get(animal.id);
 
         if (!animalMeshGroup) {
-          animalMeshGroup = new THREE.Group();
+          animalMeshGroup = createAnimalMesh(animal, THREE);
 
-          let bodyColor = 0x8b5a2b; // Warm brown base
-          if (['Rabbit', 'JackLeaper', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle'].includes(animal.type)) {
-            bodyColor = 0xcd9a62; // Sand golden-brown
-          } else if (['Deer', 'Elk', 'Antelope', 'PrismHornAntelope'].includes(animal.type)) {
-            bodyColor = 0xbda26b; // Duneskimmer golden-tan
-          } else if (['Sheep', 'TuskedShagBeast', 'WildGoat'].includes(animal.type)) {
-            bodyColor = 0xe5d09e; // Sandy-wool sheep hybrid
-          } else if (['PackBird', 'Cattle', 'SiltCamel'].includes(animal.type)) {
-            bodyColor = 0xbc7c43; // Camel warm ocher
-          } else if (['AncientDomeBack', 'FrilledShieldHorn', 'Boar'].includes(animal.type)) {
-            bodyColor = 0x8b857c; // Fossil grey-slate
-          } else if (['Fox', 'ProwlerJackal'].includes(animal.type)) {
-            bodyColor = 0xae4e2c; // Terracotta jackal orange
-          } else if (['Wolf', 'DireWolf', 'LargeCat', 'SpinedSaberWolf', 'ChitinSlasher'].includes(animal.type)) {
-            bodyColor = 0x3b4252; // Windrak charcoal dark
-          } else if (['VelociSkitterer', 'ScytheBeakStrider'].includes(animal.type)) {
-            bodyColor = 0x708090; // Steel blue-slate
-          } else if (['Bear'].includes(animal.type)) {
-            bodyColor = 0xbc7c43; // Warm bear ocher
-          } else if (['Vulture', 'StormVulture', 'GaleWingFlier', 'Crow'].includes(animal.type)) {
-            bodyColor = 0x2b2b2b; // Dark raven charcoal
-          } else if (['PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab'].includes(animal.type)) {
-            bodyColor = 0x8b5a2b; // Deep earth-brown
-          }
-
-          const animalMat = new THREE.MeshStandardMaterial({
-            color: bodyColor,
-            roughness: 0.85,
-            flatShading: true,
+          // Label sub-meshes with metadata for selection raycasting
+          animalMeshGroup.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              child.userData = { animal };
+              cellMeshes.push(child);
+            }
           });
-
-          const cyanGlowMat = new THREE.MeshBasicMaterial({ color: 0x01ffe4 });
-          const plateMat = new THREE.MeshStandardMaterial({ color: 0xae4e2c, roughness: 0.8, flatShading: true }); // terracotta orange plates
-          const darkPlateMat = new THREE.MeshStandardMaterial({ color: 0x4c566a, roughness: 0.9, flatShading: true }); // dark slate/iron plates
-
-          let torso: THREE.Mesh;
-          let head: THREE.Mesh;
-
-          if (['Rabbit', 'JackLeaper', 'GlowGrub', 'CinderCentipede', 'PricklyBeetle'].includes(animal.type)) {
-            // --- SANDSNOUT (Small burrower, sandy, low profile, flat armor plates) ---
-            const w = 0.08, h = 0.06, l = 0.14;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.03;
-
-            // Flat back shield (Armor plates)
-            const shell = new THREE.Mesh(new THREE.BoxGeometry(w * 1.15, h * 0.4, l * 0.7), darkPlateMat);
-            shell.position.set(0, h * 0.4, -l * 0.1);
-            shell.castShadow = true;
-            torso.add(shell);
-
-            // Small low head
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, h * 0.8, l * 0.4), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.2, l * 0.45);
-            torso.add(head);
-
-            // Glowing cyan eyes (Shielded behind Eye Covers)
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.007, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.35, 0.005, l * 0.15);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.007, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.35, 0.005, l * 0.15);
-            head.add(eyeL, eyeR);
-
-            // Short flat digging limbs
-            const legMat = new THREE.MeshStandardMaterial({ color: 0x8c6b4f, roughness: 0.9, flatShading: true });
-            const lf = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.03, 0.03), legMat);
-            lf.name = 'lf'; lf.position.set(-w * 0.5, -h * 0.4, l * 0.25);
-            const rf = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.03, 0.03), legMat);
-            rf.name = 'rf'; rf.position.set(w * 0.5, -h * 0.4, l * 0.25);
-            const lb = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.03, 0.03), legMat);
-            lb.name = 'lb'; lb.position.set(-w * 0.5, -h * 0.4, -l * 0.25);
-            const rb = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.03, 0.03), legMat);
-            rb.name = 'rb'; rb.position.set(w * 0.5, -h * 0.4, -l * 0.25);
-            torso.add(lf, rf, lb, rb);
-
-            // Anchor tail
-            const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.004, 0.05, 4), plateMat);
-            tail.name = 'tail';
-            tail.position.set(0, -0.01, -l * 0.52);
-            tail.rotation.x = -Math.PI / 4;
-            torso.add(tail);
-
-          } else if (['Deer', 'Elk', 'Antelope', 'PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'Sheep'].includes(animal.type)) {
-            // --- DUNESKIMMER (Slow, steady grazer, stegosaurid plates on back) ---
-            const w = 0.13, h = 0.16, l = 0.31;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.08;
-
-            // Row of 4 terracotta triangular Armor Plates on back (only if not a SiltCamel, which has humps!)
-            if (animal.type !== 'SiltCamel') {
-              for (let i = 0; i < 4; i++) {
-                const plate = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 3), plateMat);
-                plate.position.set(0, h * 0.52 + 0.03, -l * 0.3 + i * 0.18);
-                plate.rotation.y = Math.PI / 6;
-                plate.rotation.x = -0.15; // slightly tilted backwards
-                plate.castShadow = true;
-                torso.add(plate);
-              }
-            } else {
-              // SiltCamel double boxy low-poly humps
-              const hump1 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.85, h * 0.5, l * 0.24), plateMat);
-              hump1.position.set(0, h * 0.52 + 0.04, -l * 0.18);
-              hump1.castShadow = true;
-              const hump2 = new THREE.Mesh(new THREE.BoxGeometry(w * 0.85, h * 0.5, l * 0.24), plateMat);
-              hump2.position.set(0, h * 0.52 + 0.04, l * 0.12);
-              hump2.castShadow = true;
-              torso.add(hump1, hump2);
-            }
-
-            // High head on neck
-            const neck = new THREE.Mesh(new THREE.BoxGeometry(w * 0.5, h * 0.7, w * 0.5), animalMat);
-            neck.position.set(0, h * 0.5, l * 0.42);
-            neck.rotation.x = -Math.PI / 5;
-            torso.add(neck);
-
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.7, h * 0.4, l * 0.3), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.3, l * 0.15);
-            neck.add(head);
-
-            // Glowing crystal horn for PrismHornAntelope / Deer
-            if (animal.type === 'PrismHornAntelope' || animal.type === 'Deer') {
-              const crystalHornL = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.15, 4), cyanGlowMat);
-              crystalHornL.position.set(-w * 0.2, h * 0.3, l * 0.05);
-              crystalHornL.rotation.set(0.3, 0, -0.15);
-              crystalHornL.castShadow = true;
-              const crystalHornR = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.15, 4), cyanGlowMat);
-              crystalHornR.position.set(w * 0.2, h * 0.3, l * 0.05);
-              crystalHornR.rotation.set(0.3, 0, 0.15);
-              crystalHornR.castShadow = true;
-              head.add(crystalHornL, crystalHornR);
-            }
-
-            // Glowing cyan eyes & sensor frills
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.01, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.32, 0.01, l * 0.1);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.01, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.32, 0.01, l * 0.1);
-            head.add(eyeL, eyeR);
-
-            // Sensor frills
-            const frillL = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.04, 0.03), plateMat);
-            frillL.position.set(-w * 0.42, 0.03, -l * 0.05);
-            frillL.rotation.z = -Math.PI / 4;
-            const frillR = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.04, 0.03), plateMat);
-            frillR.position.set(w * 0.42, 0.03, -l * 0.05);
-            frillR.rotation.z = Math.PI / 4;
-            head.add(frillL, frillR);
-
-            // Four tall low-poly legs
-            const legH = 0.11;
-            const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.012, legH, 4), animalMat);
-            lf.name = 'lf'; lf.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, l * 0.3);
-            const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.012, legH, 4), animalMat);
-            rf.name = 'rf'; rf.position.set(w * 0.38, -h * 0.5 - legH * 0.5, l * 0.3);
-            const lb = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.012, legH, 4), animalMat);
-            lb.name = 'lb'; lb.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.3);
-            const rb = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.012, legH, 4), animalMat);
-            rb.name = 'rb'; rb.position.set(w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.3);
-            torso.add(lf, rf, lb, rb);
-
-            // Anchor tail
-            const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.005, 0.13, 4), plateMat);
-            tail.name = 'tail';
-            tail.position.set(0, -0.01, -l * 0.52);
-            tail.rotation.x = -Math.PI / 3;
-            torso.add(tail);
-
-          } else if (['Fox', 'Wolf', 'DireWolf', 'LargeCat', 'ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider'].includes(animal.type)) {
-            // --- WINDRAK / CHITINSLASHER (Agile predator / raptor / scorpion runner) ---
-            const w = 0.13, h = 0.13, l = 0.32;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.09;
-
-            // Spiky red back ridge (Sensor/Spike plates)
-            for (let i = 0; i < 3; i++) {
-              const spine = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.09, 4), plateMat);
-              spine.position.set(0, h * 0.52, -l * 0.2 + i * 0.16);
-              spine.rotation.x = -0.3;
-              spine.castShadow = true;
-              torso.add(spine);
-            }
-
-            // Wolf / Raptor Head
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, h * 0.8, l * 0.32), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.45, l * 0.45);
-            torso.add(head);
-
-            // Glowing cyan eyes
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.009, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.35, 0.05, l * 0.12);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.009, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.35, 0.05, l * 0.12);
-            head.add(eyeL, eyeR);
-
-            // Side sensor frills on head
-            const sFrillL = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.05, 3), plateMat);
-            sFrillL.position.set(-w * 0.42, 0.04, -l * 0.05);
-            sFrillL.rotation.z = -Math.PI / 3;
-            const sFrillR = new THREE.Mesh(new THREE.ConeGeometry(0.015, 0.05, 3), plateMat);
-            sFrillR.position.set(w * 0.42, 0.04, -l * 0.05);
-            sFrillR.rotation.z = Math.PI / 3;
-            head.add(sFrillL, sFrillR);
-
-            // Legs
-            const isBiped = ['VelociSkitterer', 'ScytheBeakStrider'].includes(animal.type);
-            const legH = isBiped ? 0.15 : 0.11;
-
-            if (isBiped) {
-              // Bipedal running legs on rear
-              const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.012, legH, 4), animalMat);
-              lf.name = 'lf'; lf.position.set(-w * 0.42, -h * 0.5 - legH * 0.5, -l * 0.1);
-              lf.rotation.z = -0.1;
-              const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.012, legH, 4), animalMat);
-              rf.name = 'rf'; rf.position.set(w * 0.42, -h * 0.5 - legH * 0.5, -l * 0.1);
-              rf.rotation.z = 0.1;
-              torso.add(lf, rf);
-
-              // Small front arm/scythes
-              const armL = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.05, 0.08), plateMat);
-              armL.position.set(-w * 0.45, -h * 0.1, l * 0.2);
-              armL.rotation.set(0.4, -0.2, -0.2);
-              const armR = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.05, 0.08), plateMat);
-              armR.position.set(w * 0.45, -h * 0.1, l * 0.2);
-              armR.rotation.set(0.4, 0.2, 0.2);
-              torso.add(armL, armR);
-            } else {
-              // Four athletic running legs
-              const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.011, legH, 4), animalMat);
-              lf.name = 'lf'; lf.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, l * 0.28);
-              const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.011, legH, 4), animalMat);
-              rf.name = 'rf'; rf.position.set(w * 0.38, -h * 0.5 - legH * 0.5, l * 0.28);
-              const lb = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.011, legH, 4), animalMat);
-              lb.name = 'lb'; lb.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.28);
-              const rb = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.011, legH, 4), animalMat);
-              rb.name = 'rb'; rb.position.set(w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.28);
-              torso.add(lf, rf, lb, rb);
-            }
-
-            // ChitinSlasher upward pointing scorpion tail
-            if (animal.type === 'ChitinSlasher') {
-              const stingerTail = new THREE.Group();
-              stingerTail.name = 'tail';
-              stingerTail.position.set(0, h * 0.2, -l * 0.5);
-              for (let i = 0; i < 4; i++) {
-                const seg = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.022, 0.06), plateMat);
-                seg.position.set(0, i * 0.045, -i * 0.015);
-                seg.rotation.x = -i * 0.32;
-                stingerTail.add(seg);
-              }
-              const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.016, 4, 4), cyanGlowMat);
-              bulb.position.set(0, 0.16, -0.06);
-              stingerTail.add(bulb);
-              torso.add(stingerTail);
-            } else {
-              // Anchor tail
-              const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.006, 0.16, 4), plateMat);
-              tail.name = 'tail';
-              tail.position.set(0, -0.01, -l * 0.52);
-              tail.rotation.x = -Math.PI / 3.5;
-              torso.add(tail);
-            }
-            
-          } else if (['Bear', 'SpinedSaberWolf', 'FrilledShieldHorn', 'AncientDomeBack'].includes(animal.type)) {
-            // --- STORMLORD / SHIELDHORN / DOMEBACK (Apex beasts & colossi) ---
-            const w = 0.25, h = 0.22, l = 0.42;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.12;
-
-            if (animal.type === 'AncientDomeBack') {
-              // Giant tortoiseshell dome
-              const domeShell = new THREE.Mesh(new THREE.SphereGeometry(w * 0.72, 6, 6), darkPlateMat);
-              domeShell.scale.set(1, 0.75, 1.25);
-              domeShell.position.set(0, h * 0.4, -l * 0.05);
-              domeShell.castShadow = true;
-              torso.add(domeShell);
-            } else {
-              // Huge terracotta back shields / armor plates
-              for (let i = 0; i < 3; i++) {
-                const plate = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.18, 4), plateMat);
-                plate.position.set(0, h * 0.52, -l * 0.25 + i * 0.22);
-                plate.rotation.x = -0.2;
-                plate.castShadow = true;
-                torso.add(plate);
-              }
-            }
-
-            // Heavy head & jaws
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.85, h * 0.85, l * 0.35), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.45, l * 0.45);
-            torso.add(head);
-
-            // Jaws / chin block to represent open mouth
-            const jaw = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, h * 0.35, l * 0.22), animalMat);
-            jaw.position.set(0, -h * 0.38, l * 0.06);
-            jaw.rotation.x = 0.22; // slightly open
-            head.add(jaw);
-
-            // Internal glowing cyan core/mouth box!
-            const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.4, h * 0.1, l * 0.15), cyanGlowMat);
-            coreGlow.position.set(0, -h * 0.15, l * 0.12);
-            head.add(coreGlow);
-
-            // FrilledShieldHorn custom triceratops neck frill and horns
-            if (animal.type === 'FrilledShieldHorn') {
-              // Flat head plate frill
-              const frill = new THREE.Mesh(new THREE.BoxGeometry(w * 1.5, h * 1.2, 0.03), plateMat);
-              frill.position.set(0, h * 0.35, -l * 0.08);
-              frill.rotation.x = -0.32;
-              frill.castShadow = true;
-              head.add(frill);
-
-              // 3 nose/brow spikes
-              const hornNose = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.11, 4), plateMat);
-              hornNose.position.set(0, h * 0.15, l * 0.22);
-              hornNose.rotation.x = 0.5;
-              hornNose.castShadow = true;
-              head.add(hornNose);
-
-              const hornBrowL = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.14, 4), plateMat);
-              hornBrowL.position.set(-w * 0.25, h * 0.38, l * 0.12);
-              hornBrowL.rotation.set(0.35, 0, -0.1);
-              hornBrowL.castShadow = true;
-              const hornBrowR = new THREE.Mesh(new THREE.ConeGeometry(0.018, 0.14, 4), plateMat);
-              hornBrowR.position.set(w * 0.25, h * 0.38, l * 0.12);
-              hornBrowR.rotation.set(0.35, 0, 0.1);
-              hornBrowR.castShadow = true;
-              head.add(hornBrowL, hornBrowR);
-            }
-
-            // Glowing blue eyes
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.014, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.38, 0.12, l * 0.14);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.014, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.38, 0.12, l * 0.14);
-            head.add(eyeL, eyeR);
-
-            // Heavy powerful legs
-            const legH = 0.13;
-            const lf = new THREE.Mesh(new THREE.BoxGeometry(0.05, legH, 0.05), animalMat);
-            lf.name = 'lf'; lf.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, l * 0.26);
-            const rf = new THREE.Mesh(new THREE.BoxGeometry(0.05, legH, 0.05), animalMat);
-            rf.name = 'rf'; rf.position.set(w * 0.38, -h * 0.5 - legH * 0.5, l * 0.26);
-            const lb = new THREE.Mesh(new THREE.BoxGeometry(0.05, legH, 0.05), animalMat);
-            lb.name = 'lb'; lb.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.26);
-            const rb = new THREE.Mesh(new THREE.BoxGeometry(0.05, legH, 0.05), animalMat);
-            rb.name = 'rb'; rb.position.set(w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.26);
-            torso.add(lf, rf, lb, rb);
-
-            // Heavy anchor tail
-            const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.008, 0.18, 4), plateMat);
-            tail.name = 'tail';
-            tail.position.set(0, -0.01, -l * 0.52);
-            tail.rotation.x = -Math.PI / 3;
-            torso.add(tail);
-
-          } else if (['Boar', 'WildGoat', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab'].includes(animal.type)) {
-            // --- THORNVIAK (Beast of Burden, carries load/saddle pack, grey/brown) ---
-            const w = 0.21, h = 0.20, l = 0.37;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.1;
-
-            // Load Pack / Saddle box strapped on back
-            const pack = new THREE.Mesh(new THREE.BoxGeometry(w * 0.92, h * 0.65, l * 0.46), darkPlateMat);
-            pack.position.set(0, h * 0.55, -l * 0.05);
-            pack.castShadow = true;
-            torso.add(pack);
-
-            // Saddle straps around body
-            const strapMat = new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.95 });
-            const strap = new THREE.Mesh(new THREE.BoxGeometry(w * 1.05, h * 1.05, 0.03), strapMat);
-            strap.position.set(0, 0, -l * 0.05);
-            torso.add(strap);
-
-            // Defensive back spikes pointing backwards
-            for (let i = 0; i < 2; i++) {
-              const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.004, 0.12, 4), plateMat);
-              spine.position.set(i === 0 ? -w * 0.42 : w * 0.42, h * 0.35, -l * 0.28);
-              spine.rotation.set(Math.PI / 4, 0, i === 0 ? -0.2 : 0.2);
-              spine.castShadow = true;
-              torso.add(spine);
-            }
-
-            // Heavy Head
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.8, h * 0.8, l * 0.32), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.32, l * 0.45);
-            torso.add(head);
-
-            // Glowing cyan eyes
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.01, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.35, 0.02, l * 0.12);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.01, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.35, 0.02, l * 0.12);
-            head.add(eyeL, eyeR);
-
-            // Four sturdy walking legs
-            const legH = 0.09;
-            const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.016, legH, 4), animalMat);
-            lf.name = 'lf'; lf.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, l * 0.28);
-            const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.016, legH, 4), animalMat);
-            rf.name = 'rf'; rf.position.set(w * 0.38, -h * 0.5 - legH * 0.5, l * 0.28);
-            const lb = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.016, legH, 4), animalMat);
-            lb.name = 'lb'; lb.position.set(-w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.28);
-            const rb = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.016, legH, 4), animalMat);
-            rb.name = 'rb'; rb.position.set(w * 0.38, -h * 0.5 - legH * 0.5, -l * 0.28);
-            torso.add(lf, rf, lb, rb);
-
-          } else if (['Vulture', 'StormVulture', 'GaleWingFlier', 'Crow'].includes(animal.type)) {
-            // --- DUSTIALON (Scavenger bird of prey, large curved orange tearing beak, folded wings) ---
-            const w = 0.14, h = 0.13, l = 0.22;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.14;
-
-            // Folded side wing panels
-            const leftWing = new THREE.Mesh(new THREE.BoxGeometry(0.018, h * 1.15, l * 1.15), darkPlateMat);
-            leftWing.name = 'left_wing';
-            leftWing.position.set(-w * 0.52, h * 0.12, 0);
-            leftWing.rotation.z = -0.15;
-            leftWing.castShadow = true;
-            torso.add(leftWing);
-
-            const rightWing = new THREE.Mesh(new THREE.BoxGeometry(0.018, h * 1.15, l * 1.15), darkPlateMat);
-            rightWing.name = 'right_wing';
-            rightWing.position.set(w * 0.52, h * 0.12, 0);
-            rightWing.rotation.z = 0.15;
-            rightWing.castShadow = true;
-            torso.add(rightWing);
-
-            // Bird Head
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.72, h * 0.72, l * 0.35), animalMat);
-            head.name = 'head';
-            head.position.set(0, h * 0.55, l * 0.35);
-            torso.add(head);
-
-            // Massive curved tearing beak
-            const beakMat = new THREE.MeshStandardMaterial({ color: 0xd05a30, roughness: 0.6, flatShading: true }); // orange-red beak
-            const beakBase = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.11, 4), beakMat);
-            beakBase.position.set(0, -h * 0.1, l * 0.22);
-            beakBase.rotation.x = -Math.PI / 3; // curved down hook
-            head.add(beakBase);
-
-            // Small glowing cyan eyes
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.007, 3, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.32, 0.08, l * 0.12);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.007, 3, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.32, 0.08, l * 0.12);
-            head.add(eyeL, eyeR);
-
-            // Two thin bird legs
-            const legH = 0.08;
-            const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, legH, 4), animalMat);
-            lf.name = 'lf'; lf.position.set(-w * 0.28, -h * 0.5 - legH * 0.5, l * 0.05);
-            const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, legH, 4), animalMat);
-            rf.name = 'rf'; rf.position.set(w * 0.28, -h * 0.5 - legH * 0.5, l * 0.05);
-            torso.add(lf, rf);
-
-            // Small wedge tail feathers
-            const tail = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.015, l * 0.4), darkPlateMat);
-            tail.name = 'tail';
-            tail.position.set(0, -h * 0.2, -l * 0.52);
-            tail.rotation.x = -0.22;
-            torso.add(tail);
-
-          } else {
-            // Fallback default animal mesh
-            const w = 0.15, h = 0.12, l = 0.24;
-            torso = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), animalMat);
-            torso.position.y = h / 2 + 0.08;
-
-            head = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, w * 0.9, w * 0.9), animalMat);
-            head.name = 'head';
-            head.position.set(0, h + 0.06, l / 2);
-            torso.add(head);
-
-            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(w * 0.12, 4, 3), cyanGlowMat);
-            eyeL.position.set(-w * 0.35, w * 0.1, w * 0.35);
-            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(w * 0.12, 4, 3), cyanGlowMat);
-            eyeR.position.set(w * 0.35, w * 0.1, w * 0.35);
-            head.add(eyeL, eyeR);
-
-            const legH = 0.08;
-            const lf = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, legH, 4), animalMat);
-            lf.name = 'lf'; lf.position.set(-w / 2.4, -h / 2 - legH / 2, l / 3.2);
-            const rf = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, legH, 4), animalMat);
-            rf.name = 'rf'; rf.position.set(w / 2.4, -h / 2 - legH / 2, l / 3.2);
-            const lb = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, legH, 4), animalMat);
-            lb.name = 'lb'; lb.position.set(-w / 2.4, -h / 2 - legH / 2, -l / 3.2);
-            const rb = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, legH, 4), animalMat);
-            rb.name = 'rb'; rb.position.set(w / 2.4, -h / 2 - legH / 2, -l / 3.2);
-            torso.add(lf, rf, lb, rb);
-          }
-
-          torso.castShadow = true;
-          torso.receiveShadow = true;
-          head.castShadow = true;
-          animalMeshGroup.add(torso);
-
-          // 3D Game Designation Target Jewel floating above body
-          const targetJewel = new THREE.Mesh(new THREE.OctahedronGeometry(0.045, 0), new THREE.MeshStandardMaterial({ color: 0xff3333, roughness: 0.2, metalness: 0.8 }));
-          targetJewel.name = 'statusIndicator';
-          targetJewel.position.set(0, 0.45, 0);
-          targetJewel.visible = false;
-          animalMeshGroup.add(targetJewel);
-
-          // Metadata bindings
-          torso.userData = { animal };
-          head.userData = { animal };
-          cellMeshes.push(torso, head);
 
           actorGroup.add(animalMeshGroup);
           animalMeshesMap.set(animal.id, animalMeshGroup);
+        }
+
+        // Calculate visibility early
+        let isAnimalVisible = true;
+        if (latestProps.mapData) {
+          const eyeX = latestProps.mapData.eyePos?.x ?? 60;
+          const eyeZ = latestProps.mapData.eyePos?.z ?? 60;
+          const eyeRadius = latestProps.mapData.eyeRadius ?? 14.0;
+          const renderRadiusSq = (eyeRadius + 4.5) * (eyeRadius + 4.5);
+          
+          const maxCullDist = Math.max(22, cameraDistance * 1.05 + 8);
+          const maxCullDistSq = maxCullDist * maxCullDist;
+          
+          const dxEye = animal.x - eyeX;
+          const dzEye = animal.z - eyeZ;
+          const distEyeSq = dxEye * dxEye + dzEye * dzEye;
+          
+          const dxCam = animal.x - focalPoint.x;
+          const dzCam = animal.z - focalPoint.z;
+          const distCamSq = dxCam * dxCam + dzCam * dzCam;
+          
+          isAnimalVisible = (distCamSq < maxCullDistSq);
+        }
+
+        animalMeshGroup.visible = isAnimalVisible;
+
+        if (!isAnimalVisible) {
+          // Apply coordinates directly and skip detailed animations/height calculations
+          animalMeshGroup.position.set(animal.x, animal.y || 1.0, animal.z);
+          return;
         }
 
         // Live coordinate dynamics
@@ -4442,77 +4635,39 @@ export default function GameCanvas({
         animalMeshGroup.scale.set(scaleSize, scaleSize, scaleSize);
 
         const getDiscreteHeight = (px: number, pz: number) => {
-          const grid = latestProps.mapData?.grid;
-          if (!grid) return 1.0;
-          const size = grid.length;
-          const cx = Math.max(0, Math.min(size - 1, Math.round(px)));
-          const cz = Math.max(0, Math.min(size - 1, Math.round(pz)));
-          const cell = grid[cx]?.[cz];
+          const cx = Math.round(px);
+          const cz = Math.round(pz);
+          const currentMap = latestProps.mapData;
+          if (!currentMap) return 1.0;
+          
+          const getCellAtWorldLoc = (m: MapData, tx: number, tz: number) => {
+            if (m.chunksByKey) {
+              const chunkX = Math.floor(tx / 6);
+              const chunkZ = Math.floor(tz / 6);
+              const chunkKey = `${chunkX},${chunkZ}`;
+              const chunk = m.chunksByKey[chunkKey];
+              if (chunk) {
+                const lx = tx - chunk.chunkX * 6;
+                const lz = tz - chunk.chunkZ * 6;
+                return chunk.cells[lx]?.[lz] || null;
+              }
+              return null;
+            }
+            return m.grid?.[tx]?.[tz] || null;
+          };
+
+          const cell = getCellAtWorldLoc(currentMap, cx, cz);
           if (!cell) return 1.0;
           return cell.height + 0.03;
         };
 
         const terrainY = getDiscreteHeight(animal.x, animal.z);
 
-        // Dynamic skeletal part animations (leg swings, head bobs, tail sways, wing flaps)
-        const lfLeg = animalMeshGroup.getObjectByName('lf');
-        const rfLeg = animalMeshGroup.getObjectByName('rf');
-        const lbLeg = animalMeshGroup.getObjectByName('lb');
-        const rbLeg = animalMeshGroup.getObjectByName('rb');
-        const animalHead = animalMeshGroup.getObjectByName('head');
-        const tailPart = animalMeshGroup.getObjectByName('tail');
-        const leftWing = animalMeshGroup.getObjectByName('left_wing');
-        const rightWing = animalMeshGroup.getObjectByName('right_wing');
-
         if (isMoving && !isDead) {
           const angle = Math.atan2(animal.targetX - animal.x, animal.targetZ - animal.z);
           let diff = angle - animalMeshGroup.rotation.y;
           let diffNormalized = Math.atan2(Math.sin(diff), Math.cos(diff));
           animalMeshGroup.rotation.y += diffNormalized * 0.15;
-          animalMeshGroup.rotation.x = 0.06 * Math.sin(elapsed * rSpeed); // forward galloping bob
-
-          // Animate leg swings in alternating gait
-          const swing = Math.sin(elapsed * rSpeed) * 0.45;
-          if (lfLeg) lfLeg.rotation.x = swing;
-          if (rfLeg) rfLeg.rotation.x = -swing;
-          if (lbLeg) lbLeg.rotation.x = -swing;
-          if (rbLeg) rbLeg.rotation.x = swing;
-
-          // Head bobbing
-          if (animalHead) animalHead.rotation.x = Math.sin(elapsed * rSpeed * 1.5) * 0.12;
-
-          // Tail sway
-          if (tailPart) tailPart.rotation.y = Math.sin(elapsed * rSpeed * 0.8) * 0.25;
-
-          // Wing flaps (for Dustialon / Vulture)
-          if (leftWing) leftWing.rotation.z = -0.15 + Math.sin(elapsed * rSpeed * 1.5) * 0.4;
-          if (rightWing) rightWing.rotation.z = 0.15 - Math.sin(elapsed * rSpeed * 1.5) * 0.4;
-
-        } else {
-          animalMeshGroup.rotation.x = 0;
-          if (isDead) {
-            animalMeshGroup.rotation.z = Math.PI / 2; // fall over flat!
-            if (lfLeg) lfLeg.rotation.x = 0.2;
-            if (rfLeg) rfLeg.rotation.x = -0.2;
-            if (lbLeg) lbLeg.rotation.x = -0.2;
-            if (rbLeg) rbLeg.rotation.x = 0.2;
-          } else if (animal.isSleeping) {
-            animalMeshGroup.rotation.z = Math.PI / 2.5; // rotate to lay flat on sleep
-            animalMeshGroup.position.y = terrainY - 0.03;
-            if (animalHead) animalHead.rotation.x = -0.1 + Math.sin(elapsed * 1.2) * 0.03; // slow breathing
-          } else {
-            animalMeshGroup.rotation.z = 0;
-
-            // Idle breathing and subtle tail sway
-            if (lfLeg) lfLeg.rotation.x = 0;
-            if (rfLeg) rfLeg.rotation.x = 0;
-            if (lbLeg) lbLeg.rotation.x = 0;
-            if (rbLeg) rbLeg.rotation.x = 0;
-            if (animalHead) animalHead.rotation.x = Math.sin(elapsed * 1.8) * 0.04;
-            if (tailPart) tailPart.rotation.y = Math.sin(elapsed * 1.0) * 0.1;
-            if (leftWing) leftWing.rotation.z = -0.15 + Math.sin(elapsed * 1.2) * 0.05;
-            if (rightWing) rightWing.rotation.z = 0.15 - Math.sin(elapsed * 1.2) * 0.05;
-          }
         }
 
         const targetX = animal.x;
@@ -4529,6 +4684,9 @@ export default function GameCanvas({
           animalMeshGroup.position.z = THREE.MathUtils.lerp(animalMeshGroup.position.z, targetZ, 0.2);
           animalMeshGroup.position.y = THREE.MathUtils.lerp(animalMeshGroup.position.y, targetY, 0.2);
         }
+
+        // Apply state-machine-driven visual animations for low-poly animals
+        updateAnimalAnimation(animalMeshGroup, animal, elapsed, latestProps.timeSpeed || 'normal', isMoving, terrainY);
 
         // Toggle jewel color based on designation
         const indicator = animalMeshGroup.getObjectByName('statusIndicator') as THREE.Mesh;
@@ -4557,6 +4715,11 @@ export default function GameCanvas({
       const fishDelta = Math.min(0.04, delta); // clamp to prevent high-delta teleporting
 
       fishFlock.forEach((boid) => {
+        // Skip heavy flocking calculations for boids that are far/culled to maximize performance
+        if (boid.group && !boid.group.visible) {
+          return;
+        }
+
         const cohesion = new THREE.Vector3();
         const alignment = new THREE.Vector3();
         const separation = new THREE.Vector3();
@@ -4608,7 +4771,7 @@ export default function GameCanvas({
         // Boundary constraint: fish must stay inside water biome cells
         const curCellX = Math.round(boid.position.x);
         const curCellZ = Math.round(boid.position.z);
-        const curCell = mapData.grid[curCellX]?.[curCellZ];
+        const curCell = latestProps.mapData?.grid?.[curCellX]?.[curCellZ];
         const isCurrentlyInWater = curCell && curCell.biome === 'water';
 
         if (!isCurrentlyInWater) {
@@ -4644,7 +4807,7 @@ export default function GameCanvas({
         boid.position.addScaledVector(boid.velocity, fishDelta);
 
         // Hover swimming vertical height oscillation based on current underwater grid floor
-        const tile = mapData.grid[Math.round(boid.position.x)]?.[Math.round(boid.position.z)];
+        const tile = latestProps.mapData?.grid?.[Math.round(boid.position.x)]?.[Math.round(boid.position.z)];
         if (tile && tile.biome === 'water') {
           const seaFloor = Math.max(0.1, tile.height - 0.7);
           
@@ -4768,6 +4931,7 @@ export default function GameCanvas({
       renderer.domElement.removeEventListener('wheel', handleWheel);
       renderer.domElement.removeEventListener('contextmenu', preventContextMenu);
       renderer.domElement.removeEventListener('click', handleCanvasClick);
+      renderer.domElement.removeEventListener('dblclick', handleCanvasDblClick);
       resizeObserver.disconnect();
       
       // Memory cleanup

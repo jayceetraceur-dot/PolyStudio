@@ -1,5 +1,19 @@
 export type BiomeType = 'grassland' | 'forest' | 'rocky' | 'water' | 'beach' | 'desert';
 
+export type SimulationLevel = 'FULL_ACTIVE' | 'INSPECTION_VISUAL' | 'NEAR_FUTURE' | 'ABSTRACT' | 'UNLOADED';
+
+export interface WorldChunk {
+  chunkX: number;
+  chunkZ: number;
+  cells: CellInfo[][]; // 6x6 cells
+  loaded: boolean;
+  simulationLevel: SimulationLevel;
+  lastActiveTime: number;
+  biomeSummary: string;
+  discovered: boolean;
+  modified: boolean;
+}
+
 export interface WorldConfig {
   size: number; // grid size (e.g., 40 means 40x40)
   seed: number;
@@ -20,7 +34,10 @@ export type JobCategory =
   | 'Sleep'
   | 'Eat'
   | 'Drink'
-  | 'Study';
+  | 'Study'
+  | 'CaravanPacking'
+  | 'Heal'
+  | 'CraftMedicine';
 
 export type JobPriority = 1 | 2 | 3 | 4 | 0; // 1 = Critical, 4 = Low, 0 = Disabled
 
@@ -101,6 +118,7 @@ export interface CellInfo {
   landmark?: Landmark | null;
   gatherDesignated?: boolean;
   expeditionSite?: ExpeditionSite | null;
+  loaded?: boolean;
 }
 
 export interface ExpeditionSite {
@@ -177,6 +195,8 @@ export interface CraftingJob {
 export interface MapData {
   config: WorldConfig;
   grid: CellInfo[][];
+  chunksByKey?: Record<string, WorldChunk>;
+  cameraWorldPos?: { x: number; z: number };
   researchPoints: number;
   unlockedRecipes: string[];
   craftQueue: CraftingJob[];
@@ -186,6 +206,7 @@ export interface MapData {
     wood: number;
     stone: number;
     food: number;
+    medicine: number; // For healers to create and use!
 
     // Detailed Don't Starve items
     berries: number;
@@ -218,6 +239,7 @@ export interface MapData {
     flintPickaxe: number;
     grassBasket: number;
     spear: number;
+    bow: number;
     boiledRoots: number;
     boiledRootsFresh: number;
     paddedJerkin: number;
@@ -270,11 +292,28 @@ export interface MapData {
   deityModePaused?: boolean;
   futureEyePath?: { x: number; z: number }[];
   stormWallDamageEnabled?: boolean;
+  eyeTargetPos?: { x: number; z: number };
+  eyeMovementState?: 'stable' | 'migrating';
+  isPackingCaravan?: boolean;
+  packingProgress?: number;
+  packingTargetProgress?: number;
+  eyeMigrationDuration?: number;
   knownVillages?: OtherVillage[];
   oracleMessages?: OracleMessage[];
   discoveredRelics?: DiscoveredRelic[];
   activeApprenticeId?: string;
   predictionHistory?: { day: number; success: boolean }[];
+  activeTradeCaravans?: any[];
+  settings?: {
+    graphicsLevel?: 'Low' | 'High';
+    pathfindingTickRate?: 'Slow' | 'Normal' | 'Fast';
+  };
+  chunkLoadToken?: number;
+  decorationsRevision?: number;
+  gameDaysPlayed?: number;
+  aiDirector?: AIDirectorState;
+  isMigrationTravelActive?: boolean;
+  caravanPos?: { x: number; z: number };
 }
 
 export interface OtherVillage {
@@ -320,6 +359,8 @@ export interface OtherVillage {
   culturalTraits?: string[];
   reputation?: string;
   lastContactDate?: string;
+  allianceActive?: boolean;
+  treatyActive?: boolean;
 }
 
 export interface OracleMessage {
@@ -388,6 +429,7 @@ export interface Animal {
   // Taming & Domestic progression
   tameLevel: number;        // 0 to 100
   isTame: boolean;          // true if fully integrated with colony
+  isLeashed?: boolean;      // true if animal is secured
   captiveBorn: boolean;     // true if born in captiviity (offspring become fully quiet/tame)
   trustLevel: number;       // 0 to 100 trust based on active feeding
   assignedJob?: 'Carrying' | 'Milking' | 'Plowing' | 'HuntingCompanion' | 'Guarding' | 'Wagon' | null;
@@ -553,7 +595,7 @@ export interface Tribesperson {
     type: string;
     amount: number;
   } | null;
-  activeJobType?: JobCategory | null;
+  activeJobType?: JobCategory | 'MigratingTravel' | null;
   jobTargetCoords?: { x: number; z: number } | null;
   workProgress?: number; // active work time accumulation at current node
   isManualDirectTask?: boolean;
@@ -578,6 +620,7 @@ export interface Tribesperson {
   lineagePath?: string;
   isOracleApprentice?: boolean;
   aiTickTimer?: number;
+  hasBackpack?: boolean;
 
   // Expedition simulation states
   expeditionState?: 'none' | 'entering' | 'exploring' | 'investigating' | 'returning';
@@ -637,6 +680,16 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
     materials: { wood: 20, bone: 8, fiber: 10 },
     skillsRequired: { role: 'Artisan', level: 2 },
     researchCost: 10,
+  },
+  bow: {
+    id: 'bow',
+    name: 'Tendon Longbow',
+    description: 'A powerful ranged bow. Allows Hunters of Level 4+ to attack animals from a distance (range equals hunter level).',
+    tier: 'Tribal',
+    workstation: 'ArtisanBench',
+    materials: { wood: 30, fiber: 25, bone: 5 },
+    skillsRequired: { role: 'Artisan', level: 3 },
+    researchCost: 15,
   },
   boiledRoots: {
     id: 'boiledRoots',
@@ -749,3 +802,102 @@ export const RECIPE_DATABASE: Record<string, Recipe> = {
     researchCost: 75,
   },
 };
+
+export type EventIntensity = 'Calm' | 'Low' | 'Medium' | 'High' | 'Crisis' | 'Recovery';
+
+export interface PlayerCapabilityProfile {
+  population: {
+    total: number;
+    children: number;
+    adults: number;
+    elders: number;
+    sick: number;
+    injured: number;
+    workers: number;
+  };
+  survival: {
+    food: number;
+    water: number;
+    medicine: number;
+    shelter: number;
+    sleep: number;
+    morale: number;
+    sickness: number;
+    stabilityScore: number;
+  };
+  defense: {
+    strengthScore: number;
+    fighters: number;
+    guards: number;
+    hunterLevels: number;
+    weapons: number;
+    armor: number;
+    animals: number;
+    structures: number;
+  };
+  migration: {
+    capacity: number;
+    supplies: number;
+    animals: number;
+    safetyScore: number;
+  };
+  economy: {
+    storedResourcesValue: number;
+    tradeGoodsValue: number;
+    rareItemsCount: number;
+  };
+  knowledge: {
+    oracleLevel: number;
+    scoutLevel: number;
+    relicsResearched: number;
+    recipesUnlocked: number;
+  };
+  stressScore: number;
+}
+
+export interface DirectorChoice {
+  id: string;
+  text: string;
+  tooltip?: string;
+  requirements?: string;
+  isEligible?: boolean;
+}
+
+export interface DirectorEvent {
+  id: string;
+  name: string;
+  category: 'Survival' | 'Migration' | 'Wildlife' | 'Social' | 'Oracle' | 'Trade' | 'Diplomacy' | 'Expedition' | 'Danger' | 'Recovery';
+  description: string;
+  intensity: 'Calm' | 'Low' | 'Medium' | 'High' | 'Crisis';
+  choices?: DirectorChoice[];
+}
+
+export interface ActiveDirectorEvent {
+  event: DirectorEvent;
+  triggeredDay: number;
+  resolved?: boolean;
+  selectedChoiceId?: string;
+  resolvedMessage?: string;
+}
+
+export interface AIDirectorState {
+  intensity: EventIntensity;
+  intensityTimer: number;
+  playerReputation: number;
+  recentStress: {
+    recentDeaths: number;
+    recentRaid: number;
+    recentPredatorAttack: number;
+    recentFoodShortage: number;
+    recentFailedMigration: number;
+    recentIllnessOutbreak: number;
+    recentDisaster: number;
+  };
+  eventCooldowns: Record<string, number>;
+  eventHistory: { id: string; name: string; day: number; outcome?: string }[];
+  activeEvent: ActiveDirectorEvent | null;
+  pendingEvents: { eventId: string; triggerDay: number }[];
+  capabilityProfile: PlayerCapabilityProfile;
+  difficultyStage: 'Early' | 'Mid' | 'Late';
+}
+

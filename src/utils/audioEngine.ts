@@ -344,6 +344,124 @@ export class SoundscapeEngine {
     }
   }
 
+  /**
+   * Play a point-source spatial sound effect with distance falloff relative to the camera center
+   * (or directly if coordinates aren't provided).
+   */
+  public playSpatialSound(
+    type: 'animal_cry' | 'alien_chirp' | 'storm_rumble' | 'villager_chat' | 'villager_work' | 'spore_spit',
+    x?: number,
+    z?: number,
+    camX?: number,
+    camZ?: number
+  ) {
+    if (!this.ctx || !this.isInitialized || this.ctx.state === 'suspended') return;
+
+    const t = this.ctx.currentTime;
+    
+    // 1. Calculate distance-based volume falloff
+    let volume = 0.5;
+    if (x !== undefined && z !== undefined && camX !== undefined && camZ !== undefined) {
+      const dist = Math.hypot(x - camX, z - camZ);
+      // Falloff curve: 1.0 at distance 0, dropping to 0.0 at distance 16
+      volume = Math.max(0.001, 1.0 - (dist / 16.0));
+      if (volume <= 0.01) return; // Silent, don't waste CPU!
+    }
+
+    // 2. Synthesize custom procedural sounds based on requested types
+    try {
+      const pOsc = this.ctx.createOscillator();
+      const pGain = this.ctx.createGain();
+      
+      pOsc.connect(pGain);
+      pGain.connect(this.masterGain || this.ctx.destination);
+
+      if (type === 'animal_cry') {
+        // Alien wolf/beast growl + whistle (FM synthesis)
+        pOsc.type = 'sawtooth';
+        pOsc.frequency.setValueAtTime(140, t);
+        pOsc.frequency.exponentialRampToValueAtTime(320, t + 0.12);
+        pOsc.frequency.exponentialRampToValueAtTime(80, t + 0.45);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.18 * volume, t + 0.05);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.55);
+
+      } else if (type === 'alien_chirp') {
+        // High frequency space bird or glow grub chirps
+        pOsc.type = 'sine';
+        pOsc.frequency.setValueAtTime(1200, t);
+        pOsc.frequency.exponentialRampToValueAtTime(2400, t + 0.06);
+        pOsc.frequency.exponentialRampToValueAtTime(1800, t + 0.15);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.15 * volume, t + 0.02);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.2);
+
+      } else if (type === 'storm_rumble') {
+        // Deep thunderous static hum of the lightning wall
+        pOsc.type = 'triangle';
+        pOsc.frequency.setValueAtTime(55, t);
+        pOsc.frequency.linearRampToValueAtTime(45, t + 0.8);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.35 * volume, t + 0.2);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.9);
+
+      } else if (type === 'villager_chat') {
+        // Friendly hum-like dialogue synthesis
+        pOsc.type = 'triangle';
+        pOsc.frequency.setValueAtTime(280, t);
+        pOsc.frequency.linearRampToValueAtTime(350, t + 0.08);
+        pOsc.frequency.exponentialRampToValueAtTime(220, t + 0.2);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.12 * volume, t + 0.04);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.25);
+
+      } else if (type === 'villager_work') {
+        // Metallic hammer strike or pickaxe stone tap
+        pOsc.type = 'sine';
+        pOsc.frequency.setValueAtTime(2500, t);
+        pOsc.frequency.exponentialRampToValueAtTime(120, t + 0.05);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.20 * volume, t + 0.01);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.15);
+
+      } else if (type === 'spore_spit') {
+        // Corrosive acid hiss
+        pOsc.type = 'sawtooth';
+        pOsc.frequency.setValueAtTime(800, t);
+        pOsc.frequency.exponentialRampToValueAtTime(150, t + 0.15);
+
+        pGain.gain.setValueAtTime(0.001, t);
+        pGain.gain.linearRampToValueAtTime(0.15 * volume, t + 0.02);
+        pGain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+
+        pOsc.start(t);
+        pOsc.stop(t + 0.22);
+      }
+    } catch (e) {
+      console.warn('Procedural spatial audio synth fail:', e);
+    }
+  }
+
   public resume() {
     if (this.ctx && this.ctx.state === 'suspended') {
       this.ctx.resume();

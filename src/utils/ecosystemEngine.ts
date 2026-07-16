@@ -157,6 +157,15 @@ export const SPECIES_DB: Record<string, SpeciesConf> = {
     emoji: '🦗',
     preferredBiomes: ['forest', 'desert', 'rocky']
   },
+  SporeSpitterPlant: {
+    category: 'ApexPredator',
+    maxHP: 150,
+    speed: 0.0,
+    yields: { meat: 0, hide: 5, bones: 4, fat: 0, rare: 6 },
+    description: 'A dangerous rooted carnivorous plant that attacks nearby creatures with toxic spores.',
+    emoji: '🌵',
+    preferredBiomes: ['forest', 'grassland', 'desert', 'rocky']
+  },
 
   // --- SCAVENGERS / OMNIVORES (Image 1) ---
   StormVulture: {
@@ -523,7 +532,7 @@ export function populateInitialMapAnimals(mapData: MapData) {
   });
 
   // Spawn some predators and scavengers on land ONLY
-  const soloTypes = ['ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider', 'GaleWingFlier', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab'];
+  const soloTypes = ['ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider', 'GaleWingFlier', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab', 'SporeSpitterPlant'];
   for (let s = 0; s < 5; s++) {
     const type = soloTypes[Math.floor(Math.random() * soloTypes.length)];
     const rx = Math.floor(Math.random() * size);
@@ -531,6 +540,17 @@ export function populateInitialMapAnimals(mapData: MapData) {
     const c = mapData.grid[rx]?.[rz];
     if (c && c.biome !== 'water' && !c.structure) {
       list.push(createAnimal(type, rx, rz, false));
+    }
+  }
+
+  // Spawn 3-5 dangerous stationary Carnivorous SporeSpitterPlants across the map!
+  const plantCount = 3 + Math.floor(Math.random() * 3);
+  for (let p = 0; p < plantCount; p++) {
+    const rx = Math.floor(Math.random() * size);
+    const rz = Math.floor(Math.random() * size);
+    const c = mapData.grid[rx]?.[rz];
+    if (c && c.biome !== 'water' && !c.structure) {
+      list.push(createAnimal('SporeSpitterPlant', rx, rz, false));
     }
   }
 
@@ -560,8 +580,14 @@ export function syncAnimalsToGrid(mapData: MapData) {
   const size = mapData.grid.length;
   // Clear old references safely
   for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      mapData.grid[r][c].wildAnimal = null;
+    const row = mapData.grid[r];
+    if (row) {
+      for (let c = 0; c < size; c++) {
+        const cell = row[c];
+        if (cell) {
+          cell.wildAnimal = null;
+        }
+      }
     }
   }
 
@@ -675,6 +701,144 @@ export function tickEcosystemSimulation(
       continue;
     }
     survivingAnimals.push(ani);
+
+    if (ani.type === 'SporeSpitterPlant') {
+      // Rooted Carnivorous Plant Behavior
+      ani.hunger = 0;
+      ani.thirst = 0;
+      ani.stress = 0;
+      ani.fear = 0;
+      ani.energy = 100;
+
+      let plantTickTimer = ani.aiTickTimer ?? (Math.random() * 0.6);
+      plantTickTimer -= deltaTime;
+      let pTimerFired = false;
+      if (plantTickTimer <= 0) {
+        pTimerFired = true;
+        plantTickTimer = 0.3 + Math.random() * 0.3;
+      }
+      ani.aiTickTimer = plantTickTimer;
+      
+      // Target scanning
+      if (pTimerFired) {
+        let nearestTarget: { name: string; x: number; z: number; takeDamage: (dmg: number) => void } | null = null;
+        let closestD = 4.0 ** 2; // 4 tile range
+        
+        // Scan villagers
+        tribe.forEach(t => {
+          if (!t.isAlive) return;
+          const d = (ani.x - t.x) ** 2 + (ani.z - t.z) ** 2;
+          if (d < closestD) {
+            closestD = d;
+            nearestTarget = {
+              name: t.name,
+              x: t.x,
+              z: t.z,
+              takeDamage: (dmg) => {
+                t.stats.health = Math.max(10, t.stats.health - dmg);
+                t.statusText = `🤢 Melting from Toxic Plant Spores!`;
+              }
+            };
+          }
+        });
+        
+        // Scan other non-plant animals
+        animals.forEach(other => {
+          if (other.isDead || other.type === 'SporeSpitterPlant') return;
+          const d = (ani.x - other.x) ** 2 + (ani.z - other.z) ** 2;
+          if (d < closestD) {
+            closestD = d;
+            nearestTarget = {
+              name: `wild ${other.type}`,
+              x: other.x,
+              z: other.z,
+              takeDamage: (dmg) => {
+                other.HP -= dmg * 1.5;
+                other.fear = 100;
+                if (other.HP <= 0) {
+                  other.isDead = true;
+                  addLog(`💀 Carnivorous Plant: A rooted SporeSpitterPlant at [${Math.round(ani.x)}, ${Math.round(ani.z)}] has digested a ${other.type}!`, 'combat');
+                }
+              }
+            };
+          }
+        });
+        
+        if (nearestTarget) {
+          (ani as any).plantTarget = { x: (nearestTarget as any).x, z: (nearestTarget as any).z };
+          const dmgAmount = 14 * deltaTime;
+          (nearestTarget as any).takeDamage(dmgAmount);
+          
+          if (Math.random() < 0.1) {
+            addLog(`🌵 VEGETATIVE ATTACK: A dangerous rooted Spore-Spitter Plant at [${Math.round(ani.x)}, ${Math.round(ani.z)}] is spraying corrosive spores at ${(nearestTarget as any).name}!`, 'combat');
+          }
+        } else {
+          (ani as any).plantTarget = null;
+        }
+      }
+      
+      ani.targetX = ani.x;
+      ani.targetZ = ani.z;
+      continue;
+    }
+
+    if (ani.isLeashed) {
+      ani.targetX = ani.x;
+      ani.targetZ = ani.z;
+      ani.isSleeping = false;
+      ani.fear = 0;
+      ani.stress = 0;
+      continue;
+    }
+
+    // Fast Eye-of-storm bounds check for AI abstract mode
+    const center = { x: size / 2, z: size / 2 };
+    const eyeX = mapData.eyePos?.x ?? center.x;
+    const eyeZ = mapData.eyePos?.z ?? center.z;
+    const eyeRadius = mapData.eyeRadius ?? 14.0;
+    const eyeRadiusSq = eyeRadius * eyeRadius;
+
+    const eyeDx = ani.x - eyeX;
+    const eyeDz = ani.z - eyeZ;
+    const isInsideEye = (eyeDx * eyeDx + eyeDz * eyeDz) <= eyeRadiusSq;
+
+    if (!isInsideEye) {
+      ani.isSleeping = false; // Cannot sleep in a toxic storm!
+      
+      // Calculate or re-evaluate target towards safety using a fast scheduler timer
+      let aiTickTimer = ani.aiTickTimer ?? (Math.random() * 0.6);
+      aiTickTimer -= deltaTime;
+      let timerFired = false;
+      if (aiTickTimer <= 0) {
+        timerFired = true;
+        aiTickTimer = 0.3 + Math.random() * 0.3;
+      }
+      ani.aiTickTimer = aiTickTimer;
+
+      if (timerFired || Math.abs(ani.x - ani.targetX) < 0.2) {
+        ani.targetX = eyeX + (Math.random() - 0.5) * 6;
+        ani.targetZ = eyeZ + (Math.random() - 0.5) * 6;
+      }
+
+      // Ensure target coordinates match the species terrain rules
+      const validTarget = getValidAnimalTarget(ani, ani.targetX, ani.targetZ, mapData);
+      ani.targetX = validTarget.x;
+      ani.targetZ = validTarget.z;
+
+      // Move animal towards Safe Zone
+      const moveSpeed = SPECIES_DB[ani.type]?.speed || 1.0;
+      const finalSpeed = moveSpeed * 1.85 * deltaTime * 3.5 * 1.5;
+      const adx = ani.targetX - ani.x;
+      const adz = ani.targetZ - ani.z;
+      const adSq = adx * adx + adz * adz;
+
+      if (adSq > 0.05) {
+        const dist = Math.sqrt(adSq);
+        ani.x += (adx / dist) * Math.min(dist, finalSpeed);
+        ani.z += (adz / dist) * Math.min(dist, finalSpeed);
+      }
+      continue; // Bypass the entire complex AI behavior tree!
+    }
 
     // Age progression (extremely slow)
     ani.ageDays += 0.01 * deltaTime;
