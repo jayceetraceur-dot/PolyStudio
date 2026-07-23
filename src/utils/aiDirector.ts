@@ -71,6 +71,7 @@ export function initializeAIDirectorState(): AIDirectorState {
     activeEvent: null,
     pendingEvents: [],
     difficultyStage: 'Early',
+    globalEventCooldown: 4.0,
     capabilityProfile: {
       population: { total: 0, children: 0, adults: 0, elders: 0, sick: 0, injured: 0, workers: 0 },
       survival: { food: 0, water: 0, medicine: 0, shelter: 0, sleep: 100, morale: 100, sickness: 0, stabilityScore: 100 },
@@ -230,6 +231,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Survival',
     description: 'An electrostatic mold outbreak has settled on our food storage vaults. The spores are moist and smell of ozone. We must deal with the spoiling food quickly or risk sickness.',
     intensity: 'Low',
+    durationDays: 1.2,
     choices: [
       { id: 'clean', text: 'Scrub vaults with medicine (Consumes 5 Medicine)', tooltip: 'Safely purges the mold using medicinal extracts.' },
       { id: 'burn', text: 'Burn infected crates (Lose 15 Food, gain 5 Charcoal)', tooltip: 'Fast and sterile, but we lose valuable food.' },
@@ -242,6 +244,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Survival',
     description: 'Your scouts hear a musical whistling. An ancient orbital siphoning tower is venting super-cooled vapor, condensing into an abundant puddle of purified water.',
     intensity: 'Calm',
+    durationDays: 1.0,
     choices: [
       { id: 'collect', text: 'Haul water to depot (+25 Reservoir Water)', tooltip: 'Increases local water stores significantly.' },
       { id: 'study', text: 'Study siphoning mechanism (+20 Research Points)', tooltip: 'Gains technical blueprint progress.' }
@@ -253,6 +256,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Survival',
     description: 'A glowing patch of sky-lichens has burst out of rust-battered precursor pipes. Healers say these lichens hold incredible cell-restoring properties.',
     intensity: 'Calm',
+    durationDays: 1.2,
     choices: [
       { id: 'harvest', text: 'Gather immediately (+8 Medicine)', tooltip: 'Bolsters the clan\'s medicinal stores.' },
       { id: 'transplant', text: 'Attempt to cultivate near campsite', tooltip: '50% chance to gain +15 Medicine, 50% chance to fail with 0.' }
@@ -266,6 +270,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Wildlife',
     description: 'A migrating herd of massive Sky-Strutting Pack Birds has nested right outside the campsite. Their screams are deafening, but they carry valuable feathers and eggs.',
     intensity: 'Low',
+    durationDays: 1.5,
     choices: [
       { id: 'tame', text: 'Attempt to tame a breeding pair (Consumes 20 Berries)', tooltip: 'Requires high skills. Spawns domesticated Pack Birds.' },
       { id: 'hunt', text: 'Send Hunters to dress the birds (+20 Meat, +4 Horns/Feathers)', tooltip: 'Fills the smokehouses with meat.' },
@@ -278,6 +283,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Wildlife',
     description: 'Serrating, multi-jointed claw marks have been spotted near the berry bushes. An Apex Predator is tracking the tribe\'s scent.',
     intensity: 'Medium',
+    durationDays: 0.7,
     choices: [
       { id: 'bait', text: 'Set out toxic bait (Consumes 10 Meat, 2 Medicine)', tooltip: 'Reduces predator health, preventing attacks.' },
       { id: 'fortify', text: 'Light bonfire wards (Consumes 15 Wood)', tooltip: 'Scares predators away, but burns valuable logs.' },
@@ -290,6 +296,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Wildlife',
     description: 'Our tamed beasts of burden are shivering. Static rot is infecting their joints, cracking their horns and reducing their load limits.',
     intensity: 'Medium',
+    durationDays: 1.0,
     choices: [
       { id: 'treat', text: 'Apply warm fiber poultice (Consumes 10 Fiber, 4 Medicine)', tooltip: 'Safely cures our pack animals.' },
       { id: 'quarantine', text: 'Surgically separate infected beasts (-1 tamed beast, +15 Meat)', tooltip: 'Culls the herd to protect others.' },
@@ -304,6 +311,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Social',
     description: 'Two leading gatherers are arguing over who owns the flint fragments found in the dry stream. The tribe is dividing into tense factions.',
     intensity: 'Low',
+    durationDays: 1.4,
     choices: [
       { id: 'repute', text: 'Oracle decides: Divide equally (-5 Morale, +5 Reputation)', tooltip: 'A balanced decision that pleases neighbors.' },
       { id: 'favour', text: 'Favor the elder gatherer (+15 Morale for Elders, -10 for Workers)', tooltip: 'Upholds tradition but frustrates younger workers.' },
@@ -316,6 +324,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Social',
     description: 'An apprentice artisan has spent nights staring into a humming thulecite fragment, having a bizarre breakthrough regarding tool smithing.',
     intensity: 'Low',
+    durationDays: 1.8,
     choices: [
       { id: 'recipes', text: 'Support their prototype (Consumes 10 Copper, +25 Research Points)', tooltip: 'Boosts research output.' },
       { id: 'amulet', text: 'Construct a protection charm (+1 Amulet of Life)', tooltip: 'Crafts an extremely rare relic of resurrection.' }
@@ -327,6 +336,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Social',
     description: 'The elders suggest conducting a solemn Memorial Ritual for our fallen ancestors who perished in the Great Static Collapse.',
     intensity: 'Calm',
+    durationDays: 2.0,
     choices: [
       { id: 'celebrate', text: 'Conduct a memory feast (Consumes 15 Food, +25 Morale)', tooltip: 'Deepens social cohesion.' },
       { id: 'codex', text: 'Inscribe memories in the Codex (+15 Research, +10 Reputation)', tooltip: 'Durable records elevate the clan\'s standing.' }
@@ -340,6 +350,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Oracle',
     description: 'The static on the horizons has turned a deep violet. The Oracle senses an orbital beacon alignment, whispering coordinates of precursor vaults.',
     intensity: 'Low',
+    durationDays: 0.8,
     choices: [
       { id: 'map', text: 'Chart coordinates (+1 Ruin Map, +15 Research)', tooltip: 'Reveals a rare site rumor.' },
       { id: 'sacrifice', text: 'Perform atmospheric grounding (Consumes 10 Copper, +20 Morale)', tooltip: 'Soothes the minds of terrified survivors.' }
@@ -351,6 +362,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Oracle',
     description: 'The Oracle dreams of salt, static, and blinding white plains. The next biome ahead is forecasted to be extremely dry and resource-poor.',
     intensity: 'Low',
+    durationDays: 2.2,
     choices: [
       { id: 'prepare', text: 'Begin stockpiling water buffers (+5 max water limit permanently)', tooltip: 'Improves water security.' },
       { id: 'scout', text: 'Send extra scouts to map detours (Consumes 10 Food, +2 scout days)', tooltip: 'Provides more time before migration.' }
@@ -364,6 +376,8 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Trade',
     description: 'A majestic merchant caravan on a multi-beast draft cart has pulled up to our camps. They offer rare precursor technology in exchange for base ores.',
     intensity: 'Calm',
+    durationDays: 0.6,
+    isRejectable: true,
     choices: [
       { id: 'trade', text: 'Trade Copper & Iron for Relics (Consumes 20 Copper, +2 Relics)', tooltip: 'Acquires ultra-rare materials.' },
       { id: 'hire', text: 'Hire a veteran Guard (Consumes 10 Silver, spawns 1 level 4 Hunter)', tooltip: 'Bolsters local defenses instantly.' },
@@ -376,6 +390,8 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Trade',
     description: 'An emergency beacon flares from a nearby off-screen camp. They are freezing and desperate for wood. They will trade moon-iron for immediate shelter logs.',
     intensity: 'Low',
+    durationDays: 0.8,
+    isRejectable: true,
     choices: [
       { id: 'help', text: 'Send wood cargo caravans (Consumes 40 Wood, +15 Gold, +20 Relation)', tooltip: 'Provides high payout and builds relationships.' },
       { id: 'ignore', text: 'Decline help request', tooltip: 'Avoids resource expenditure.' }
@@ -389,6 +405,8 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Diplomacy',
     description: 'The elders of Red Hollow have sent a diplomatic runner holding a treaty of alliance. They wish to unite our Oracles and split precursor discoveries.',
     intensity: 'Low',
+    durationDays: 2.0,
+    isRejectable: true,
     choices: [
       { id: 'accept', text: 'Accept Treaty (+40 Relationship, +10 Reputation)', tooltip: 'Secures a powerful off-screen ally.' },
       { id: 'demand', text: 'Demand tribute in exchange for protection (+10 Gold, +10 relation)', tooltip: 'Aggressive negotiation.' },
@@ -401,6 +419,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Diplomacy',
     description: 'A hostile delegation from the "Desperate Band" warcamp has posted spears at our borders. They demand 20 silver or 40 food as border tax.',
     intensity: 'Medium',
+    durationDays: 0.8,
     choices: [
       { id: 'pay', text: 'Pay the protection tax (Consumes 20 Silver)', tooltip: 'Avoids conflict, but costs valuables.' },
       { id: 'defy', text: 'Defy them and fortify borders (-30 Relationship, +15 Morale)', tooltip: 'Prepares the clan for potential defense skirmishes.' },
@@ -415,6 +434,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Expedition',
     description: 'A traveler speaking in fast, static-rhythmed dialects reveals coordinates to an intact "Sector-7 Bio-Dome" bunker. There may be automated greenrooms inside.',
     intensity: 'Low',
+    durationDays: 1.8,
     choices: [
       { id: 'mark', text: 'Chart expedition path (+20 Research Points)', tooltip: 'Reveals coordinates.' },
       { id: 'ignore', text: 'Dismiss it as a mirage', tooltip: 'Avoids chasing phantom technology.' }
@@ -426,6 +446,8 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Expedition',
     description: 'An automated distress signal indicates a skilled scout from a friendly village is trapped in a collapsing seismic shaft.',
     intensity: 'Low',
+    durationDays: 0.5,
+    isRejectable: true,
     choices: [
       { id: 'save', text: 'Deploy rescue team (Consumes 15 Food, 1 Spear)', tooltip: 'High chance to recruit a veteran Scout!' },
       { id: 'ignore', text: 'Leave them to the Storm (-10 Reputation)', tooltip: 'Loses respect with other villages.' }
@@ -439,6 +461,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Danger',
     description: 'Armed raiders on hover-skiffs are circle-riding near our outer resource stockpiles, trying to intimidate gatherers and steal loose metal.',
     intensity: 'Medium',
+    durationDays: 0.9,
     choices: [
       { id: 'fight', text: 'Deploy Hunters to scare them off (Requires Hunters, potential injuries)', tooltip: 'Fires warnings to drive them away.' },
       { id: 'bribe', text: 'Give them copper scraps to leave (Consumes 15 Copper)', tooltip: 'Buys temporary peace.' },
@@ -451,6 +474,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Danger',
     description: 'A heavily armed raiding force from the Desperate Band is launching an assault on our central depot! They carry scrap spears and storm shields.',
     intensity: 'High',
+    durationDays: 0.6,
     choices: [
       { id: 'stand_ground', text: 'Organize central shield wall (Requires Hunter/Spears, major combat)', tooltip: 'Hunters defend the village. Successful defense gives massive loot.' },
       { id: 'evacuate', text: 'Evacuate stockpile into deep caverns (-40 Wood, -40 Stone, -30 Food stolen)', tooltip: 'Raiders pillage our storage but no one dies.' },
@@ -463,6 +487,7 @@ export const EVENTS_DECK: DirectorEvent[] = [
     category: 'Danger',
     description: 'A sudden atmospheric static discharge is overloading electronic structures. Lightning rods are screaming; power systems are near critical collapse.',
     intensity: 'High',
+    durationDays: 0.7,
     choices: [
       { id: 'discharge', text: 'Discharge current through ancient grounders (Consumes 8 Ancient Materials)', tooltip: 'Safely grounds the static.' },
       { id: 'overload', text: 'Let Science Machines absorb the surge (-1 Science Machine structure, +50 Research)', tooltip: 'Destroys a building but yields breakthrough tech.' },
@@ -536,12 +561,67 @@ export function tickAIDirector(
   const state = { ...nextMap.aiDirector };
   const currentDay = nextMap.gameDaysPlayed ?? 0.40;
 
+  // --- CHECK EVENT EXPIRATION (SURVIVAL MODE) ---
+  if (state.activeEvent && !state.activeEvent.resolved) {
+    const expires = state.activeEvent.expiresDay ?? (state.activeEvent.triggeredDay + (state.activeEvent.event.durationDays ?? 1.5));
+    if (currentDay >= expires) {
+      const ev = state.activeEvent.event;
+      let defaultChoiceId = 'ignore'; // fallback default
+      
+      if (ev.id === 'raider_attack_event') {
+        defaultChoiceId = 'evacuate'; // automatically steal resources
+      } else if (ev.id === 'spoiled_food_warning') {
+        defaultChoiceId = 'ignore'; // food spoils, sickness spreads
+      } else if (ev.id === 'beast_disease') {
+        defaultChoiceId = 'wait'; // sickness spreads
+      } else if (ev.id === 'predator_stalking') {
+        defaultChoiceId = 'fortify'; // consume logs as default defensive action
+      } else if (ev.id === 'rival_village_threat') {
+        defaultChoiceId = 'defy'; // relations plummet
+      } else if (ev.id === 'visiting_merchant') {
+        defaultChoiceId = 'decline'; // they leave peacefully
+      } else {
+        // Find last choice as default (often 'ignore', 'decline', or 'wait')
+        if (ev.choices && ev.choices.length > 0) {
+          defaultChoiceId = ev.choices[ev.choices.length - 1].id;
+        }
+      }
+
+      addLog(`⏰ TIME EXPIRED: "${ev.name}" has expired! The outcome has been resolved automatically.`, 'danger');
+      
+      // Resolve the outcome
+      const outcome = resolveEventChoice(defaultChoiceId, ev, nextMap, tribe, addLog);
+      nextMap.stockpile = outcome.mapData.stockpile;
+      
+      // Clear the activeEvent inside state
+      state.activeEvent = null;
+      
+      // Mirror the tribespeople updates (morale, health, status) back into the active array
+      outcome.tribe.forEach((updatedPerson) => {
+        const original = tribe.find(t => t.id === updatedPerson.id);
+        if (original) {
+          if (original.stats && updatedPerson.stats) {
+            original.stats.morale = updatedPerson.stats.morale;
+            original.stats.health = updatedPerson.stats.health;
+          }
+          original.isAlive = updatedPerson.isAlive;
+          original.statusText = updatedPerson.statusText;
+        }
+      });
+    }
+  }
+
   // 1. Decelerate Cooldowns
   const updatedCooldowns = { ...state.eventCooldowns };
   Object.keys(updatedCooldowns).forEach((k) => {
     updatedCooldowns[k] = Math.max(0, updatedCooldowns[k] - deltaDays);
   });
   state.eventCooldowns = updatedCooldowns;
+
+  if (state.globalEventCooldown === undefined) {
+    state.globalEventCooldown = 0;
+  }
+  state.globalEventCooldown = Math.max(0, state.globalEventCooldown - deltaDays);
 
   // Update recent stress recovery timers
   state.intensityTimer += deltaDays;
@@ -579,7 +659,7 @@ export function tickAIDirector(
   // 4. Roll for dynamic events!
   // Checks eligibility and rolls a probability every 1 game day.
   const lastRollDay = (state as any).lastEventRollDay ?? 0;
-  if (currentDay - lastRollDay >= 1.0 && !state.activeEvent) {
+  if (currentDay - lastRollDay >= 1.0 && !state.activeEvent && (state.globalEventCooldown ?? 0) <= 0) {
     (state as any).lastEventRollDay = currentDay;
 
     // Filter eligible events
@@ -637,8 +717,10 @@ export function tickAIDirector(
         state.activeEvent = {
           event: selectedEvent,
           triggeredDay: currentDay,
+          expiresDay: currentDay + (selectedEvent.durationDays ?? 1.5),
           resolved: false,
         };
+        state.globalEventCooldown = 7.0 + Math.random() * 5.0; // Peaceful 7-12 days cooldown
         addLog(`🔔 DYNAMIC EVENT: "${selectedEvent.name}" has occurred. Visit the Oracle or notifications panel to make a decision!`, 'warning');
       }
     }
@@ -1068,7 +1150,12 @@ export function resolveEventChoice(
     director.intensityTimer = 0;
   }
 
-  director.activeEvent = null; // Clear active event
+  if (director.activeEvent) {
+    director.activeEvent = {
+      ...director.activeEvent,
+      resolved: true,
+    } as any;
+  }
   nextMap.aiDirector = director;
 
   addLog(`📢 RESOLVED: "${event.name}" - ${message}`, statusType);

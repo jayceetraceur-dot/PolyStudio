@@ -79,6 +79,14 @@ export const OracleHub: React.FC<OracleHubProps> = ({
   // Cart/Trade State
   const [tradeCart, setTradeCart] = useState<Record<string, number>>({});
   const [tradeMode, setTradeMode] = useState<'buy' | 'sell'>('buy');
+  const [tradeNotice, setTradeNotice] = useState<{ msg: string; type: 'success' | 'warning' | 'error' } | null>(null);
+
+  const showTradeCue = (msg: string, type: 'success' | 'warning' | 'error' = 'success') => {
+    setTradeNotice({ msg, type });
+    setTimeout(() => {
+      setTradeNotice(null);
+    }, 4500);
+  };
 
   // Caravan & Expert states
   const [selectedCaravanMessenger, setSelectedCaravanMessenger] = useState<'scout' | 'armed' | 'oracle'>('scout');
@@ -86,8 +94,8 @@ export const OracleHub: React.FC<OracleHubProps> = ({
   const [selectedExpertRole, setSelectedExpertRole] = useState<TribespersonRole>('Healer');
 
   const oracleLevel = oracle.skills.Oracle?.level ?? 1;
-  const oracleXP = oracle.skills.Oracle?.xp ?? 0;
-  const oracleXPToNext = oracle.skills.Oracle?.xpToNextLevel ?? 100;
+  const oracleXP = Math.floor(oracle.skills.Oracle?.xp ?? 0);
+  const oracleXPToNext = Math.floor(oracle.skills.Oracle?.xpToNextLevel ?? 100);
   const currentDays = mapData.stormDaysUntilMigration ?? 12;
 
   // Determine prediction error based on level
@@ -125,20 +133,78 @@ export const OracleHub: React.FC<OracleHubProps> = ({
 
   // Helper to handle village interaction
   const handleIncreaseRelationship = (villageId: string, amount: number, costResource: string, costQty: number) => {
-    const currentQty = mapData.stockpile[costResource] || 0;
-    if (currentQty < costQty) {
-      addLog(`⚠️ Cannot send gift: Need ${costQty} ${costResource}!`, 'warning');
+    let availableQty = mapData.stockpile[costResource as keyof typeof mapData.stockpile] as number || 0;
+    if (costResource === 'reservoirWater') {
+      availableQty = (mapData.stockpile.reservoirWater || 0) + (mapData.stockpile.water || 0) + (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0);
+    } else if (costResource === 'berries') {
+      availableQty = (mapData.stockpile.berries || 0) + (mapData.stockpile.berriesFresh || 0) + (mapData.stockpile.food || 0);
+    }
+
+    if (availableQty < costQty) {
+      const resLabel = costResource === 'reservoirWater' ? 'Water' : costResource;
+      addLog(`⚠️ Cannot send gift: Need ${costQty} ${resLabel} (You have ${availableQty})!`, 'warning');
       return;
     }
 
     setMapData(prev => {
       const next = { ...prev };
-      next.stockpile = { ...prev.stockpile, [costResource]: currentQty - costQty };
+      next.stockpile = { ...prev.stockpile };
+
+      let remainingToDeduct = costQty;
+      if (costResource === 'reservoirWater') {
+        const resW = next.stockpile.reservoirWater || 0;
+        const subRes = Math.min(resW, remainingToDeduct);
+        next.stockpile.reservoirWater = resW - subRes;
+        remainingToDeduct -= subRes;
+
+        if (remainingToDeduct > 0) {
+          const w = next.stockpile.water || 0;
+          const subW = Math.min(w, remainingToDeduct);
+          next.stockpile.water = w - subW;
+          remainingToDeduct -= subW;
+        }
+        if (remainingToDeduct > 0) {
+          const rw = next.stockpile.rainwater || 0;
+          const subRw = Math.min(rw, remainingToDeduct);
+          next.stockpile.rainwater = rw - subRw;
+          remainingToDeduct -= subRw;
+        }
+        if (remainingToDeduct > 0) {
+          const dw = next.stockpile.dew || 0;
+          const subDw = Math.min(dw, remainingToDeduct);
+          next.stockpile.dew = dw - subDw;
+          remainingToDeduct -= subDw;
+        }
+      } else if (costResource === 'berries') {
+        const b = next.stockpile.berries || 0;
+        const subB = Math.min(b, remainingToDeduct);
+        next.stockpile.berries = b - subB;
+        remainingToDeduct -= subB;
+
+        if (remainingToDeduct > 0) {
+          const bf = next.stockpile.berriesFresh || 0;
+          const subBf = Math.min(bf, remainingToDeduct);
+          next.stockpile.berriesFresh = bf - subBf;
+          remainingToDeduct -= subBf;
+        }
+        if (remainingToDeduct > 0) {
+          const f = next.stockpile.food || 0;
+          const subF = Math.min(f, remainingToDeduct);
+          next.stockpile.food = f - subF;
+          remainingToDeduct -= subF;
+        }
+      } else {
+        const currentQty = (next.stockpile[costResource as keyof typeof next.stockpile] as number) || 0;
+        (next.stockpile as any)[costResource] = Math.max(0, currentQty - costQty);
+      }
+
       if (next.knownVillages) {
         next.knownVillages = next.knownVillages.map(v => {
           if (v.id === villageId) {
-            const rel = Math.min(100, Math.max(-100, v.relationship + amount));
-            const trust = Math.min(100, v.trust + Math.round(amount * 1.5));
+            const currentRel = v.relationship ?? 10;
+            const currentTrust = v.trust ?? 20;
+            const rel = Math.min(100, Math.max(-100, currentRel + amount));
+            const trust = Math.min(100, currentTrust + Math.round(amount * 1.5));
             return { ...v, relationship: rel, trust };
           }
           return v;
@@ -148,7 +214,8 @@ export const OracleHub: React.FC<OracleHubProps> = ({
     });
 
     const vName = mapData.knownVillages?.find(v => v.id === villageId)?.name || 'Distant Tribe';
-    addLog(`🤝 Diplomatic Offering: Oracle ${oracle.name} sent ${costQty} ${costResource} to ${vName}. Relationship improved by +${amount}!`, 'success');
+    const displayRes = costResource === 'reservoirWater' ? 'Water' : costResource;
+    addLog(`🤝 Diplomatic Offering: Oracle ${oracle.name} sent ${costQty} ${displayRes} to ${vName}. Relationship improved by +${amount}!`, 'success');
   };
 
   // Helper to Accept message requests
@@ -165,7 +232,7 @@ export const OracleHub: React.FC<OracleHubProps> = ({
 
       setMapData(prev => {
         const next = { ...prev };
-        next.stockpile = { ...prev.stockpile, [msg.cost!.item]: currentQty - msg.cost!.qty };
+        next.stockpile = { ...prev.stockpile, [msg.cost!.item]: Math.max(0, (prev.stockpile[msg.cost!.item] || 0) - msg.cost!.qty) };
         
         // reward
         if (msg.reward) {
@@ -179,8 +246,8 @@ export const OracleHub: React.FC<OracleHubProps> = ({
             if (msg.sender.includes(v.name)) {
               return { 
                 ...v, 
-                relationship: Math.min(100, v.relationship + 15), 
-                trust: Math.min(100, v.trust + 20),
+                relationship: Math.min(100, (v.relationship ?? 10) + 15), 
+                trust: Math.min(100, (v.trust ?? 20) + 20),
                 morale: Math.min(100, (v.morale ?? 70) + 10),
                 stability: Math.min(100, (v.stability ?? 80) + 8)
               };
@@ -245,58 +312,202 @@ export const OracleHub: React.FC<OracleHubProps> = ({
     onClose();
   };
 
+  // Default trade catalog fallbacks if village lists are empty
+  const DEFAULT_BUY_GOODS = [
+    { item: 'wood', quantity: 25, price: 4 },
+    { item: 'berries', quantity: 30, price: 3 },
+    { item: 'copper', quantity: 15, price: 8 },
+    { item: 'medicine', quantity: 10, price: 12 },
+    { item: 'silver', quantity: 8, price: 10 }
+  ];
+
+  const DEFAULT_SELL_GOODS = [
+    { item: 'reservoirWater', priceMultiplier: 1.8 },
+    { item: 'food', priceMultiplier: 1.5 },
+    { item: 'wood', priceMultiplier: 1.4 },
+    { item: 'fiber', priceMultiplier: 1.3 },
+    { item: 'medicine', priceMultiplier: 2.0 }
+  ];
+
+  // Quick direct Buy Item
+  const handleQuickBuyItem = (village: OtherVillage, item: string, qty: number, unitPrice: number) => {
+    const totalCost = unitPrice * qty;
+    const silverInStock = mapData.stockpile.silver || 0;
+
+    if (silverInStock < totalCost) {
+      addLog(`⚠️ Purchase Failed: Need ${totalCost} Silver coins (You have ${silverInStock})!`, 'warning');
+      showTradeCue(`⚠️ Needs ${totalCost} Silver (You have ${silverInStock})`, 'error');
+      return;
+    }
+
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile };
+      next.stockpile.silver = Math.max(0, silverInStock - totalCost);
+
+      if (item === 'reservoirWater') {
+        next.stockpile.reservoirWater = (next.stockpile.reservoirWater || 0) + qty;
+      } else if (item === 'berries') {
+        next.stockpile.berries = (next.stockpile.berries || 0) + qty;
+      } else {
+        (next.stockpile as any)[item] = ((next.stockpile as any)[item] || 0) + qty;
+      }
+
+      if (next.knownVillages) {
+        next.knownVillages = next.knownVillages.map(v => {
+          if (v.id === village.id) return { ...v, relationship: Math.min(100, (v.relationship ?? 10) + 1) };
+          return v;
+        });
+      }
+
+      return next;
+    });
+
+    const displayItem = item === 'reservoirWater' ? 'Water' : item;
+    addLog(`🪙 Direct Purchase: Bought ${qty} ${displayItem} from ${village.name} for ${totalCost} Silver!`, 'success');
+    showTradeCue(`✅ BOUGHT ${qty} x ${displayItem.toUpperCase()} (-${totalCost} Silver)!`, 'success');
+    setTradeCart(p => ({ ...p, [item]: 0 }));
+  };
+
+  // Quick direct Sell Item
+  const handleQuickSellItem = (village: OtherVillage, item: string, qty: number, unitPrice: number) => {
+    const totalEarnings = unitPrice * qty;
+
+    let availableQty = (mapData.stockpile as any)[item] || 0;
+    if (item === 'reservoirWater' || item === 'water') {
+      availableQty = (mapData.stockpile.reservoirWater || 0) + (mapData.stockpile.water || 0) + (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0);
+    } else if (item === 'berries') {
+      availableQty = (mapData.stockpile.berries || 0) + (mapData.stockpile.berriesFresh || 0) + (mapData.stockpile.food || 0);
+    } else if (item === 'meat') {
+      availableQty = (mapData.stockpile.meat || 0) + (mapData.stockpile.meatFresh || 0);
+    } else if (item === 'food') {
+      availableQty = (mapData.stockpile.food || 0) + (mapData.stockpile.berries || 0) + (mapData.stockpile.meat || 0);
+    }
+
+    if (availableQty < qty) {
+      const displayItem = item === 'reservoirWater' ? 'Water' : item;
+      addLog(`⚠️ Sale Failed: Stockpile lacks ${qty} ${displayItem} (You have ${availableQty})!`, 'warning');
+      showTradeCue(`⚠️ Sale Failed: Need ${qty} ${displayItem} (You have ${availableQty})`, 'error');
+      return;
+    }
+
+    setMapData(prev => {
+      const next = { ...prev };
+      next.stockpile = { ...prev.stockpile };
+      next.stockpile.silver = (next.stockpile.silver || 0) + totalEarnings;
+
+      let remainingToDeduct = qty;
+      if (item === 'reservoirWater' || item === 'water') {
+        const resW = next.stockpile.reservoirWater || 0;
+        const subRes = Math.min(resW, remainingToDeduct);
+        next.stockpile.reservoirWater = resW - subRes;
+        remainingToDeduct -= subRes;
+
+        if (remainingToDeduct > 0) {
+          const w = next.stockpile.water || 0;
+          const subW = Math.min(w, remainingToDeduct);
+          next.stockpile.water = w - subW;
+          remainingToDeduct -= subW;
+        }
+      } else if (item === 'berries') {
+        const b = next.stockpile.berries || 0;
+        const subB = Math.min(b, remainingToDeduct);
+        next.stockpile.berries = b - subB;
+        remainingToDeduct -= subB;
+
+        if (remainingToDeduct > 0) {
+          const bf = next.stockpile.berriesFresh || 0;
+          const subBf = Math.min(bf, remainingToDeduct);
+          next.stockpile.berriesFresh = bf - subBf;
+          remainingToDeduct -= subBf;
+        }
+      } else {
+        const cur = (next.stockpile as any)[item] || 0;
+        (next.stockpile as any)[item] = Math.max(0, cur - qty);
+      }
+
+      if (next.knownVillages) {
+        next.knownVillages = next.knownVillages.map(v => {
+          if (v.id === village.id) return { ...v, relationship: Math.min(100, (v.relationship ?? 10) + 1) };
+          return v;
+        });
+      }
+
+      return next;
+    });
+
+    const displayItem = item === 'reservoirWater' ? 'Water' : item;
+    addLog(`🪙 Direct Sale: Sold ${qty} ${displayItem} to ${village.name} earning +${totalEarnings} Silver!`, 'success');
+    showTradeCue(`✅ SOLD ${qty} x ${displayItem.toUpperCase()} (+${totalEarnings} Silver)!`, 'success');
+    setTradeCart(p => ({ ...p, [item]: 0 }));
+  };
+
   // Trade Execution
   const executeTrade = (village: OtherVillage) => {
     let totalCost = 0;
+    let hasItems = false;
     
     // Alliance or Treaty discount
     let discount = 1.0;
     if (village.allianceActive) {
-      discount = 0.75; // 25% discount
+      discount = 0.75;
     } else if (village.treatyActive) {
-      discount = 0.90; // 10% discount
+      discount = 0.90;
     }
 
-    // Check buy/sell validity
+    const availableGoods = (village.availableTradeGoods && village.availableTradeGoods.length > 0) 
+      ? village.availableTradeGoods 
+      : DEFAULT_BUY_GOODS;
+    const neededGoods = (village.neededGoods && village.neededGoods.length > 0) 
+      ? village.neededGoods 
+      : DEFAULT_SELL_GOODS;
+
     for (const item of Object.keys(tradeCart)) {
       const qty = tradeCart[item] || 0;
-      if (qty === 0) continue;
-      
-      const vg = village.availableTradeGoods.find(g => g.item === item);
-      const ng = village.neededGoods.find(n => n.item === item);
+      if (qty <= 0) continue;
+      hasItems = true;
+
+      const vg = availableGoods.find(g => g.item === item);
+      const ng = neededGoods.find(n => n.item === item);
 
       if (tradeMode === 'buy') {
         const price = vg ? vg.price : 10;
         totalCost += Math.round(price * discount) * qty;
       } else {
-        const basePrice = 4; // standard sell base
+        const basePrice = 4;
         const mult = ng ? ng.priceMultiplier : 1.0;
         totalCost += Math.round(basePrice * mult) * qty;
       }
+    }
+
+    if (!hasItems) {
+      addLog(`⚠️ Trade Blocked: Adjust item quantities with + / - first before confirming!`, 'warning');
+      showTradeCue(`⚠️ Cart empty! Use + / - to select items or click "Buy 1" / "Sell 1"`, 'error');
+      return;
     }
 
     if (tradeMode === 'buy') {
       const silverInStock = mapData.stockpile.silver || 0;
       if (silverInStock < totalCost) {
         addLog(`⚠️ Trade Blocked: Stockpile needs ${totalCost} Silver, you only have ${silverInStock}!`, 'warning');
+        showTradeCue(`⚠️ Needs ${totalCost} Silver (You have ${silverInStock})`, 'error');
         return;
       }
 
       setMapData(prev => {
         const next = { ...prev };
         next.stockpile = { ...prev.stockpile };
-        next.stockpile.silver = silverInStock - totalCost;
+        next.stockpile.silver = Math.max(0, silverInStock - totalCost);
 
         for (const item of Object.keys(tradeCart)) {
           const qty = tradeCart[item] || 0;
           if (qty <= 0) continue;
-          next.stockpile[item] = (next.stockpile[item] || 0) + qty;
+          (next.stockpile as any)[item] = ((next.stockpile as any)[item] || 0) + qty;
         }
 
-        // Adjust relationship slightly on good trade
         if (next.knownVillages) {
           next.knownVillages = next.knownVillages.map(v => {
-            if (v.id === village.id) return { ...v, relationship: Math.min(100, v.relationship + 2) };
+            if (v.id === village.id) return { ...v, relationship: Math.min(100, (v.relationship ?? 10) + 2) };
             return v;
           });
         }
@@ -305,14 +516,22 @@ export const OracleHub: React.FC<OracleHubProps> = ({
       });
 
       addLog(`🪙 Purchase Complete! Bought items from ${village.name} for ${totalCost} Silver coins.`, 'success');
+      showTradeCue(`✅ BATCH PURCHASE COMPLETE: Paid ${totalCost} Silver!`, 'success');
     } else {
-      // Check if we actually have the goods to sell
       for (const item of Object.keys(tradeCart)) {
         const qty = tradeCart[item] || 0;
         if (qty <= 0) continue;
-        const currentQty = mapData.stockpile[item] || 0;
-        if (currentQty < qty) {
+
+        let available = (mapData.stockpile as any)[item] || 0;
+        if (item === 'reservoirWater' || item === 'water') {
+          available = (mapData.stockpile.reservoirWater || 0) + (mapData.stockpile.water || 0) + (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0);
+        } else if (item === 'berries') {
+          available = (mapData.stockpile.berries || 0) + (mapData.stockpile.berriesFresh || 0) + (mapData.stockpile.food || 0);
+        }
+
+        if (available < qty) {
           addLog(`⚠️ Trade Blocked: Lacking ${qty} units of ${item} to sell!`, 'warning');
+          showTradeCue(`⚠️ Sale Blocked: Need ${qty} ${item} in stockpile!`, 'error');
           return;
         }
       }
@@ -325,13 +544,41 @@ export const OracleHub: React.FC<OracleHubProps> = ({
         for (const item of Object.keys(tradeCart)) {
           const qty = tradeCart[item] || 0;
           if (qty <= 0) continue;
-          next.stockpile[item] -= qty;
+
+          let remainingToDeduct = qty;
+          if (item === 'reservoirWater' || item === 'water') {
+            const resW = next.stockpile.reservoirWater || 0;
+            const subRes = Math.min(resW, remainingToDeduct);
+            next.stockpile.reservoirWater = resW - subRes;
+            remainingToDeduct -= subRes;
+
+            if (remainingToDeduct > 0) {
+              const w = next.stockpile.water || 0;
+              const subW = Math.min(w, remainingToDeduct);
+              next.stockpile.water = w - subW;
+              remainingToDeduct -= subW;
+            }
+          } else if (item === 'berries') {
+            const b = next.stockpile.berries || 0;
+            const subB = Math.min(b, remainingToDeduct);
+            next.stockpile.berries = b - subB;
+            remainingToDeduct -= subB;
+
+            if (remainingToDeduct > 0) {
+              const bf = next.stockpile.berriesFresh || 0;
+              const subBf = Math.min(bf, remainingToDeduct);
+              next.stockpile.berriesFresh = bf - subBf;
+              remainingToDeduct -= subBf;
+            }
+          } else {
+            const cur = (next.stockpile as any)[item] || 0;
+            (next.stockpile as any)[item] = Math.max(0, cur - qty);
+          }
         }
 
-        // Adjust relationship slightly
         if (next.knownVillages) {
           next.knownVillages = next.knownVillages.map(v => {
-            if (v.id === village.id) return { ...v, relationship: Math.min(100, v.relationship + 3) };
+            if (v.id === village.id) return { ...v, relationship: Math.min(100, (v.relationship ?? 10) + 3) };
             return v;
           });
         }
@@ -340,6 +587,7 @@ export const OracleHub: React.FC<OracleHubProps> = ({
       });
 
       addLog(`🪙 Sales Finalized! Sold tribal items to ${village.name} earning +${totalCost} Silver.`, 'success');
+      showTradeCue(`✅ BATCH SALE COMPLETE: Earned +${totalCost} Silver!`, 'success');
     }
 
     setTradeCart({});
@@ -352,17 +600,27 @@ export const OracleHub: React.FC<OracleHubProps> = ({
       addLog(`⚠️ Treaty Blocked: Lacking treaty resources (Requires 20 Wood & 20 Fiber)!`, 'warning');
       return;
     }
-    if (village.relationship < 30) {
-      addLog(`⚠️ Treaty Blocked: Selected village relationship must be at least 30! (Current: ${village.relationship})`, 'warning');
+    const rel = village.relationship ?? 10;
+    if (rel < 30) {
+      addLog(`⚠️ Treaty Blocked: Selected village relationship must be at least 30! (Current: ${rel})`, 'warning');
       return;
     }
 
     setMapData(prev => {
       const next = { ...prev };
-      next.stockpile = { ...prev.stockpile, wood: currentWood - 20, fiber: currentFiber - 20 };
+      next.stockpile = { 
+        ...prev.stockpile, 
+        wood: Math.max(0, (prev.stockpile.wood || 0) - 20), 
+        fiber: Math.max(0, (prev.stockpile.fiber || 0) - 20) 
+      };
       next.knownVillages = next.knownVillages?.map(v => {
         if (v.id === village.id) {
-          return { ...v, treatyActive: true, relationship: Math.min(100, v.relationship + 15) };
+          return { 
+            ...v, 
+            treatyActive: true, 
+            relationship: Math.min(100, (v.relationship ?? 10) + 15),
+            trust: Math.min(100, (v.trust ?? 20) + 15)
+          };
         }
         return v;
       });
@@ -379,14 +637,20 @@ export const OracleHub: React.FC<OracleHubProps> = ({
       addLog(`⚠️ Alliance Blocked: Lacking alliance resources (Requires 25 Silver & 15 Medicine)!`, 'warning');
       return;
     }
-    if (village.relationship < 80 || village.trust < 70) {
-      addLog(`⚠️ Alliance Blocked: Alliance requires at least 80 relationship and 70 trust! (Current: Rel ${village.relationship}, Trust ${village.trust})`, 'warning');
+    const rel = village.relationship ?? 10;
+    const tr = village.trust ?? 20;
+    if (rel < 80 || tr < 70) {
+      addLog(`⚠️ Alliance Blocked: Alliance requires at least 80 relationship and 70 trust! (Current: Rel ${rel}, Trust ${tr})`, 'warning');
       return;
     }
 
     setMapData(prev => {
       const next = { ...prev };
-      next.stockpile = { ...prev.stockpile, silver: currentSilver - 25, medicine: currentMedicine - 15 };
+      next.stockpile = { 
+        ...prev.stockpile, 
+        silver: Math.max(0, (prev.stockpile.silver || 0) - 25), 
+        medicine: Math.max(0, (prev.stockpile.medicine || 0) - 15) 
+      };
       next.knownVillages = next.knownVillages?.map(v => {
         if (v.id === village.id) {
           return { ...v, allianceActive: true, relationship: 100, trust: 100 };
@@ -401,13 +665,20 @@ export const OracleHub: React.FC<OracleHubProps> = ({
 
   const handleRequestExpert = (expertRole: TribespersonRole, costResource: string, costQty: number, silverCost: number) => {
     const currentSilver = mapData.stockpile.silver || 0;
-    const currentRes = mapData.stockpile[costResource] || 0;
+    let currentRes = (mapData.stockpile[costResource as keyof typeof mapData.stockpile] as number) || 0;
+    if (costResource === 'reservoirWater') {
+      currentRes = (mapData.stockpile.reservoirWater || 0) + (mapData.stockpile.water || 0) + (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0);
+    } else if (costResource === 'berries') {
+      currentRes = (mapData.stockpile.berries || 0) + (mapData.stockpile.berriesFresh || 0) + (mapData.stockpile.food || 0);
+    }
+
     if (currentSilver < silverCost) {
       addLog(`⚠️ Cannot request expert: Stockpile lacks ${silverCost} Silver!`, 'warning');
       return;
     }
     if (costResource !== 'silver' && currentRes < costQty) {
-      addLog(`⚠️ Cannot request expert: Stockpile lacks ${costQty} ${costResource}!`, 'warning');
+      const resName = costResource === 'reservoirWater' ? 'Water' : costResource;
+      addLog(`⚠️ Cannot request expert: Stockpile lacks ${costQty} ${resName}!`, 'warning');
       return;
     }
 
@@ -415,9 +686,56 @@ export const OracleHub: React.FC<OracleHubProps> = ({
     setMapData(prev => {
       const next = { ...prev };
       next.stockpile = { ...prev.stockpile };
-      next.stockpile.silver = currentSilver - silverCost;
+      next.stockpile.silver = Math.max(0, (prev.stockpile.silver || 0) - silverCost);
+
       if (costResource !== 'silver') {
-        next.stockpile[costResource] = currentRes - costQty;
+        let remainingToDeduct = costQty;
+        if (costResource === 'reservoirWater') {
+          const resW = next.stockpile.reservoirWater || 0;
+          const subRes = Math.min(resW, remainingToDeduct);
+          next.stockpile.reservoirWater = resW - subRes;
+          remainingToDeduct -= subRes;
+
+          if (remainingToDeduct > 0) {
+            const w = next.stockpile.water || 0;
+            const subW = Math.min(w, remainingToDeduct);
+            next.stockpile.water = w - subW;
+            remainingToDeduct -= subW;
+          }
+          if (remainingToDeduct > 0) {
+            const rw = next.stockpile.rainwater || 0;
+            const subRw = Math.min(rw, remainingToDeduct);
+            next.stockpile.rainwater = rw - subRw;
+            remainingToDeduct -= subRw;
+          }
+          if (remainingToDeduct > 0) {
+            const dw = next.stockpile.dew || 0;
+            const subDw = Math.min(dw, remainingToDeduct);
+            next.stockpile.dew = dw - subDw;
+            remainingToDeduct -= subDw;
+          }
+        } else if (costResource === 'berries') {
+          const b = next.stockpile.berries || 0;
+          const subB = Math.min(b, remainingToDeduct);
+          next.stockpile.berries = b - subB;
+          remainingToDeduct -= subB;
+
+          if (remainingToDeduct > 0) {
+            const bf = next.stockpile.berriesFresh || 0;
+            const subBf = Math.min(bf, remainingToDeduct);
+            next.stockpile.berriesFresh = bf - subBf;
+            remainingToDeduct -= subBf;
+          }
+          if (remainingToDeduct > 0) {
+            const f = next.stockpile.food || 0;
+            const subF = Math.min(f, remainingToDeduct);
+            next.stockpile.food = f - subF;
+            remainingToDeduct -= subF;
+          }
+        } else {
+          const cur = (next.stockpile[costResource as keyof typeof next.stockpile] as number) || 0;
+          (next.stockpile as any)[costResource] = Math.max(0, cur - costQty);
+        }
       }
       return next;
     });
@@ -741,6 +1059,83 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                               Build Weather Spires or Shield Anchors inside the village to increase time remaining in current zones.
                             </p>
                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* NEW: Tribal Consumption & Survival Needs Panel */}
+                  <div className="bg-slate-950/30 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4">
+                    <div className="flex items-center justify-between border-b border-slate-800/60 pb-3">
+                      <div>
+                        <h4 className="font-bold text-slate-200 flex items-center gap-2">
+                          <Activity className="text-amber-500" size={16} /> Central Tribal Consumption & Overhead
+                        </h4>
+                        <p className="text-xs text-slate-400">Daily resource requirements and survival margins based on active population ({tribe.filter(p => p.isAlive).length} villagers)</p>
+                      </div>
+                      <span className="px-2.5 py-0.5 bg-slate-800 text-[10px] font-mono text-slate-300 rounded-full">
+                        Daily Stockpile Consumption Rate
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="p-4 bg-slate-900/40 border border-slate-800/60 rounded-xl flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Flame className="text-orange-500" size={14} /> Daily Food Needs
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                            -{(1.0 * tribe.filter(p => p.isAlive).length).toFixed(1)} / day
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs font-mono mt-1">
+                          <span className="text-slate-500">Available Meals:</span>
+                          <span className={`font-bold ${mapData.stockpile.food > (1.0 * tribe.filter(p => p.isAlive).length * 3) ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`}>
+                            {mapData.stockpile.food || 0} units
+                          </span>
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-400 leading-normal mt-1">
+                          {mapData.stockpile.food > 0 ? (
+                            <span>Estimated supply: <b>{Math.max(0, Math.floor((mapData.stockpile.food || 0) / Math.max(1, tribe.filter(p => p.isAlive).length)))} days</b> of self-sustainable nutrition.</span>
+                          ) : (
+                            <span className="text-rose-400 font-bold">⚠️ FAMINE ALERT: The stockpile has run dry of food! Seek Berries, Roots, Mushrooms, or Hunt immediately!</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-slate-900/40 border border-slate-800/60 rounded-xl flex flex-col gap-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                            <Droplets className="text-sky-400" size={14} /> Daily Water Needs
+                          </span>
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                            -{(1.0 * tribe.filter(p => p.isAlive).length).toFixed(1)} / day
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs font-mono mt-1">
+                          <span className="text-slate-500">Available Water:</span>
+                          {(() => {
+                            const totalWater = (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0) + (mapData.stockpile.reservoirWater || 0);
+                            return (
+                              <span className={`font-bold ${totalWater > (1.0 * tribe.filter(p => p.isAlive).length * 3) ? 'text-emerald-400' : 'text-rose-400 animate-pulse'}`}>
+                                {totalWater} units
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-400 leading-normal mt-1">
+                          {(() => {
+                            const totalWater = (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0) + (mapData.stockpile.reservoirWater || 0);
+                            if (totalWater > 0) {
+                              return (
+                                <span>Estimated supply: <b>{Math.max(0, Math.floor(totalWater / Math.max(1, tribe.filter(p => p.isAlive).length)))} days</b> before dehydration. Collect dew or dig wells!</span>
+                              );
+                            } else {
+                              return (
+                                <span className="text-rose-400 font-bold">⚠️ DEHYDRATION ALERT: No stored water left! Construct a Water Well or collect rainwater!</span>
+                              );
+                            }
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -1496,7 +1891,7 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                                     <button
                                       onClick={() => { setTradeMode('buy'); setTradeCart({}); }}
                                       className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono transition ${
-                                        tradeMode === 'buy' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                        tradeMode === 'buy' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-400'
                                       }`}
                                     >
                                       BUY
@@ -1504,7 +1899,7 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                                     <button
                                       onClick={() => { setTradeMode('sell'); setTradeCart({}); }}
                                       className={`px-2 py-0.5 rounded text-[9px] font-bold font-mono transition ${
-                                        tradeMode === 'sell' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-400'
+                                        tradeMode === 'sell' ? 'bg-amber-500 text-slate-950 shadow' : 'bg-slate-800 text-slate-400'
                                       }`}
                                     >
                                       SELL
@@ -1512,63 +1907,138 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                                   </div>
                                 </div>
 
-                                <div className="flex flex-col gap-1.5 max-h-[170px] overflow-y-auto pr-1">
+                                {/* Animated Visual Cue Notice Banner */}
+                                <AnimatePresence>
+                                  {tradeNotice && (
+                                    <motion.div
+                                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                                      className={`p-2 mb-2 rounded-lg text-[10px] font-mono font-bold flex items-center justify-between border shadow-lg ${
+                                        tradeNotice.type === 'success'
+                                          ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-300'
+                                          : 'bg-rose-950/90 border-rose-500/60 text-rose-300'
+                                      }`}
+                                    >
+                                      <span>{tradeNotice.msg}</span>
+                                      <button onClick={() => setTradeNotice(null)} className="text-slate-400 hover:text-white ml-2 text-[10px]">✕</button>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+
+                                <div className="flex flex-col gap-1.5 max-h-[190px] overflow-y-auto pr-1">
                                   {tradeMode === 'buy' ? (
-                                    selectedVillage.availableTradeGoods.map((g) => {
-                                      // calculate discount if treaty or alliance active
+                                    ((selectedVillage.availableTradeGoods && selectedVillage.availableTradeGoods.length > 0)
+                                      ? selectedVillage.availableTradeGoods
+                                      : DEFAULT_BUY_GOODS
+                                    ).map((g) => {
                                       let discount = 1.0;
                                       if (selectedVillage.allianceActive) discount = 0.75;
                                       else if (selectedVillage.treatyActive) discount = 0.90;
-                                      const price = Math.round(g.price * discount);
+                                      const price = Math.max(1, Math.round(g.price * discount));
+                                      const cartQty = tradeCart[g.item] || 0;
 
                                       return (
-                                        <div key={g.item} className="flex justify-between items-center p-1.5 bg-slate-900/40 rounded border border-slate-850 text-[10px] font-mono">
-                                          <span className="text-slate-300">{g.item} ({g.quantity})</span>
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-slate-400">{price} Silver</span>
-                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-850">
+                                        <div key={g.item} className="flex justify-between items-center p-1.5 bg-slate-900/60 rounded border border-slate-800 text-[10px] font-mono hover:border-slate-700 transition">
+                                          <div className="flex flex-col">
+                                            <span className="text-slate-200 font-bold capitalize">{g.item}</span>
+                                            <span className="text-[8px] text-amber-400">{price} Silver</span>
+                                          </div>
+                                          
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
                                               <button 
                                                 onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.max(0, (p[g.item] || 0) - 1) }))}
-                                                className="text-amber-500 font-bold px-1"
+                                                className="text-amber-500 font-bold px-1 hover:bg-slate-800 rounded transition"
+                                                title="Decrease"
                                               >
                                                 -
                                               </button>
-                                              <span className="min-w-[12px] text-center">{tradeCart[g.item] || 0}</span>
+                                              <span className="min-w-[12px] text-center text-slate-200 font-bold">{cartQty}</span>
                                               <button 
                                                 onClick={() => setTradeCart(p => ({ ...p, [g.item]: Math.min(g.quantity, (p[g.item] || 0) + 1) }))}
-                                                className="text-amber-500 font-bold px-1"
+                                                className="text-amber-500 font-bold px-1 hover:bg-slate-800 rounded transition"
+                                                title="Increase"
                                               >
                                                 +
                                               </button>
                                             </div>
+
+                                            <button
+                                              onClick={() => handleQuickBuyItem(selectedVillage, g.item, 1, price)}
+                                              className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[8px] uppercase tracking-wider transition shadow active:scale-95"
+                                            >
+                                              Buy 1
+                                            </button>
+                                            {cartQty > 0 && (
+                                              <button
+                                                onClick={() => handleQuickBuyItem(selectedVillage, g.item, cartQty, price)}
+                                                className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-[8px] uppercase tracking-wider transition shadow active:scale-95"
+                                              >
+                                                Buy {cartQty}
+                                              </button>
+                                            )}
                                           </div>
                                         </div>
                                       );
                                     })
                                   ) : (
-                                    selectedVillage.neededGoods.map((n) => {
-                                      const stock = Math.round(mapData.stockpile[n.item] || 0);
+                                    ((selectedVillage.neededGoods && selectedVillage.neededGoods.length > 0)
+                                      ? selectedVillage.neededGoods
+                                      : DEFAULT_SELL_GOODS
+                                    ).map((n) => {
+                                      let available = Math.round(mapData.stockpile[n.item as keyof typeof mapData.stockpile] as number || 0);
+                                      if (n.item === 'reservoirWater' || n.item === 'water') {
+                                        available = (mapData.stockpile.reservoirWater || 0) + (mapData.stockpile.water || 0) + (mapData.stockpile.rainwater || 0) + (mapData.stockpile.dew || 0);
+                                      } else if (n.item === 'berries') {
+                                        available = (mapData.stockpile.berries || 0) + (mapData.stockpile.berriesFresh || 0) + (mapData.stockpile.food || 0);
+                                      } else if (n.item === 'food') {
+                                        available = (mapData.stockpile.food || 0) + (mapData.stockpile.berries || 0) + (mapData.stockpile.meat || 0);
+                                      }
+
                                       const price = Math.round(4 * n.priceMultiplier);
+                                      const cartQty = tradeCart[n.item] || 0;
+
                                       return (
-                                        <div key={n.item} className="flex justify-between items-center p-1.5 bg-slate-900/40 rounded border border-slate-850 text-[10px] font-mono">
-                                          <span className="text-slate-300">{n.item} (We: {stock})</span>
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-emerald-400">{price} Silv</span>
-                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.2 rounded border border-slate-850">
+                                        <div key={n.item} className="flex justify-between items-center p-1.5 bg-slate-900/60 rounded border border-slate-800 text-[10px] font-mono hover:border-slate-700 transition">
+                                          <div className="flex flex-col">
+                                            <span className="text-slate-200 font-bold capitalize">{n.item}</span>
+                                            <span className="text-[8px] text-slate-400">Have: {available} | <span className="text-emerald-400">{price} Silv</span></span>
+                                          </div>
+                                          
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="flex items-center gap-1 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
                                               <button 
                                                 onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.max(0, (p[n.item] || 0) - 1) }))}
-                                                className="text-amber-500 font-bold px-1"
+                                                className="text-amber-500 font-bold px-1 hover:bg-slate-800 rounded transition"
+                                                title="Decrease"
                                               >
                                                 -
                                               </button>
-                                              <span className="min-w-[12px] text-center">{tradeCart[n.item] || 0}</span>
+                                              <span className="min-w-[12px] text-center text-slate-200 font-bold">{cartQty}</span>
                                               <button 
-                                                onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.min(stock, (p[n.item] || 0) + 1) }))}
-                                                className="text-amber-500 font-bold px-1"
+                                                onClick={() => setTradeCart(p => ({ ...p, [n.item]: Math.min(available, (p[n.item] || 0) + 1) }))}
+                                                className="text-amber-500 font-bold px-1 hover:bg-slate-800 rounded transition"
+                                                title="Increase"
                                               >
                                                 +
                                               </button>
                                             </div>
+
+                                            <button
+                                              onClick={() => handleQuickSellItem(selectedVillage, n.item, 1, price)}
+                                              className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-[8px] uppercase tracking-wider transition shadow active:scale-95"
+                                            >
+                                              Sell 1
+                                            </button>
+                                            {cartQty > 0 && (
+                                              <button
+                                                onClick={() => handleQuickSellItem(selectedVillage, n.item, cartQty, price)}
+                                                className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded text-[8px] uppercase tracking-wider transition shadow active:scale-95"
+                                              >
+                                                Sell {cartQty}
+                                              </button>
+                                            )}
                                           </div>
                                         </div>
                                       );
@@ -1585,9 +2055,9 @@ export const OracleHub: React.FC<OracleHubProps> = ({
                                 )}
                                 <button
                                   onClick={() => executeTrade(selectedVillage)}
-                                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] uppercase tracking-wider transition"
+                                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-[10px] uppercase tracking-wider transition active:scale-95 shadow"
                                 >
-                                  Confirm Ledger Trade
+                                  Confirm Batch Trade
                                 </button>
                               </div>
                             </div>

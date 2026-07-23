@@ -447,6 +447,42 @@ export function createAnimal(
   };
 }
 
+// Helper functions for map cell access supporting both chunked maps and grid maps
+export function getMapSize(mapData: MapData): number {
+  return mapData.config?.size || (mapData.grid && mapData.grid.length > 0 ? mapData.grid.length : 80);
+}
+
+export function getCellAt(mapData: MapData, worldX: number, worldZ: number): CellInfo | undefined {
+  if (!mapData) return undefined;
+  const rx = Math.round(worldX);
+  const rz = Math.round(worldZ);
+  if (mapData.chunksByKey) {
+    const chunkX = Math.floor(rx / 6);
+    const chunkZ = Math.floor(rz / 6);
+    const key = `${chunkX},${chunkZ}`;
+    const chunk = mapData.chunksByKey[key];
+    if (chunk) {
+      const cx = ((rx % 6) + 6) % 6;
+      const cz = ((rz % 6) + 6) % 6;
+      return chunk.cells[cx]?.[cz];
+    }
+  }
+  return mapData.grid?.[rx]?.[rz];
+}
+
+export function getAllLoadedCells(mapData: MapData): CellInfo[] {
+  if (mapData.chunksByKey) {
+    return Object.values(mapData.chunksByKey)
+      .filter((chunk: any) => chunk.loaded !== false)
+      .flatMap((chunk: any) => chunk.cells.flat())
+      .filter(Boolean);
+  }
+  if (mapData.grid && mapData.grid.length > 0) {
+    return mapData.grid.flat().filter(Boolean);
+  }
+  return [];
+}
+
 // Validates the target coordinate based on animal species locomotion
 export function getValidAnimalTarget(
   ani: { type: string; x: number; z: number },
@@ -454,14 +490,14 @@ export function getValidAnimalTarget(
   targetY: number, // unused coordinate matching signature
   mapData: MapData
 ): { x: number; z: number } {
-  const size = mapData.grid.length;
-  const isFish = ani.type === 'Fish';
+  const size = getMapSize(mapData);
+  const isFish = ani.type === 'Fish' || ani.type === 'AureliaFish';
   
   // Clamp boundaries nicely to avoid getting stuck at border edges
   let tx = Math.max(1, Math.min(size - 2, Math.round(targetX)));
   let tz = Math.max(1, Math.min(size - 2, Math.round(targetY)));
   
-  const cell = mapData.grid[tx]?.[tz];
+  const cell = getCellAt(mapData, tx, tz);
   if (cell) {
     if (isFish) {
       if (cell.biome === 'water') {
@@ -483,7 +519,7 @@ export function getValidAnimalTarget(
     for (const off of offsets) {
       const nx = Math.max(1, Math.min(size - 2, tx + off.x));
       const nz = Math.max(1, Math.min(size - 2, tz + off.z));
-      const nCell = mapData.grid[nx]?.[nz];
+      const nCell = getCellAt(mapData, nx, nz);
       if (nCell) {
         if (isFish) {
           if (nCell.biome === 'water') {
@@ -505,24 +541,41 @@ export function getValidAnimalTarget(
 // Spawns natural packs or herds
 export function populateInitialMapAnimals(mapData: MapData) {
   const list: Animal[] = [];
-  const size = mapData.grid.length;
+  const size = getMapSize(mapData);
+  const allCells = getAllLoadedCells(mapData);
 
-  // Set up 3-4 herds
-  const herdTypes = ['PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'FrilledShieldHorn'];
+  const landCells = allCells.filter(c => c.biome !== 'water' && !c.structure);
+  const waterCells = allCells.filter(c => c.biome === 'water');
+
+  if (landCells.length === 0) {
+    // If no loaded land cells yet, use default positions around center
+    const center = Math.floor(size / 2);
+    for (let i = 0; i < 10; i++) {
+      const rx = center + Math.floor(Math.random() * 14 - 7);
+      const rz = center + Math.floor(Math.random() * 14 - 7);
+      landCells.push({ x: rx, z: rz, biome: 'grassland' } as any);
+    }
+  }
+
+  // Set up 4-5 herds
+  const herdTypes = ['PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'FrilledShieldHorn', 'Deer', 'Elk', 'Sheep'];
   herdTypes.forEach((type, hIdx) => {
-    const rx = 5 + Math.floor(Math.random() * (size - 10));
-    const rz = 5 + Math.floor(Math.random() * (size - 10));
-    const targetCell = mapData.grid[rx]?.[rz];
-    if (targetCell && targetCell.biome !== 'water') {
+    const randomLand = landCells[Math.floor(Math.random() * landCells.length)];
+    if (randomLand) {
       const herdId = `herd_${type}_${hIdx}`;
       const herdSize = 3 + Math.floor(Math.random() * 3);
       for (let i = 0; i < herdSize; i++) {
-        const ax = Math.max(0, Math.min(size - 1, rx + Math.floor(Math.random() * 3) - 1));
-        const az = Math.max(0, Math.min(size - 1, rz + Math.floor(Math.random() * 3) - 1));
-        const c = mapData.grid[ax]?.[az];
+        const ax = Math.max(1, Math.min(size - 2, randomLand.x + Math.floor(Math.random() * 5) - 2));
+        const az = Math.max(1, Math.min(size - 2, randomLand.z + Math.floor(Math.random() * 5) - 2));
+        const c = getCellAt(mapData, ax, az);
         if (c && c.biome !== 'water' && !c.structure) {
-          const isBaby = i === herdSize - 1; // last one is a sweet baby
+          const isBaby = i === herdSize - 1;
           const ani = createAnimal(type, ax, az, isBaby);
+          ani.herdId = herdId;
+          ani.isHerdLeader = i === 0;
+          list.push(ani);
+        } else {
+          const ani = createAnimal(type, randomLand.x, randomLand.z, i === herdSize - 1);
           ani.herdId = herdId;
           ani.isHerdLeader = i === 0;
           list.push(ani);
@@ -531,43 +584,31 @@ export function populateInitialMapAnimals(mapData: MapData) {
     }
   });
 
-  // Spawn some predators and scavengers on land ONLY
-  const soloTypes = ['ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider', 'GaleWingFlier', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab', 'SporeSpitterPlant'];
-  for (let s = 0; s < 5; s++) {
+  // Spawn predators, grazers, and scavengers on land
+  const soloTypes = ['ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'VelociSkitterer', 'ScytheBeakStrider', 'GaleWingFlier', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab', 'Fox', 'Wolf', 'Rabbit', 'JackLeaper'];
+  for (let s = 0; s < 8; s++) {
     const type = soloTypes[Math.floor(Math.random() * soloTypes.length)];
-    const rx = Math.floor(Math.random() * size);
-    const rz = Math.floor(Math.random() * size);
-    const c = mapData.grid[rx]?.[rz];
-    if (c && c.biome !== 'water' && !c.structure) {
-      list.push(createAnimal(type, rx, rz, false));
+    const randomLand = landCells[Math.floor(Math.random() * landCells.length)];
+    if (randomLand) {
+      list.push(createAnimal(type, randomLand.x, randomLand.z, false));
     }
   }
 
   // Spawn 3-5 dangerous stationary Carnivorous SporeSpitterPlants across the map!
   const plantCount = 3 + Math.floor(Math.random() * 3);
   for (let p = 0; p < plantCount; p++) {
-    const rx = Math.floor(Math.random() * size);
-    const rz = Math.floor(Math.random() * size);
-    const c = mapData.grid[rx]?.[rz];
-    if (c && c.biome !== 'water' && !c.structure) {
-      list.push(createAnimal('SporeSpitterPlant', rx, rz, false));
+    const randomLand = landCells[Math.floor(Math.random() * landCells.length)];
+    if (randomLand) {
+      list.push(createAnimal('SporeSpitterPlant', randomLand.x, randomLand.z, false));
     }
   }
 
-  // Spawn 6 beautiful active wild fish swimming inside lake water cells!
-  const waterCells: { r: number; c: number }[] = [];
-  for (let r = 0; r < size; r++) {
-    for (let c = 0; c < size; c++) {
-      if (mapData.grid[r]?.[c]?.biome === 'water') {
-        waterCells.push({ r, c });
-      }
-    }
-  }
+  // Spawn active wild fish in lake water cells
   if (waterCells.length > 0) {
     const numFish = Math.min(waterCells.length, 6 + Math.floor(Math.random() * 3));
     for (let f = 0; f < numFish; f++) {
       const cell = waterCells[Math.floor(Math.random() * waterCells.length)];
-      list.push(createAnimal('AureliaFish', cell.r, cell.c, false));
+      list.push(createAnimal('AureliaFish', cell.x, cell.z, false));
     }
   }
 
@@ -577,17 +618,13 @@ export function populateInitialMapAnimals(mapData: MapData) {
 
 // Synchronizes animals back to individual grid cells as a fallback mechanism for watchtowers / older systems
 export function syncAnimalsToGrid(mapData: MapData) {
-  const size = mapData.grid.length;
-  // Clear old references safely
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell) {
-          cell.wildAnimal = null;
-        }
-      }
+  const size = getMapSize(mapData);
+
+  // Clear old references safely across all loaded cells
+  const allCells = getAllLoadedCells(mapData);
+  for (let i = 0; i < allCells.length; i++) {
+    if (allCells[i]) {
+      allCells[i].wildAnimal = null;
     }
   }
 
@@ -596,7 +633,7 @@ export function syncAnimalsToGrid(mapData: MapData) {
   list.forEach((ani) => {
     const rx = Math.max(0, Math.min(size - 1, Math.round(ani.x)));
     const rz = Math.max(0, Math.min(size - 1, Math.round(ani.z)));
-    const cell = mapData.grid[rx]?.[rz];
+    const cell = getCellAt(mapData, rx, rz);
     if (cell) {
       cell.wildAnimal = {
         id: ani.id,
@@ -618,7 +655,7 @@ export function syncAnimalsToGrid(mapData: MapData) {
 
 // Detect if cell is an enclosed area built by LogWalls (pen validation)
 export function checkIsWithinPen(mapData: MapData, x: number, z: number): boolean {
-  const size = mapData.grid.length;
+  const size = getMapSize(mapData);
   // Basic flood lookup: check if surrounded on 4 cardinal directions within 5 blocks by a LogWall or map perimeter
   const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
   let wallCount = 0;
@@ -631,7 +668,7 @@ export function checkIsWithinPen(mapData: MapData, x: number, z: number): boolea
         wallCount++; // Map bounds act as wall enclosure
         break;
       }
-      const cell = mapData.grid[nx]?.[nz];
+      const cell = getCellAt(mapData, nx, nz);
       if (cell && (cell.structure?.type === 'LogWall' || cell.construction?.type === 'LogWall')) {
         wallCount++;
         break;
@@ -653,8 +690,11 @@ export function tickEcosystemSimulation(
     mapData.animals = [];
   }
 
-  const size = mapData.grid.length;
+  const size = getMapSize(mapData);
   const animals = mapData.animals;
+  const eyeX = mapData.eyePos?.x ?? (size / 2);
+  const eyeZ = mapData.eyePos?.z ?? (size / 2);
+  const eyeRadius = mapData.eyeRadius ?? 14.0;
 
   // Track predator coordinates for herbivore threat detection
   const predatorsPos = animals
@@ -668,23 +708,38 @@ export function tickEcosystemSimulation(
 
   const activeCorpses = animals.filter(a => a.isDead && !a.isHarvested);
 
-  // Maintain population densities
-  if (animals.filter(a => !a.isDead).length < 10 && Math.random() < 0.15 * deltaTime) {
-    // Spawn some reinforcements
-    const types = ['JackLeaper', 'PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'StormVulture', 'PlateBackShellgrazer', 'AureliaFish'];
-    const selectedType = types[Math.floor(Math.random() * types.length)];
-    const rx = Math.floor(Math.random() * size);
-    const rz = Math.floor(Math.random() * size);
-    const cell = mapData.grid[rx]?.[rz];
-    if (cell && !cell.structure) {
-      if (selectedType === 'AureliaFish' || selectedType === 'Fish') {
-        if (cell.biome === 'water') {
-          animals.push(createAnimal('AureliaFish', rx, rz, Math.random() > 0.85));
+  // Maintain population densities naturally! If animal count is below 22, periodically spawn new animals or small packs migrating onto the map
+  const activeAnimalsCount = animals.filter(a => !a.isDead).length;
+  if (activeAnimalsCount < 22) {
+    // Spawning chance scaled by how empty the map is
+    const spawnChance = (22 - activeAnimalsCount) * 0.06 * deltaTime;
+    if (Math.random() < spawnChance) {
+      const herdTypes = ['PrismHornAntelope', 'TuskedShagBeast', 'SiltCamel', 'AncientDomeBack', 'ProwlerJackal', 'ChitinSlasher', 'SpinedSaberWolf', 'StormVulture', 'PlateBackShellgrazer', 'SiltBadger', 'CarapaceScarab', 'Rabbit', 'Deer', 'Elk', 'Fox'];
+      const selectedType = herdTypes[Math.floor(Math.random() * herdTypes.length)];
+      
+      // Spawn migrating animal packs near active eye area within map bounds
+      const angle = Math.random() * Math.PI * 2;
+      const spawnDist = eyeRadius + 4.0 + Math.random() * 8.0;
+      const rx = Math.max(2, Math.min(size - 3, Math.floor(eyeX + Math.cos(angle) * spawnDist)));
+      const rz = Math.max(2, Math.min(size - 3, Math.floor(eyeZ + Math.sin(angle) * spawnDist)));
+
+      const cell = getCellAt(mapData, rx, rz);
+      if (cell && !cell.structure && cell.biome !== 'water') {
+        // Spawn a small group (1-3) of migrating animals of this type!
+        const groupSize = Math.random() < 0.5 ? 1 : Math.floor(Math.random() * 2) + 2;
+        const herdId = `migrating_${selectedType}_${Date.now().toString().slice(-4)}`;
+        for (let g = 0; g < groupSize; g++) {
+          const gx = Math.max(2, Math.min(size - 3, rx + Math.floor(Math.random() * 3) - 1));
+          const gz = Math.max(2, Math.min(size - 3, rz + Math.floor(Math.random() * 3) - 1));
+          const targetCell = getCellAt(mapData, gx, gz);
+          if (targetCell && targetCell.biome !== 'water' && !targetCell.structure) {
+            const baby = Math.random() > 0.85;
+            const newAnimal = createAnimal(selectedType, gx, gz, baby);
+            newAnimal.herdId = herdId;
+            animals.push(newAnimal);
+          }
         }
-      } else {
-        if (cell.biome !== 'water') {
-          animals.push(createAnimal(selectedType, rx, rz, Math.random() > 0.85));
-        }
+        addLog(`🌸 Ecosystem: A small pack of wild ${selectedType} has migrated onto our map lands!`, 'success');
       }
     }
   }
@@ -1035,18 +1090,18 @@ export function tickEcosystemSimulation(
 
     // 3. REPRODUCTION & MATING SEASON
     if (ani.category === 'Herbivore' && !ani.isDead && ani.agePhase === 'Adult' && !isScared) {
-      if (ani.gender === 'Female' && !ani.isPregnant && ani.hunger < 40 && ani.thirst < 40 && timerFired) {
-        // Scan for compatible male nearby
+      if (ani.gender === 'Female' && !ani.isPregnant && ani.hunger < 85 && ani.thirst < 85 && timerFired) {
+        // Scan for compatible male nearby - increased radius to 10.0 blocks for reliable natural breeding
         const partner = animals.find(m => 
           m.type === ani.type && 
           m.gender === 'Male' && 
           m.agePhase === 'Adult' && 
           !m.isDead &&
-          Math.abs(m.x - ani.x) < 2.5 &&
-          Math.abs(m.z - ani.z) < 2.5
+          Math.abs(m.x - ani.x) < 10.0 &&
+          Math.abs(m.z - ani.z) < 10.0
         );
 
-        if (partner && Math.random() < 0.08) {
+        if (partner && Math.random() < 0.15) {
           ani.isPregnant = true;
           ani.gestationTimer = 0;
           addLog(`🌸 Reproduction: A female ${ani.type} has begun a gestation cycle!`, 'success');
@@ -1227,11 +1282,26 @@ export function tickEcosystemSimulation(
 
       // Default random local wander based on species bounds
       const roamRadius = ani.type === 'Rabbit' ? 1.5 : 2.5;
-      const rx = Math.max(1, Math.min(size - 2, Math.round(ani.x + (Math.random() * roamRadius * 2 - roamRadius))));
-      const rz = Math.max(1, Math.min(size - 2, Math.round(ani.z + (Math.random() * roamRadius * 2 - roamRadius))));
       
-      const testCell = mapData.grid[rx]?.[rz];
-      if (testCell && testCell.biome !== 'water' && !testCell.structure) {
+      // If outside the Eye of the Storm, bias movement towards the safe zone center
+      const dxToEye = eyeX - ani.x;
+      const dzToEye = eyeZ - ani.z;
+      const distToEye = Math.sqrt(dxToEye * dxToEye + dzToEye * dzToEye);
+      
+      let biasX = 0;
+      let biasZ = 0;
+      if (distToEye > eyeRadius) {
+        // High bias to walk towards safe zone!
+        biasX = (dxToEye / distToEye) * roamRadius * 0.75;
+        biasZ = (dzToEye / distToEye) * roamRadius * 0.75;
+      }
+      
+      const rx = Math.max(1, Math.min(size - 2, Math.round(ani.x + biasX + (Math.random() * roamRadius * 2 - roamRadius))));
+      const rz = Math.max(1, Math.min(size - 2, Math.round(ani.z + biasZ + (Math.random() * roamRadius * 2 - roamRadius))));
+      
+      const isFish = ani.type === 'Fish' || ani.type === 'AureliaFish';
+      const testCell = getCellAt(mapData, rx, rz);
+      if (testCell && (isFish ? testCell.biome === 'water' : testCell.biome !== 'water' && !testCell.structure)) {
         ani.targetX = rx;
         ani.targetZ = rz;
       }
@@ -1259,8 +1329,8 @@ export function tickEcosystemSimulation(
       const ncx = Math.max(0, Math.min(size - 1, Math.round(nextX)));
       const ncz = Math.max(0, Math.min(size - 1, Math.round(nextZ)));
       
-      const isFish = ani.type === 'Fish';
-      const stepCell = mapData.grid[ncx]?.[ncz];
+      const isFish = ani.type === 'Fish' || ani.type === 'AureliaFish';
+      const stepCell = getCellAt(mapData, ncx, ncz);
       
       if (isFish) {
         if (stepCell && stepCell.biome === 'water') {
@@ -1285,7 +1355,8 @@ export function tickEcosystemSimulation(
       // Update discrete altitude matching threeJS grid levels
       const cx = Math.max(0, Math.min(size - 1, Math.round(ani.x)));
       const cz = Math.max(0, Math.min(size - 1, Math.round(ani.z)));
-      ani.y = mapData.grid[cx]?.[cz]?.height || 1.0;
+      const onCell = getCellAt(mapData, cx, cz);
+      ani.y = onCell?.height || 1.0;
     } else {
       ani.x = ani.targetX;
       ani.z = ani.targetZ;

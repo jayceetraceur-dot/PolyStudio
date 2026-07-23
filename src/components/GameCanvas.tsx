@@ -322,7 +322,8 @@ export default function GameCanvas({
 
     // stormOuterRingMesh is also a Group
     const stormOuterRingMesh = new THREE.Group();
-    stormWallGroup.add(stormOuterRingMesh);
+    // Do NOT add to stormWallGroup to avoid duplicate rotating safe boundaries!
+    // stormWallGroup.add(stormOuterRingMesh);
 
     // Create 16 segmented panels for the outer storm wall (slightly larger and taller)
     const outerThetaLength = (Math.PI * 2) / panelsCount;
@@ -348,7 +349,8 @@ export default function GameCanvas({
 
     // Dynamic wind streak bands inside the storm wall
     const windStreaksGroup = new THREE.Group();
-    stormWallGroup.add(windStreaksGroup);
+    // Do NOT add to stormWallGroup to avoid multiple concentric floor boundary rings!
+    // stormWallGroup.add(windStreaksGroup);
     const streakHeights = [2.0, 6.0, 10.0, 14.0];
     streakHeights.forEach((h, idx) => {
       const streakGeom = new THREE.RingGeometry(13.8 + idx * 0.15, 14.1 + idx * 0.15, 32);
@@ -404,6 +406,7 @@ export default function GameCanvas({
     scene.add(caravanMeshGroup);
 
     let lastUserInteractionTime = 0;
+    let centerOnEyeRequested = false;
 
     // Procedural Pool assets to save memory and CPU
     const geomPool = {
@@ -510,36 +513,30 @@ export default function GameCanvas({
     // --- SIGNATURE GENERATOR TO PREVENT COSTLY REBUILD CHURN ---
     const getGridDecorationsSignature = (currentMap: MapData) => {
       let signature = '';
-      if (!currentMap) return signature;
+      if (!currentMap || !currentMap.grid) return signature;
       
-      const loadedCells = currentMap.chunksByKey 
-        ? Object.values(currentMap.chunksByKey).filter((chunk: any) => chunk.loaded).flatMap((chunk: any) => chunk.cells.flat())
-        : (currentMap.grid ? currentMap.grid.flat().filter(cell => cell && cell.loaded !== false) : []);
-
-      for (const cell of loadedCells) {
-        if (!cell) continue;
-        if (
-          cell.hasTree ||
-          cell.hasRock ||
-          cell.hasShrub ||
-          cell.structure ||
-          cell.construction ||
-          cell.farmCrop ||
-          cell.resourceNode ||
-          cell.itemsOnGround ||
-          cell.scouted
-        ) {
-          const treePart = cell.hasTree ? 'T' + (cell.treeHeight != null ? cell.treeHeight.toFixed(1) : '1.5') : '';
-          const rockPart = cell.hasRock ? 'R' + (cell.rockSize != null ? cell.rockSize.toFixed(1) : '1.0') : '';
-          const shrubPart = cell.hasShrub ? 'S' : '';
-          const structPart = cell.structure ? 'ST' + cell.structure.type : '';
-          const constPart = cell.construction ? 'C' + cell.construction.type + (cell.construction.progress != null ? (Math.floor(cell.construction.progress / 20) * 20).toFixed(0) : '0') : '';
-          const cropPart = cell.farmCrop ? 'FC' + cell.farmCrop.type + (cell.farmCrop.stage ?? 0) : '';
-          const resPart = cell.resourceNode ? 'RN' + cell.resourceNode.type : '';
-          const itemPart = cell.itemsOnGround ? 'I' + cell.itemsOnGround.type + (cell.itemsOnGround.amount != null ? (Math.floor(cell.itemsOnGround.amount / 5) * 5).toFixed(0) : '0') : '';
-          const scoutPart = cell.scouted ? 's' : '';
-          
-          signature += `${cell.x},${cell.z}:${treePart}${rockPart}${shrubPart}${structPart}${constPart}${cropPart}${resPart}${itemPart}${scoutPart};`;
+      const size = currentMap.grid.length;
+      for (let r = 0; r < size; r++) {
+        const row = currentMap.grid[r];
+        if (!row) continue;
+        for (let c = 0; c < size; c++) {
+          const cell = row[c];
+          if (!cell || cell.loaded === false) continue;
+          if (
+            cell.hasTree ||
+            cell.hasRock ||
+            cell.hasShrub ||
+            cell.structure ||
+            cell.construction ||
+            cell.farmCrop ||
+            cell.resourceNode ||
+            cell.itemsOnGround
+          ) {
+            const structPart = cell.structure ? cell.structure.type : '';
+            const constPart = cell.construction ? cell.construction.type : '';
+            const cropPart = cell.farmCrop ? cell.farmCrop.type : '';
+            signature += `${cell.x},${cell.z}:${structPart}${constPart}${cropPart};`;
+          }
         }
       }
       return signature;
@@ -1021,8 +1018,8 @@ export default function GameCanvas({
               treeGroup.scale.set(0.9, cell.treeHeight * 0.8, 0.9);
 
               trunkMesh.userData = { cell };
-              botConeMesh.userData = { cell };
-              topConeMesh.userData = { cell };
+              botConeMesh.userData = { cell, swayType: 'pine' };
+              topConeMesh.userData = { cell, swayType: 'pine' };
 
               decorationMeshes.push(trunkMesh, botConeMesh, topConeMesh);
               cellMeshes.push(trunkMesh, botConeMesh, topConeMesh);
@@ -2940,16 +2937,18 @@ export default function GameCanvas({
       }
 
       // Render a dark protective bounding bed (plateau cliff base wrapping the bottom layer)
-      // Representing our diorama frame - enlarged to support infinite scrolling
-      const frameGeom = new THREE.BoxGeometry(5000, 5.0, 5000);
+      // Representing our diorama frame - centered around focus coordinates to support infinite scrolling
+      const frameGeom = new THREE.BoxGeometry(10000, 5.0, 10000);
       const dioramaFrameMat = new THREE.MeshStandardMaterial({
         color: 0x1d1e21, // elegant charcoal bedrock slab
         roughness: 0.95,
         flatShading: true,
       });
       const frameMesh = new THREE.Mesh(frameGeom, dioramaFrameMat);
-      // sit lower down
-      frameMesh.position.set(60, -3.1, 60);
+      // sit lower down, centered near camera focus position
+      const fX = currentMap.cameraWorldPos?.x ?? 60;
+      const fZ = currentMap.cameraWorldPos?.z ?? 60;
+      frameMesh.position.set(fX, -3.1, fZ);
       frameMesh.receiveShadow = true;
       frameMesh.updateMatrix();
       frameMesh.matrixAutoUpdate = false;
@@ -3260,6 +3259,10 @@ export default function GameCanvas({
       if (k === 'd' || k === 'arrowright') keysPressed['d'] = true;
       if (k === 'q') keysPressed['q'] = true;
       if (k === 'e') keysPressed['e'] = true;
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        centerOnEyeRequested = true;
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -3662,6 +3665,9 @@ export default function GameCanvas({
             child.rotation.y = Math.cos(elapsed * 1.4) * 0.03;
           } else if (sType === 'sandfruit') {
             child.rotation.z = Math.sin(elapsed * 1.6 + px * 1.2) * 0.02;
+          } else if (sType === 'pine') {
+            child.rotation.z = Math.sin(elapsed * 1.5 + px * 0.4) * 0.022;
+            child.rotation.x = Math.cos(elapsed * 1.3 + pz * 0.4) * 0.015;
           }
         });
       }
@@ -3702,8 +3708,8 @@ export default function GameCanvas({
       }
 
       // Keep focus bounds within map size margins to keep diorama centered - expanded for procedural scroll
-      const minLimit = -1000;
-      const maxLimit = 2000;
+      const minLimit = -50000;
+      const maxLimit = 1000000;
       
       targetFocalPoint.add(shiftVector);
       targetFocalPoint.x = Math.max(minLimit, Math.min(maxLimit, targetFocalPoint.x));
@@ -3780,13 +3786,12 @@ export default function GameCanvas({
         targetFocalPoint.z = entityTargetZ;
       } else {
         const hasEyePos = latestProps.mapData?.eyePos !== undefined;
-        const isMigrating = latestProps.mapData?.eyeMovementState === 'migrating';
-
-        if (hasEyePos && (elapsed - lastUserInteractionTime > 3.0 || isMigrating)) {
+        if (hasEyePos && centerOnEyeRequested) {
           const eyeX = latestProps.mapData.eyePos.x;
           const eyeZ = latestProps.mapData.eyePos.z;
-          targetFocalPoint.x += (eyeX - targetFocalPoint.x) * 0.04;
-          targetFocalPoint.z += (eyeZ - targetFocalPoint.z) * 0.04;
+          targetFocalPoint.x = eyeX;
+          targetFocalPoint.z = eyeZ;
+          centerOnEyeRequested = false;
         }
       }
 
@@ -4429,8 +4434,35 @@ export default function GameCanvas({
           const cell = getCellAtWorldLoc(currentMap, cx, cz);
           if (!cell) return 1.0;
           
-          // Provide a minor elevation buffer so shoes sit perfectly on top of physical boxes
-          return cell.height + 0.01;
+          let additionalOffset = 0.01;
+          
+          // Elevate character if they overlap with structures or boulders to prevent clipping
+          if (cell.structure) {
+            const sType = cell.structure.type as string;
+            if (sType === 'Shelter' || sType === 'House') additionalOffset += 1.5;
+            else if (sType === 'StorageBin' || sType === 'Storage') additionalOffset += 1.2;
+            else if (sType === 'ArtisanBench') additionalOffset += 0.8;
+            else if (sType === 'RuinousAltar' || sType === 'Shrine' || sType === 'Relic') additionalOffset += 1.4;
+            else if (sType === 'WatchTower' || sType === 'Tower') additionalOffset += 2.5;
+            else if (sType === 'FarmersGranary' || sType === 'Farm') additionalOffset += 0.3;
+            else if (sType === 'Fireplace') additionalOffset += 0.2;
+            else additionalOffset += 1.0;
+          } else if (cell.resourceNode) {
+            const rType = cell.resourceNode.type as string;
+            if (['Stone', 'Iron', 'Copper', 'Silver', 'Gold', 'Coal', 'AncientMaterials'].includes(rType)) {
+              additionalOffset += 1.1; // Elevate over rock/metal boulders
+            } else if (rType === 'Bone') {
+              additionalOffset += 1.3;
+            } else if (rType === 'Relics') {
+              additionalOffset += 1.6;
+            } else if (rType === 'Wood') {
+              additionalOffset += 1.8; // Elevate over fallen trunks/stumps
+            } else {
+              additionalOffset += 0.4;
+            }
+          }
+          
+          return cell.height + additionalOffset;
         };
 
         const terrainY = getDiscreteHeight(person.x, person.z);

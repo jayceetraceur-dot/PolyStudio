@@ -67,6 +67,7 @@ export const DirectorDebugPanel: React.FC<DirectorDebugPanelProps> = ({
           activeEvent: {
             event: ev,
             triggeredDay: nextMap.gameDaysPlayed ?? 0.40,
+            expiresDay: (nextMap.gameDaysPlayed ?? 0.40) + (ev.durationDays ?? 1.5),
             resolved: false,
           }
         };
@@ -93,16 +94,20 @@ export const DirectorDebugPanel: React.FC<DirectorDebugPanelProps> = ({
     addLog(`🛠️ DEV: Adjusted AI Director intensity to ${intensity}`, 'info');
   };
 
-  // Adjust Relationship of off-screen village
+  // Adjust Relationship & Trust of off-screen village
   const handleAdjustRelationship = (villageId: string, amount: number) => {
     setMapData((prev) => {
       const nextMap = { ...prev };
       if (nextMap.knownVillages) {
         nextMap.knownVillages = nextMap.knownVillages.map((v) => {
           if (v.id === villageId) {
+            const newRelationship = Math.max(-100, Math.min(100, v.relationship + amount));
+            const trustDelta = Math.round(amount * 0.8);
+            const newTrust = Math.max(0, Math.min(100, (v.trust ?? 50) + trustDelta));
             return {
               ...v,
-              relationship: Math.max(-100, Math.min(100, v.relationship + amount))
+              relationship: newRelationship,
+              trust: newTrust,
             };
           }
           return v;
@@ -110,7 +115,7 @@ export const DirectorDebugPanel: React.FC<DirectorDebugPanelProps> = ({
       }
       return nextMap;
     });
-    addLog(`🛠️ DEV: Adjusted off-screen village relation.`, 'info');
+    addLog(`🛠️ DEV: Adjusted off-screen village relation (${amount > 0 ? '+' : ''}${amount}) and trust.`, 'info');
   };
 
   const getIntensityColor = (int: string) => {

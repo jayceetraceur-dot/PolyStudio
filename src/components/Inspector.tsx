@@ -19,12 +19,13 @@ import {
   User,
   Skull,
   Sparkles,
-  Compass
+  Compass,
+  Brain,
+  Lock
 } from 'lucide-react';
 import { CellInfo, Tribesperson, TribespersonRole, TribespersonTrait, MapData } from '../types';
 import { BIOME_COLORS } from '../utils/worldBuilder';
 import { SPECIES_DB } from '../utils/ecosystemEngine';
-import CraftingTab from './CraftingTab';
 
 interface InspectorProps {
   selectedCell: CellInfo | null;
@@ -57,6 +58,7 @@ interface InspectorProps {
   tribe?: Tribesperson[];
   isCreativeMode?: boolean;
   onOpenOracleHub?: () => void;
+  onOpenCraftingModal?: () => void;
 }
 
 const TRAIT_DATA: Partial<Record<TribespersonTrait, { title: string; desc: string; icon: string }>> = {
@@ -161,7 +163,8 @@ export default function Inspector({
   onStudyRelic,
   tribe,
   isCreativeMode = false,
-  onOpenOracleHub
+  onOpenOracleHub,
+  onOpenCraftingModal
 }: InspectorProps) {
   const isNight = timeOfDay < 0.25 || timeOfDay > 0.75;
   const [showCrafting, setShowCrafting] = useState(false);
@@ -562,7 +565,7 @@ export default function Inspector({
                         )}
                       </div>
                       <span className="font-mono text-[10px] font-bold">
-                        Lvl {spec.level} <span className="text-slate-400 font-normal">({spec.xp}/{spec.xpToNextLevel} XP)</span>
+                        Lvl {spec.level} <span className="text-slate-400 font-normal">({Math.floor(spec.xp)}/{Math.floor(spec.xpToNextLevel)} XP)</span>
                       </span>
                     </div>
                     <div className="w-full h-1 bg-slate-200 dark:bg-slate-800/80 rounded-full overflow-hidden">
@@ -575,6 +578,86 @@ export default function Inspector({
                 );
               })}
             </div>
+          </div>
+
+          {/* Explainable AI Decision Panel */}
+          <div className="space-y-2 border-t pt-2.5 border-slate-200/10" id="explainable-ai-section">
+            <div className="flex items-center justify-between">
+              <h4 className={`text-[10px] font-mono font-bold tracking-widest uppercase flex items-center gap-1.5 ${isNight ? 'text-teal-400' : 'text-indigo-650'}`}>
+                <Brain size={12} className="animate-pulse" />
+                <span>AI Decision Engine</span>
+              </h4>
+              <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                person.pathStatus === 'Moving' 
+                  ? 'bg-blue-500/15 text-blue-450 border border-blue-500/10' 
+                  : person.pathStatus === 'Arrived'
+                    ? 'bg-emerald-500/15 text-emerald-450 border border-emerald-500/10'
+                    : 'bg-slate-550/10 text-slate-500'
+              }`}>
+                {person.pathStatus || 'Idle'}
+              </span>
+            </div>
+
+            {/* AI Decision Reason */}
+            <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+              isNight ? 'bg-teal-950/20 border-teal-500/20 text-teal-100' : 'bg-indigo-50/45 border-indigo-200/30 text-indigo-950 shadow-inner'
+            }`}>
+              <span className="font-bold text-[8px] tracking-wider uppercase font-mono block mb-1 opacity-75">Reasoning Explanation</span>
+              <p className="font-medium">{person.brainReason || "Resting and checking tribal surroundings..."}</p>
+            </div>
+
+            {/* Top 3 Utility Candidates */}
+            <div className="space-y-1.5 mt-2">
+              <span className="font-bold text-[8px] tracking-wider uppercase font-mono block opacity-60">Top Evaluated Actions</span>
+              {person.topActions && person.topActions.length > 0 ? (
+                <div className="space-y-1.5">
+                  {person.topActions.map((act: any, idx: number) => (
+                    <div 
+                      key={idx} 
+                      className={`p-2 rounded-lg border text-[11px] flex flex-col gap-0.5 transition-all ${
+                        idx === 0 
+                          ? (isNight ? 'bg-teal-900/10 border-teal-500/30 shadow-inner' : 'bg-indigo-50/40 border-indigo-200/50')
+                          : (isNight ? 'bg-slate-900/30 border-slate-800/80' : 'bg-slate-50/40 border-slate-200/50')
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold flex items-center gap-1">
+                          {idx === 0 ? '🎯' : '⚡'} {act.type}
+                          <span className="font-mono text-[9px] text-slate-400 font-normal">
+                            [{act.x}, {act.z}]
+                          </span>
+                        </span>
+                        <span className="font-mono font-bold text-[10px] text-indigo-500">
+                          Prio Score: {act.score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-relaxed italic">
+                        {act.explanation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[10px] text-slate-400 italic">No candidates evaluated this tick.</p>
+              )}
+            </div>
+
+            {/* Blocked Actions */}
+            {person.blockedActions && person.blockedActions.length > 0 && (
+              <div className="space-y-1.5 mt-2.5">
+                <span className="font-bold text-[8px] tracking-wider uppercase font-mono block text-rose-500 opacity-80">Blocked Actions ({person.blockedActions.length})</span>
+                <div className="max-h-24 overflow-y-auto no-scrollbar space-y-1 pr-1">
+                  {person.blockedActions.map((blk: any, idx: number) => (
+                    <div key={idx} className="flex items-start gap-1.5 text-[10px] p-1.5 rounded bg-rose-500/5 border border-rose-500/10 text-rose-400/90">
+                      <Lock size={10} className="mt-0.5 shrink-0" />
+                      <div>
+                        <span className="font-bold">{blk.type}</span>: {blk.reason}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Interactive controls */}
@@ -1621,25 +1704,11 @@ export default function Inspector({
               {selectedCell.structure.type === 'ArtisanBench' && (
                 <div className="flex flex-col gap-2">
                   <button
-                    onClick={() => setShowCrafting(!showCrafting)}
-                    className="w-full py-2 px-3 bg-indigo-650 hover:bg-indigo-600 text-white font-bold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md cursor-pointer"
+                    onClick={onOpenCraftingModal}
+                    className="w-full py-2.5 px-3 bg-indigo-650 hover:bg-indigo-600 text-white font-bold font-mono text-[10px] rounded-xl tracking-wider uppercase transition-all flex items-center justify-center gap-1.5 active:scale-95 shadow-md cursor-pointer"
                   >
-                    🛠️ {showCrafting ? 'Close Crafting Panel' : 'Open Artisan Crafting'}
+                    🛠️ Open Crafting Table Window
                   </button>
-                  {showCrafting && mapData && (
-                    <div className="mt-2 text-slate-100 max-h-[300px] overflow-y-auto no-scrollbar rounded-lg border border-slate-700/30 bg-slate-900/40 p-2">
-                      <CraftingTab
-                        mapData={mapData}
-                        isNight={isNight}
-                        onStartCraft={onStartCraft}
-                        onCancelCraft={onCancelCraft}
-                        onResearch={onResearch}
-                        onStudyRelic={onStudyRelic}
-                        artisanCount={tribe ? tribe.filter(p => p.isAlive && p.role === 'Artisan').length : 0}
-                        isCreativeMode={isCreativeMode}
-                      />
-                    </div>
-                  )}
                 </div>
               )}
 

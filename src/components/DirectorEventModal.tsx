@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { MapData, Tribesperson, DirectorEvent, DirectorChoice } from '../types';
 import { resolveEventChoice } from '../utils/aiDirector';
+import { startVisualEventSequence } from '../utils/visualEventExecutor';
 
 interface DirectorEventModalProps {
   mapData: MapData;
@@ -35,11 +36,55 @@ export const DirectorEventModal: React.FC<DirectorEventModalProps> = ({
   const [resolutionText, setResolutionText] = useState<string | null>(null);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
 
-  if (!activeEventObj || activeEventObj.resolved) {
+  if (!activeEventObj || (activeEventObj as any).deferred) {
+    return null;
+  }
+
+  if (activeEventObj.resolved && !resolutionText) {
     return null;
   }
 
   const event: DirectorEvent = activeEventObj.event;
+
+  // Defer / Close Decision to come back later
+  const handleDefer = () => {
+    setMapData((prev) => {
+      const nextMap = { ...prev };
+      if (nextMap.aiDirector && nextMap.aiDirector.activeEvent) {
+        nextMap.aiDirector = {
+          ...nextMap.aiDirector,
+          activeEvent: {
+            ...nextMap.aiDirector.activeEvent,
+            deferred: true,
+          } as any
+        };
+      }
+      return nextMap;
+    });
+    addLog(`⏳ Event "${event.name}" deferred. You can reopen it via the active Chronos event panel on the HUD before it expires!`, 'info');
+  };
+
+  // Reject the event if rejectable
+  const isRejectable = !!(event as any).isRejectable;
+  const rejectChoice = event.choices?.find(c => ['decline', 'ignore', 'reject', 'avoid'].includes(c.id)) || event.choices?.[event.choices.length - 1];
+
+  const handleRejectEvent = () => {
+    if (rejectChoice) {
+      handleSelectChoice(rejectChoice);
+    } else {
+      setMapData((prev) => {
+        const nextMap = { ...prev };
+        if (nextMap.aiDirector) {
+          nextMap.aiDirector = {
+            ...nextMap.aiDirector,
+            activeEvent: null,
+          };
+        }
+        return nextMap;
+      });
+      addLog(`🚫 Event "${event.name}" was rejected.`, 'warning');
+    }
+  };
 
   // Helper to check if a choice is affordable based on stockpile
   const getChoiceStatus = (choiceId: string): { affordable: boolean; message?: string } => {
@@ -112,17 +157,12 @@ export const DirectorEventModal: React.FC<DirectorEventModalProps> = ({
 
     setSelectedChoiceId(choice.id);
 
-    // Run resolution
-    const result = resolveEventChoice(choice.id, event, mapData, tribe, addLog);
-    
-    // Find the logged outcome for display
-    const history = result.mapData.aiDirector?.eventHistory;
-    const lastOutcome = history && history.length > 0 ? history[history.length - 1].outcome : 'Success';
+    // Initialize physical visual event executor in game world
+    const nextMap = startVisualEventSequence(event, choice, mapData, tribe, addLog);
 
-    setResolutionText(lastOutcome || 'Outcome resolved successfully.');
-    
-    setMapData(result.mapData);
-    setTribe(result.tribe);
+    setResolutionText(`Physical world sequence initialized! Strategy "${choice.text}" is now executing in the game world. Track progress via the active event panel on your HUD.`);
+
+    setMapData(nextMap);
   };
 
   const handleClose = () => {
@@ -179,23 +219,71 @@ export const DirectorEventModal: React.FC<DirectorEventModalProps> = ({
           className={`border rounded-3xl p-6 md:p-8 max-w-xl w-full shadow-2xl flex flex-col gap-5 text-slate-100 ${getCategoryBorder(event.category)}`}
         >
           {/* Header row */}
-          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-            <div className="p-2 bg-slate-950 rounded-2xl border border-slate-800">
-              {getCategoryIcon(event.category)}
+          <div className="flex items-start justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-slate-950 rounded-2xl border border-slate-800">
+                {getCategoryIcon(event.category)}
+              </div>
+              <div className="flex-1">
+                <span className="text-[9px] font-mono font-bold tracking-widest text-[#cfad8c] uppercase block">
+                  🔴 Chronos Tribal Event: {event.category}
+                </span>
+                <h2 className="text-base font-sans font-extrabold tracking-tight text-white mt-0.5">
+                  {event.name}
+                </h2>
+              </div>
             </div>
-            <div className="flex-1">
-              <span className="text-[9px] font-mono font-bold tracking-widest text-[#cfad8c] uppercase block">
-                🔴 Chronos Tribal Event: {event.category}
-              </span>
-              <h2 className="text-base font-sans font-extrabold tracking-tight text-white mt-0.5">
-                {event.name}
-              </h2>
-            </div>
+
+            {/* Top-right Close/Defer button */}
+            <button
+              onClick={handleDefer}
+              className="p-1 rounded-lg bg-slate-950 hover:bg-slate-850 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer shrink-0"
+              title="Close and Decide Later"
+              id="close-defer-modal-btn"
+            >
+              <X size={16} />
+            </button>
           </div>
 
           {/* Core Content or Resolution text */}
           {!resolutionText ? (
             <>
+              {/* Event Time-Limited Countdown Window */}
+              {(() => {
+                const currentDay = mapData.gameDays ?? 0;
+                const expires = activeEventObj.expiresDay ?? (activeEventObj.triggeredDay + (event.durationDays ?? 1.5));
+                const daysRemaining = Math.max(0, expires - currentDay);
+                const hoursRemaining = Math.max(0, daysRemaining * 24);
+                const totalDuration = event.durationDays ?? 1.5;
+                const elapsed = currentDay - activeEventObj.triggeredDay;
+                const percentRemaining = Math.max(0, Math.min(100, ((totalDuration - elapsed) / totalDuration) * 100));
+
+                return (
+                  <div className="flex flex-col gap-1.5 bg-slate-950/45 p-3.5 rounded-2xl border border-slate-800/40 font-sans">
+                    <div className="flex justify-between items-center text-[10px] font-mono leading-none">
+                      <span className="text-slate-400 uppercase tracking-widest font-bold flex items-center gap-1">
+                        ⏳ Chronos Timer Window
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded ${
+                        hoursRemaining < 6 
+                          ? 'bg-rose-950/50 border border-rose-800/40 text-rose-400 font-extrabold animate-pulse' 
+                          : 'bg-amber-950/50 border border-amber-800/40 text-amber-400 font-bold'
+                      }`}>
+                        {hoursRemaining.toFixed(1)} hours remaining ({daysRemaining.toFixed(2)} days)
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-900/60 h-1.5 rounded-full overflow-hidden mt-1 border border-slate-850">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          hoursRemaining < 6 ? 'bg-rose-500' : 'bg-gradient-to-r from-amber-500 to-emerald-500'
+                        }`}
+                        style={{ width: `${percentRemaining}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Event Description */}
               <div className="bg-slate-950/55 p-4 rounded-2xl border border-slate-800/40 text-slate-300 text-[11px] leading-relaxed font-sans">
                 {event.description}
@@ -237,6 +325,31 @@ export const DirectorEventModal: React.FC<DirectorEventModalProps> = ({
                   );
                 })}
               </div>
+
+              {/* Defer and Reject action buttons */}
+              <div className="flex gap-2.5 pt-3 border-t border-slate-800/60">
+                <button
+                  onClick={handleDefer}
+                  className="flex-1 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-xl text-[10px] font-mono tracking-wider uppercase border border-slate-700/60 transition-colors cursor-pointer text-center"
+                  id="defer-decision-btn"
+                >
+                  ⏳ Close & Decide Later
+                </button>
+                
+                {isRejectable ? (
+                  <button
+                    onClick={handleRejectEvent}
+                    className="flex-1 py-2 bg-rose-950/40 hover:bg-rose-900/40 text-rose-400 rounded-xl text-[10px] font-mono tracking-wider uppercase border border-rose-900/30 transition-colors cursor-pointer text-center"
+                    id="reject-event-btn"
+                  >
+                    🚫 Reject Event
+                  </button>
+                ) : (
+                  <div className="flex-1 py-2 bg-slate-950/40 text-slate-500 rounded-xl text-[9px] font-mono tracking-wider uppercase border border-slate-900/50 cursor-not-allowed text-center select-none flex items-center justify-center" title="This critical event cannot be rejected!">
+                    ⚠️ Cannot Reject
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <motion.div 
@@ -255,6 +368,7 @@ export const DirectorEventModal: React.FC<DirectorEventModalProps> = ({
               <button
                 onClick={handleClose}
                 className="mt-4 px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-sans text-xs font-bold rounded-xl shadow-md cursor-pointer transition-all duration-200"
+                id="continue-adventure-btn"
               >
                 Continue Adventure
               </button>

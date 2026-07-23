@@ -152,6 +152,10 @@ export default function InventoryTab({
     { key: 'silver', label: '🪙 Silver Ore', desc: 'Precious shiny silver ore' },
     { key: 'gold', label: '✨ Moon-Iron', desc: 'Pale metal ore that glows faintly under moonlight' },
     { key: 'iron', label: '⛓️ Iron Ore', desc: 'Strong structural iron ore' },
+    { key: 'hide', label: '🧥 Animal Hide', desc: 'Thick protective fur skins harvested from wildlife' },
+    { key: 'fat', label: '🧈 Tallow Fat', desc: 'Animal fat used for fuel, lubrication, or soap-making' },
+    { key: 'horns', label: '🪶 Wildlife Trophy', desc: 'Large horns, tusks, or feathers showing hunter dominance' },
+    { key: 'charcoal', label: '🪵 Charcoal Purge', desc: 'Sooty carbonized wood remnants used for purification and heat' },
     // Crafted items we support
     { key: 'stoneAxe', label: '🪓 Breathstone Cutter', desc: 'Petrified wood cutting tool' },
     { key: 'flintPickaxe', label: '⛏️ Breathstone Pickaxe', desc: 'Light mineral mining tool' },

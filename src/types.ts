@@ -37,7 +37,8 @@ export type JobCategory =
   | 'Study'
   | 'CaravanPacking'
   | 'Heal'
-  | 'CraftMedicine';
+  | 'CraftMedicine'
+  | 'StudyRelic';
 
 export type JobPriority = 1 | 2 | 3 | 4 | 0; // 1 = Critical, 4 = Low, 0 = Disabled
 
@@ -285,6 +286,7 @@ export interface MapData {
   stormMovementDirection?: 'North' | 'East' | 'South' | 'West' | 'Northeast' | 'Northwest' | 'Southeast' | 'Southwest';
   stormDangerLevel?: 'Low' | 'Medium' | 'High' | 'Catastrophic';
   eyePos?: { x: number; z: number };
+  spatialIndex?: any;
   eyeRadius?: number;
   deityModeActive?: boolean;
   deityModeOverrideDir?: number;
@@ -312,6 +314,7 @@ export interface MapData {
   decorationsRevision?: number;
   gameDaysPlayed?: number;
   aiDirector?: AIDirectorState;
+  visualEventState?: VisualEventState | null;
   isMigrationTravelActive?: boolean;
   caravanPos?: { x: number; z: number };
 }
@@ -599,6 +602,9 @@ export interface Tribesperson {
   jobTargetCoords?: { x: number; z: number } | null;
   workProgress?: number; // active work time accumulation at current node
   isManualDirectTask?: boolean;
+  isGettingUp?: boolean;
+  gettingUpProgress?: number; // 0 to 1, where 1 is fully standing
+  wasResting?: boolean;
   personality?: 'Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy';
   relationships?: {
     targetId: string;
@@ -621,6 +627,13 @@ export interface Tribesperson {
   isOracleApprentice?: boolean;
   aiTickTimer?: number;
   hasBackpack?: boolean;
+
+  // Explainable AI properties
+  brainReason?: string;
+  topActions?: { type: string; score: number; x: number; z: number; explanation: string }[];
+  blockedActions?: { type: string; reason: string }[];
+  needsPriorities?: { name: string; value: number }[];
+  pathStatus?: 'Idle' | 'Moving' | 'Arrived' | 'Blocked' | 'Stuck';
 
   // Expedition simulation states
   expeditionState?: 'none' | 'entering' | 'exploring' | 'investigating' | 'returning';
@@ -870,11 +883,110 @@ export interface DirectorEvent {
   description: string;
   intensity: 'Calm' | 'Low' | 'Medium' | 'High' | 'Crisis';
   choices?: DirectorChoice[];
+  durationDays?: number;
+  isRejectable?: boolean;
+}
+
+export type EventExecutionState = 
+  | 'Pending'
+  | 'AwaitingPlayerChoice'
+  | 'ValidatingChoice'
+  | 'ReservingParticipants'
+  | 'ReservingEquipment'
+  | 'PreparingWorldSequence'
+  | 'SpawningEventActors'
+  | 'MovingToPositions'
+  | 'ActiveWorldSequence'
+  | 'CheckingObjectives'
+  | 'ResolvingConsequences'
+  | 'DistributingRewards'
+  | 'CleaningUp'
+  | 'Completed'
+  | 'Failed'
+  | 'Cancelled';
+
+export interface EventObjective {
+  id: string;
+  description: string;
+  objectiveType: 'defeat_raiders' | 'protect_storage' | 'evacuate_noncombatants' | 'exchange_goods' | 'complete_funeral' | 'survive_attack' | 'rescue_target';
+  targetCount: number;
+  currentProgress: number;
+  optional?: boolean;
+  completed: boolean;
+  failed: boolean;
+}
+
+export interface EventActor {
+  id: string;
+  name: string;
+  type: 'raider' | 'trader' | 'refugee' | 'predator' | 'diplomat' | 'visitor' | 'pack_animal';
+  x: number;
+  z: number;
+  y?: number;
+  targetX: number;
+  targetZ: number;
+  hp: number;
+  maxHp: number;
+  weapon?: string;
+  shield?: boolean;
+  armor?: string;
+  stolenItems?: Record<string, number>;
+  isRetreating?: boolean;
+  isDead?: boolean;
+  attackCooldown?: number;
+  speed?: number;
+  objective?: 'attack_storage' | 'attack_villagers' | 'retreat_with_loot' | 'meet_fireplace' | 'flee' | 'wander';
+  colorHex?: string;
+}
+
+export interface ReservedParticipant {
+  villagerId: string;
+  eventRole: 'defender' | 'noncombatant_evacuating' | 'healer' | 'trader_partner' | 'mourner';
+  equipmentReserved?: {
+    weapon?: string;
+    shield?: boolean;
+    armor?: string;
+  };
+}
+
+export interface FuneralTask {
+  id: string;
+  deceasedName: string;
+  deceasedId: string;
+  deathPos: { x: number; z: number };
+  day: number;
+  stage: 'pending' | 'carrying' | 'ritual' | 'completed';
+  carrierIds?: string[];
+  gravePos?: { x: number; z: number };
+}
+
+export interface VisualEventState {
+  eventId: string;
+  eventName: string;
+  category: string;
+  choiceId: string;
+  choiceText: string;
+  state: EventExecutionState;
+  stageText: string;
+  triggeredDay: number;
+  location: { x: number; z: number };
+  objectives: EventObjective[];
+  actors: EventActor[];
+  reservedParticipants: ReservedParticipant[];
+  stolenItems: Record<string, number>;
+  droppedLoot: { id: string; x: number; z: number; item: string; quantity: number }[];
+  funeralQueue: FuneralTask[];
+  isVictory?: boolean;
+  isDefeat?: boolean;
+  resolvedMessage?: string;
+  activeRaidDifficulty?: 'small' | 'medium' | 'large';
+  timerTicks?: number;
 }
 
 export interface ActiveDirectorEvent {
   event: DirectorEvent;
   triggeredDay: number;
+  expiresDay?: number;
   resolved?: boolean;
   selectedChoiceId?: string;
   resolvedMessage?: string;
@@ -899,5 +1011,6 @@ export interface AIDirectorState {
   pendingEvents: { eventId: string; triggerDay: number }[];
   capabilityProfile: PlayerCapabilityProfile;
   difficultyStage: 'Early' | 'Mid' | 'Late';
+  globalEventCooldown?: number;
 }
 

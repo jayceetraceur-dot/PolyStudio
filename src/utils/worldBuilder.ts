@@ -5,12 +5,12 @@ import { initializeOffScreenVillages } from './villageSimulator';
 
 // Palette matching a low-poly stylized survival game
 export const BIOME_COLORS = {
-  water: '#2575a7', // deep clear blue
-  beach: '#d9c293', // warm soft sand
-  desert: '#cf6030', // orange-ish desert sand
-  grassland: '#548f4b', // rich vibrant green
-  forest: '#325d2c', // darker forest green
-  rocky: '#7a7a7a', // split stone slate grey
+  water: '#2d6c82',      // Deep warm teal-cyan
+  beach: '#dec292',      // Warm golden honeycomb sand
+  desert: '#bd6342',     // Rich amber-terracotta clay
+  grassland: '#5e8a52',  // Soft moss sage green
+  forest: '#3b5735',     // Cozy spruce-fir forest green
+  rocky: '#726c6c',      // Warm ash-granite stone grey
 };
 
 // Global cache for noise generators to prevent recreations
@@ -58,24 +58,23 @@ export function generateCellAt(
   const mNoise = noises.moistureNoise.fbm(nx * 2.0, nz * 2.0, 3, 2.0, 0.5);
   const dNoise = noises.detailNoise.noise2D(nx * 10, nz * 10);
 
-  // Continuous infinite landscape (no island falloff center constraint)
-  const height = hNoise;
-  const finalHeight = height * roughness * 12.0;
+  // Map hNoise from [-1, 1] to a stable, smooth positive range [0, 1]
+  const height = Math.max(0.0, Math.min(1.0, (hNoise + 0.8) / 1.6));
 
-  // Height thresholds
-  const waterCutoff = 0.38 + waterLevel * 0.15; 
-  const beachCutoff = waterCutoff + 0.05;
-  const mountainCutoff = 0.68;
+  // Height thresholds mapped beautifully to [0, 1] space
+  const waterCutoff = 0.38 + waterLevel * 0.15; // e.g., 0.45
+  const beachCutoff = waterCutoff + 0.05;       // e.g., 0.50
+  const mountainCutoff = 0.74;
 
   // Determine biome
   let biome: BiomeType = 'grassland';
   let color = BIOME_COLORS.grassland;
 
   if (height < waterCutoff) {
-    if (height < 0.14) {
+    if (height < waterCutoff - 0.08) {
       biome = 'water';
       color = BIOME_COLORS.water;
-    } else if (height < 0.18) {
+    } else if (height < waterCutoff - 0.03) {
       biome = 'beach';
       color = BIOME_COLORS.beach;
     } else {
@@ -103,6 +102,16 @@ export function generateCellAt(
       biome = 'grassland';
       color = BIOME_COLORS.grassland;
     }
+  }
+
+  // Ground height scaling with stylized terracing to create beautiful plateau layers
+  let finalHeight = height * roughness * 12.0;
+  if (biome !== 'water') {
+    const stepSize = 0.45; // Beautiful stepped terraced layers
+    finalHeight = Math.max(0.2, Math.round(finalHeight / stepSize) * stepSize);
+  } else {
+    // Flat water table lakebed floor
+    finalHeight = Math.max(0.1, finalHeight);
   }
 
   // Determine feature placement

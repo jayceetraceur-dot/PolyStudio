@@ -30,7 +30,6 @@ import {
   Package
 } from 'lucide-react';
 import { WorldConfig, TimeSpeed, Tribesperson, TribespersonRole, JobCategory, JobPriority, MapData, CellInfo, RECIPE_DATABASE, Recipe } from '../types';
-import CraftingTab from './CraftingTab';
 import InventoryTab from './InventoryTab';
 
 interface ControlsOverlayProps {

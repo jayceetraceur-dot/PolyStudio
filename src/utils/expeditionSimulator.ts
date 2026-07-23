@@ -113,6 +113,24 @@ export function tickExpeditionsSimulation(
         else if (risk === 'Very High') { trapChance = 0.35; baseDamage = 50; hazardName = "automated defense turret or radioactive leak"; }
         else if (risk === 'Extreme') { trapChance = 0.50; baseDamage = 75; hazardName = "magnetic field implosion or rogue guardian drone"; }
 
+        // Scale danger dynamically if required equipment is missing!
+        const siteReqs = siteTemplate?.equipmentRequiredOrOptional?.filter(r => r.optional === false) || [];
+        let missingRequiredCount = 0;
+        siteReqs.forEach(req => {
+          const carried = updated.personalInventory.items[req.item] && updated.personalInventory.items[req.item] > 0;
+          if (!carried) {
+            missingRequiredCount++;
+          }
+        });
+
+        if (missingRequiredCount > 0) {
+          trapChance = Math.min(0.95, trapChance * (1.0 + missingRequiredCount * 0.50));
+          baseDamage = Math.round(baseDamage * (1.0 + missingRequiredCount * 0.40));
+          if (Math.random() < 0.33) {
+            updated.expeditionLogs?.push(`⚠️ [LOST & EXPOSED] Lacking specialized gear (${siteReqs.map(r => r.item).join(', ')}), ${updated.name} feels severely exposed and lost in the dark passages. Hazards are 50% more common!`);
+          }
+        }
+
         if (Math.random() < trapChance) {
           // Sprung trap! Calculate damage reduction based on equipment
           // In stockpile we check if ruinDiverHarness or sealedExpeditionSuit is used.

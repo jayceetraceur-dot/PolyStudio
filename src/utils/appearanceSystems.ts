@@ -611,14 +611,46 @@ export function updateVillagerAnimation(
 
   // Status checks
   const status = (person.statusText || '').toLowerCase();
-  const isSleeping = person.stats.fatigue < 10 || status.includes('resting') || status.includes('💤') || status.includes('sleep');
-  const isDrinking = status.includes('drinking') || status.includes('scoop');
+  
+  // Only sleep when NOT actively walking or traveling
+  const isSleeping = !isMoving && (
+    person.activeJobType === 'Sleep' ||
+    person.stats.fatigue < 10 ||
+    status.includes('resting') ||
+    status.includes('napping') ||
+    status.includes('sunbathing') ||
+    status.includes('cloud-watching') ||
+    status.includes('dosing') ||
+    status.includes('💤') ||
+    (status.includes('sleep') && !status.includes('traveling'))
+  );
+  
+  const isDrinking = status.includes('drinking') || status.includes('scoop') || status.includes('🚰');
   const isEating = status.includes('savoring') || status.includes('eating');
-  const isWorking = !!person.activeJobType && !person.carriage;
+  const isWorking = (!!person.activeJobType && !person.carriage) || status.includes('fisherman') || status.includes('prevent spoilage');
   const isFleeing = status.includes('scream') || status.includes('fleeing') || status.includes('evacuating');
   const isInjured = person.stats.health < 40;
 
   // --- STATE-MACHINE RENDERING ---
+  
+  // 0. GETTING UP STATE INTERPOLATION
+  if (person.isGettingUp) {
+    const progress = person.gettingUpProgress ?? 0;
+    // Interpolate from laying flat down to standing straight up
+    const angleX = THREE.MathUtils.lerp(-Math.PI / 2.3, 0, progress);
+    const posY = THREE.MathUtils.lerp(-0.30, 0, progress);
+    const headX = THREE.MathUtils.lerp(-0.15, 0, progress);
+    
+    pivot.rotation.set(angleX, 0, 0);
+    pivot.position.set(0, posY, 0);
+    head.rotation.x = headX;
+    
+    // Slight roll back animation
+    const rollZ = Math.sin(progress * Math.PI) * 0.1;
+    pivot.rotation.z = rollZ;
+    return;
+  }
+
   if (isSleeping) {
     // LAY DOWN: Sleeping state
     pivot.rotation.set(-Math.PI / 2.3, 0, 0); // lay flat
@@ -638,7 +670,7 @@ export function updateVillagerAnimation(
   mesh.rotation.z = 0;
 
   if (isMoving) {
-    // --- 1. MOVEMENT STATES (WALK, RUN, INJURED WALK) ---
+    // --- 1. MOVEMENT STATES (WALK, RUN, INJURED WALK, STEALTH CROUCH) ---
     let walkMultiplier = isFleeing ? 1.8 : (isInjured ? 0.5 : 1.0);
     const wave = Math.sin(elapsed * animSpeed * walkMultiplier);
 
@@ -652,6 +684,10 @@ export function updateVillagerAnimation(
     armL.rotation.x = -wave * 0.45;
     armR.rotation.x = wave * 0.45;
 
+    // Hunting stealth crouch or carrying heavy lean
+    const isHuntingOrTracking = status.includes('pursuit') || status.includes('quietly') || status.includes('tracking') || status.includes('stalking');
+    const isCarrying = !!person.carriage;
+
     // Running lean / Fleeing bob
     if (isFleeing) {
       mesh.rotation.x = 0.16; // heavy forward lean
@@ -663,12 +699,20 @@ export function updateVillagerAnimation(
       mesh.rotation.z = 0.08 * Math.sin(elapsed * animSpeed * 0.5); // Limp swaying
       armL.rotation.x = 0.1;
       armR.rotation.y = 0.15;
+    } else if (isHuntingOrTracking) {
+      mesh.rotation.x = 0.22; // deep forward stealth lean
+      head.rotation.x = -0.05; // look forward
+      armL.rotation.set(0.1, 0, Math.PI / 8);
+      armR.rotation.set(0.1, 0, -Math.PI / 8);
+    } else if (isCarrying) {
+      mesh.rotation.x = -0.06; // heavy carrying backward posture
     } else {
       mesh.rotation.x = 0.06; // slight forward lean
     }
 
     // Walking bob height: apply bob as a relative pivot position offset
-    const bob = Math.abs(Math.sin(elapsed * animSpeed * walkMultiplier)) * 0.065;
+    const bobBase = isHuntingOrTracking ? -0.12 : 0;
+    const bob = bobBase + Math.abs(Math.sin(elapsed * animSpeed * walkMultiplier)) * (isHuntingOrTracking ? 0.03 : 0.065);
     pivot.position.y = bob;
 
   } else {
@@ -709,7 +753,7 @@ export function updateVillagerAnimation(
       const swing = Math.sin(elapsed * swingSpeed);
 
       if (status.includes('hammer') || status.includes('build') || status.includes('repair')) {
-        // Build: Hammering arm strike
+        // Build/Repair: Hammering arm strike
         armR.rotation.set(-Math.PI / 3 + swing * 0.5, 0, -Math.PI / 8);
         armL.rotation.set(-Math.PI / 6, 0, Math.PI / 8);
       } else if (status.includes('chop') || status.includes('fell') || status.includes('split') || status.includes('quarry')) {
@@ -717,22 +761,75 @@ export function updateVillagerAnimation(
         armR.rotation.set(-Math.PI / 2.5 + swing * 0.65, 0, -Math.PI / 12);
         armL.rotation.set(-Math.PI / 2.5 + swing * 0.65, 0, Math.PI / 12);
         mesh.rotation.x = 0.12 + swing * 0.06;
-      } else if (status.includes('sow') || status.includes('water') || status.includes('harvest')) {
-        // Farming: Rhythmic tilling bending
-        mesh.rotation.x = 0.22 + Math.sin(elapsed * 4.5) * 0.08;
-        armR.rotation.set(-Math.PI / 4, 0, -Math.PI / 12);
-        armL.rotation.set(-Math.PI / 4, 0, Math.PI / 12);
+      } else if (status.includes('sow') || status.includes('seed') || status.includes('🌱')) {
+        // Farming: Seed sowing sweep motion
+        const sweep = Math.sin(elapsed * 4.0);
+        armR.rotation.set(-Math.PI / 3, sweep * 0.8, -Math.PI / 6);
+        armL.rotation.set(-Math.PI / 6, 0, Math.PI / 8);
+        mesh.rotation.x = 0.15;
+      } else if (status.includes('water') || status.includes('🌿')) {
+        // Farming: Watering crops forward bending pot tilt
+        const tilt = Math.sin(elapsed * 3.0);
+        mesh.rotation.x = 0.20;
+        armR.rotation.set(-Math.PI / 2.5 + tilt * 0.15, -0.2, -Math.PI / 10);
+        armL.rotation.set(-Math.PI / 2.5, 0.2, Math.PI / 10);
+      } else if (status.includes('harvest') || status.includes('sickle') || status.includes('🌾')) {
+        // Farming: Sickle harvesting crop hold & slice sweep
+        const cutSweep = Math.sin(elapsed * 5.0);
+        mesh.rotation.x = 0.25;
+        armL.rotation.set(-Math.PI / 2.2, 0, Math.PI / 6);
+        armR.rotation.set(-Math.PI / 3 + cutSweep * 0.5, cutSweep * 0.4, -Math.PI / 6);
       } else if (status.includes('meditation') || status.includes('harmony')) {
         // Oracle meditating: Float magically on point
         pivot.position.y = 0.25 + Math.sin(elapsed * 1.5) * 0.05; // local float offset
         armL.rotation.set(0.1, 0, Math.PI / 4);
         armR.rotation.set(0.1, 0, -Math.PI / 4);
         head.rotation.x = -0.05;
-      } else if (status.includes('aiming') || status.includes('thrusting')) {
+      } else if (status.includes('aiming') || status.includes('thrusting') || status.includes('bow') || status.includes('spear')) {
         // Combat/Hunt: Weapon aiming stance
         armR.rotation.set(-Math.PI / 2, -Math.PI / 8, 0);
         armL.rotation.set(-Math.PI / 2.4, Math.PI / 6, 0);
         pivot.rotation.y = Math.sin(elapsed * 5.0) * 0.02; // aiming tremors on local pivot
+      } else if (status.includes('scout') || status.includes('deciphering') || status.includes('observatory') || status.includes('sky')) {
+        // Scout Lookout: hand shaded brow scan
+        armR.rotation.set(-Math.PI / 1.5, -Math.PI / 4, -Math.PI / 10); // hand to brow
+        armL.rotation.set(0, 0, Math.PI / 10);
+        head.rotation.y = Math.sin(elapsed * 1.2) * 0.6; // panning lookout rotation
+        head.rotation.x = -0.05 + Math.sin(elapsed * 2.0) * 0.05;
+      } else if (status.includes('calming') || status.includes('feeding') || status.includes('tame') || status.includes('🍎')) {
+        // Tamer coaxing/feeding
+        const coax = Math.sin(elapsed * 3.5) * 0.08;
+        armR.rotation.set(-Math.PI / 2.2 + coax, -0.1, -Math.PI / 12); // hold hand out flat
+        armL.rotation.set(-Math.PI / 4, 0, Math.PI / 12);
+        mesh.rotation.x = 0.05;
+      } else if (status.includes('pluck') || status.includes('gather') || status.includes('foraging') || status.includes('picking') || status.includes('berries')) {
+        // Gatherer plucking bushes
+        const pluckL = Math.sin(elapsed * 4.0);
+        const pluckR = Math.cos(elapsed * 4.0);
+        mesh.rotation.x = 0.30; // deep bend
+        pivot.position.y = -0.05;
+        armR.rotation.set(-Math.PI / 3 + pluckR * 0.25, 0, -Math.PI / 12);
+        armL.rotation.set(-Math.PI / 3 + pluckL * 0.25, 0, Math.PI / 12);
+      } else if (status.includes('fish') || status.includes('casting') || status.includes('🎣')) {
+        // Fisherman holding rod steady
+        const bobbing = Math.sin(elapsed * 2.0) * 0.03;
+        armR.rotation.set(-Math.PI / 2.2 + bobbing, 0, -Math.PI / 10);
+        armL.rotation.set(-Math.PI / 4, 0, Math.PI / 12);
+        mesh.rotation.x = 0.08;
+      } else if (status.includes('brewing') || status.includes('preparing') || status.includes('potion')) {
+        // Healer brewing cauldron stirring
+        const stir = Math.sin(elapsed * 4.5);
+        const stirCos = Math.cos(elapsed * 4.5);
+        armR.rotation.set(-Math.PI / 3 + stir * 0.2, stirCos * 0.3, -Math.PI / 10); // stirring right arm
+        armL.rotation.set(-Math.PI / 2.5, 0, Math.PI / 6); // hold flask in left
+      } else if (status.includes('treating') || status.includes('tending') || status.includes('applying')) {
+        // Healer treating patient
+        const soothe = Math.sin(elapsed * 3.0) * 0.15;
+        pivot.position.set(0, -0.15, 0); // kneel
+        mesh.rotation.x = 0.30; // bend over patient
+        armR.rotation.set(-Math.PI / 3 + soothe, 0, -Math.PI / 12);
+        armL.rotation.set(-Math.PI / 3 - soothe, 0, Math.PI / 12);
+        head.rotation.x = 0.20;
       }
     } else if (isDrinking || isEating) {
       // Drink/Eat: hand to mouth movement
@@ -1167,6 +1264,69 @@ export function createAnimalMesh(animal: Animal, THREE: any): THREE.Group {
       tail.rotation.x = -Math.PI / 3;
       torso.add(tail);
     }
+
+  } else if (animal.type === 'SporeSpitterPlant') {
+    // --- SPORE SPITTER CARNIVOROUS PLANT ---
+    const plantMat = new THREE.MeshStandardMaterial({ color: 0x2e8b57, roughness: 0.6, flatShading: true });
+    const bulbMat = new THREE.MeshStandardMaterial({ color: 0x8a2be2, roughness: 0.4, flatShading: true });
+    const sporeMat = new THREE.MeshBasicMaterial({ color: 0x32cd32 });
+
+    torso = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.25, 6), plantMat);
+    torso.position.y = 0.125;
+    torso.castShadow = true;
+    group.add(torso);
+
+    // Root tendrils
+    for (let r = 0; r < 4; r++) {
+      const root = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.15), plantMat);
+      root.position.set(Math.cos(r * Math.PI / 2) * 0.08, -0.1, Math.sin(r * Math.PI / 2) * 0.08);
+      root.rotation.y = r * Math.PI / 2;
+      root.rotation.x = 0.3;
+      torso.add(root);
+    }
+
+    // Pitcher Head / Spitter Pod
+    head = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), bulbMat);
+    head.name = 'head';
+    head.position.set(0, 0.2, 0);
+    torso.add(head);
+
+    // Spore emitter orifice
+    const pod = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.08, 5), sporeMat);
+    pod.position.set(0, 0.08, 0.05);
+    pod.rotation.x = Math.PI / 4;
+    head.add(pod);
+
+  } else if (animal.type === 'AureliaFish' || animal.type === 'Fish') {
+    // --- AQUATIC AURELIA FISH ---
+    const fishMat = new THREE.MeshStandardMaterial({ color: 0x00ced1, roughness: 0.3, metalness: 0.5, flatShading: true });
+    const finMat = new THREE.MeshBasicMaterial({ color: 0x7fffd4 });
+
+    torso = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 0.2), fishMat);
+    torso.position.y = 0.04;
+    torso.castShadow = true;
+    group.add(torso);
+
+    head = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.08, 4), fishMat);
+    head.name = 'head';
+    head.position.set(0, 0, 0.12);
+    head.rotation.x = Math.PI / 2;
+    torso.add(head);
+
+    // Tail fin
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.1, 0.08), finMat);
+    tail.name = 'tail';
+    tail.position.set(0, 0, -0.12);
+    torso.add(tail);
+
+    // Side fins
+    const finL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.04), finMat);
+    finL.name = 'lf';
+    finL.position.set(-0.04, 0, 0.02);
+    const finR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.01, 0.04), finMat);
+    finR.name = 'rf';
+    finR.position.set(0.04, 0, 0.02);
+    torso.add(finL, finR);
 
   } else {
     // --- DEFAULT SCAVENGER (Vulture / Crow / Flier) ---

@@ -1,5 +1,7 @@
 import { Tribesperson, TribespersonRole, TribespersonTrait, SkillProgress, MapData, JobCategory, JobPriority, CodexEvent } from '../types';
 import { tickEcosystemSimulation, populateInitialMapAnimals, checkIsWithinPen, createAnimal } from './ecosystemEngine';
+import { tickVisualEventExecutor } from './visualEventExecutor';
+import { getSpatialIndex } from './spatialIndex';
 
 const PRIMITIVE_PREFIXES = ['O', 'A', 'Kra', 'Tor', 'Gla', 'Bro', 'Ula', 'Yor', 'Zal', 'Mao', 'Nu', 'Sha', 'Vek', 'Bax', 'Hul', 'Jin', 'Kael', 'Rox', 'Ther', 'Grom'];
 const PRIMITIVE_SUFFIXES = ['g', 'na', 'k', 'thor', 'm', 'ron', 'la', 'ra', 'zin', 'ya', 'dak', 'sha', 'vex', 'tar', 'don', 'kis', 'lor', 'gan', 'bor', 'tis'];
@@ -39,42 +41,25 @@ export const ROLE_COLORS: Record<TribespersonRole, string> = {
 };
 
 export function hasStructureInVillage(mapData: any, type: string): boolean {
-  if (!mapData || !mapData.grid) return false;
-  for (let r = 0; r < mapData.grid.length; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < row.length; c++) {
-        const cell = row[c];
-        if (cell && cell.structure && cell.structure.type === type && !cell.structure.dismantling) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
+  if (!mapData) return false;
+  const index = getSpatialIndex(mapData);
+  return (index.structuresByType[type]?.length ?? 0) > 0;
 }
 
 export function findBestStorageDestination(mapData: MapData, fromX: number, fromZ: number): { x: number, z: number } {
-  const size = mapData.grid.length;
-  const campCenter = getCampCenter(mapData, size);
+  const index = getSpatialIndex(mapData);
+  const campCenter = getCampCenter(mapData, mapData.grid?.length || 120);
   let bestX = campCenter.x;
   let bestZ = campCenter.z;
   let bestDist = 9999;
 
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell?.structure?.type === 'StorageBin' && !cell.structure.dismantling) {
-          const d = Math.abs(r - fromX) + Math.abs(c - fromZ);
-          if (d < bestDist) {
-            bestDist = d;
-            bestX = r;
-            bestZ = c;
-          }
-        }
-      }
+  for (let i = 0; i < index.storageBins.length; i++) {
+    const bin = index.storageBins[i];
+    const d = Math.abs(bin.x - fromX) + Math.abs(bin.z - fromZ);
+    if (d < bestDist) {
+      bestDist = d;
+      bestX = bin.x;
+      bestZ = bin.z;
     }
   }
   return { x: bestX, z: bestZ };
@@ -362,6 +347,7 @@ export function createTribesperson(id: string, mapData: MapData): Tribesperson {
     Repair: role === 'Builder' ? 2 : 3,
     Study: 2,
     CaravanPacking: 2,
+    StudyRelic: role === 'Oracle' ? 1 : 2,
   };
 
   const personalities: ('Brave' | 'Curious' | 'Cowardly' | 'Lazy' | 'Ambitious' | 'Loyal' | 'Greedy')[] = [
@@ -491,6 +477,7 @@ export function createTribeBornChild(
     Repair: 0,
     Study: 0,
     CaravanPacking: 0,
+    StudyRelic: 0,
   };
 
   const child: Tribesperson = {
@@ -636,22 +623,11 @@ export function getVillagerHousing(
   }
 
   // Find all shelter structures on map
-  const shelters: Array<{ x: number; z: number; type: string; cap: number; occupants: string[] }> = [];
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell?.structure && !(cell as any).isMultiTileChildOf) {
-          if (cell.structure.type === 'Shelter') {
-            shelters.push({ x: r, z: c, type: 'Shelter', cap: 5, occupants: [] });
-          } else if (cell.structure.type === 'Tent') {
-            shelters.push({ x: r, z: c, type: 'Tent', cap: 2, occupants: [] });
-          }
-        }
-      }
-    }
-  }
+  const index = getSpatialIndex(mapData);
+  const shelters: Array<{ x: number; z: number; type: string; cap: number; occupants: string[] }> = [
+    ...(index.structuresByType['Shelter'] || []).map(s => ({ x: s.x, z: s.z, type: 'Shelter', cap: 5, occupants: [] as string[] })),
+    ...(index.structuresByType['Tent'] || []).map(s => ({ x: s.x, z: s.z, type: 'Tent', cap: 2, occupants: [] as string[] }))
+  ];
 
   if (shelters.length === 0) {
     return { x: depotX, z: depotZ };
@@ -685,6 +661,16 @@ export function getVillagerHousing(
   // Fallback to the first existing shelter
   dynamicAgent.familyHome = { x: shelters[0].x, z: shelters[0].z };
   return dynamicAgent.familyHome;
+}
+
+export function findRelicStudyLocation(mapData: MapData): { x: number; z: number } {
+  const index = getSpatialIndex(mapData);
+  if (index.structuresByType['RelicArchive']?.length) return index.structuresByType['RelicArchive'][0];
+  if (index.structuresByType['RuinousAltar']?.length) return index.structuresByType['RuinousAltar'][0];
+  if (index.structuresByType['ScienceMachine']?.length) return index.structuresByType['ScienceMachine'][0];
+  if (index.fireplacePos) return { x: index.fireplacePos.x, z: index.fireplacePos.z };
+  const size = mapData.grid?.length || 120;
+  return getCampCenter(mapData, size);
 }
 
 /**
@@ -810,48 +796,34 @@ export function tickTribeSimulation(
     }
   };
 
-  // 1. Scan the map size and structures
-  let storageBins = 0;
-  let shrines = 0;
-  let watchTowers = 0;
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell && cell.structure) {
-          if (cell.structure.type === 'StorageBin') {
-            storageBins++;
-          } else if (cell.structure.type === 'Shrine' && !cell.structure.dismantling) {
-            shrines++;
-          } else if (cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
-            watchTowers++;
-          }
-        }
-      }
-    }
-  }
+  // 1. Scan structures via Spatial Index
+  const spatial = getSpatialIndex(mapData);
+  let storageBins = spatial.storageBins.length;
+  let shrines = (spatial.structuresByType['Shrine'] || []).filter(s => {
+    const c = mapData.grid[s.x]?.[s.z];
+    return c?.structure && !c.structure.dismantling;
+  }).length;
+  let watchTowers = (spatial.structuresByType['WatchTower'] || []).filter(s => {
+    const c = mapData.grid[s.x]?.[s.z];
+    return c?.structure && !c.structure.dismantling;
+  }).length;
 
   // 1b. WatchTower dynamic danger warning checklist
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell && cell.structure && cell.structure.type === 'WatchTower' && !cell.structure.dismantling) {
-          const rad = 5;
-          for (let dx = -rad; dx <= rad; dx++) {
-            for (let dz = -rad; dz <= rad; dz++) {
-              const nx = r + dx;
-              const nz = c + dz;
-              if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
-                const checkCell = mapData.grid[nx]?.[nz];
-                if (checkCell && checkCell.wildAnimal && !checkCell.wildAnimal.isDead) {
-                  // Warning frequency throttle using random roll
-                  if (Math.random() < 0.01) {
-                    addLog(`🗼 Watch Tower Alert: A wild, dynamic ${checkCell.wildAnimal.type} has entered the perimeter of the watchtower situated at [${r}, ${c}]! (Near coordinates [${nx}, ${nz}])`, 'warning');
-                  }
-                }
+  const watchTowerList = spatial.structuresByType['WatchTower'] || [];
+  for (let i = 0; i < watchTowerList.length; i++) {
+    const wt = watchTowerList[i];
+    const cell = mapData.grid[wt.x]?.[wt.z];
+    if (cell?.structure && !cell.structure.dismantling) {
+      const rad = 5;
+      for (let dx = -rad; dx <= rad; dx++) {
+        for (let dz = -rad; dz <= rad; dz++) {
+          const nx = wt.x + dx;
+          const nz = wt.z + dz;
+          if (nx >= 0 && nx < size && nz >= 0 && nz < size) {
+            const checkCell = mapData.grid[nx]?.[nz];
+            if (checkCell && checkCell.wildAnimal && !checkCell.wildAnimal.isDead) {
+              if (Math.random() < 0.01) {
+                addLog(`🗼 Watch Tower Alert: A wild, dynamic ${checkCell.wildAnimal.type} has entered the perimeter of the watchtower situated at [${wt.x}, ${wt.z}]! (Near coordinates [${nx}, ${nz}])`, 'warning');
               }
             }
           }
@@ -1037,46 +1009,42 @@ export function tickTribeSimulation(
   // Run the live Wildlife Ecosystem Simulation Tick
   tickEcosystemSimulation(mapData, deltaTime, tribe, addLog);
 
-  // --- A. GROW CROPS AND REGROW RESOURCES ON THE GRID ---
-  for (let r = 0; r < size; r++) {
-    const row = mapData.grid[r];
-    if (row) {
-      for (let c = 0; c < size; c++) {
-        const cell = row[c];
-        if (cell) {
-          // Grow crops
-          if (cell.farmCrop && cell.farmCrop.stage === 'growing') {
-            cell.farmCrop.progress += 3.5 * deltaTime;
-            if (cell.farmCrop.progress >= 100) {
-              cell.farmCrop.progress = 100;
-              cell.farmCrop.stage = 'harvestable';
-            }
-          }
+  // Run the physical Visual Event Executor simulation tick
+  const eventTickRes = tickVisualEventExecutor(mapData, tribe, deltaTime, timeSpeed, addLog);
+  tribe = eventTickRes.tribe;
 
-          // Regrowth/Decay of Don't Starve resourceNode
-          if (cell.resourceNode) {
-            const node = cell.resourceNode;
-            if (cell.structure || cell.construction) {
-              // If occupied by a structure or active construction blueprint, it cannot regrow.
-              // Reset timer to 0 so it must pass the full regrow time after building is taken out.
-              node.regrowTimer = 0;
-            } else {
-              const limitAmount = node.type === 'Fiber' ? node.maxAmount * 2 : node.maxAmount;
-              if (node.amount < limitAmount) {
-                node.regrowTimer += node.regrowRate * deltaTime;
-                if (node.regrowTimer >= 1.0) {
-                  const added = Math.min(limitAmount - node.amount, Math.floor(node.regrowTimer));
-                  node.amount += added;
-                  node.regrowTimer = 0;
+  // --- A. GROW CROPS AND REGROW RESOURCES VIA SPATIAL INDEX ---
+  for (let i = 0; i < spatial.designatedFarms.length; i++) {
+    const pt = spatial.designatedFarms[i];
+    const cell = mapData.grid[pt.x]?.[pt.z];
+    if (cell && cell.farmCrop && cell.farmCrop.stage === 'growing') {
+      cell.farmCrop.progress += 3.5 * deltaTime;
+      if (cell.farmCrop.progress >= 100) {
+        cell.farmCrop.progress = 100;
+        cell.farmCrop.stage = 'harvestable';
+      }
+    }
+  }
 
-                  // Soft visual restore
-                  if (node.amount > 0) {
-                    if (node.type === 'Berries') cell.hasShrub = true;
-                    else if (node.type === 'Wood') cell.hasTree = true;
-                    else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
-                  }
-                }
-              }
+  for (let i = 0; i < spatial.resourceNodes.length; i++) {
+    const pt = spatial.resourceNodes[i];
+    const cell = mapData.grid[pt.x]?.[pt.z];
+    if (cell && cell.resourceNode) {
+      const node = cell.resourceNode;
+      if (cell.structure || cell.construction) {
+        node.regrowTimer = 0;
+      } else {
+        const limitAmount = node.type === 'Fiber' ? node.maxAmount * 2 : node.maxAmount;
+        if (node.amount < limitAmount) {
+          node.regrowTimer += node.regrowRate * deltaTime;
+          if (node.regrowTimer >= 1.0) {
+            const added = Math.min(limitAmount - node.amount, Math.floor(node.regrowTimer));
+            node.amount += added;
+            node.regrowTimer = 0;
+            if (node.amount > 0) {
+              if (node.type === 'Berries') cell.hasShrub = true;
+              else if (node.type === 'Wood') cell.hasTree = true;
+              else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(node.type)) cell.hasRock = true;
             }
           }
         }
@@ -1090,7 +1058,7 @@ export function tickTribeSimulation(
   const eyeX = mapData.eyePos?.x ?? center.x;
   const eyeZ = mapData.eyePos?.z ?? center.z;
   const eyeRadius = mapData.eyeRadius ?? 14.0;
-  const eyeRadiusSq = eyeRadius * eyeRadius;
+  const eyeRadiusSq = (eyeRadius + 1.5) * (eyeRadius + 1.5); // 1.5 block cushion to prevent minor pathing clip deaths
 
   // --- B. DETAILED TRIBESPEOPLE DECISION & NAVIGATION TICK ---
   const nextTribe = tribe.map((agent) => {
@@ -1507,6 +1475,7 @@ export function tickTribeSimulation(
           Repair: role === 'Builder' ? 2 : 3,
           Study: 2,
           CaravanPacking: 2,
+          StudyRelic: role === 'Oracle' ? 1 : 2,
         };
 
         if (!mapData.tribeCodexLogs) mapData.tribeCodexLogs = [];
@@ -1544,6 +1513,11 @@ export function tickTribeSimulation(
     let x = agent.x;
     let z = agent.z;
     let statusText = agent.statusText;
+
+    let isGettingUp = agent.isGettingUp ?? false;
+    let gettingUpProgress = agent.gettingUpProgress ?? 0;
+    let wasResting = agent.wasResting ?? false;
+    let finalIsResting = false;
 
     // Survival Emergencies (forces overrides immediately)
     const sleepCrit = stats.fatigue < 25;
@@ -1628,6 +1602,16 @@ export function tickTribeSimulation(
       statusText = `🚚 Migrating: Travelling in caravan with the clan...`;
     }
 
+    // Force active relic study override if the agent is the assigned Oracle
+    if (mapData.activeRelicStudy && agent.name === mapData.activeRelicStudy.oracleName && !isCritSurvival && !nearHostilePredator && !mapData.isMigrationTravelActive) {
+      if (activeJobType !== 'StudyRelic') {
+        activeJobType = 'StudyRelic';
+        const studyLoc = findRelicStudyLocation(mapData);
+        jobTargetCoords = studyLoc;
+        workProgress = 0;
+      }
+    }
+
     // Evaluate priorities and available jobs if idle, lost target, doing a low-priority sweeping fallback,
     // or if a MUCH higher priority task became available in the colony and their needs are met!
     const isSweepingFallback = (activeJobType === 'Haul' && (agent as any).haulSubJob === 'organizeStockpile') || 
@@ -1669,27 +1653,34 @@ export function tickTribeSimulation(
     }
 
     if (shouldReevaluate) {
-      const available: { type: JobCategory; x: number; z: number; score: number }[] = [];
+      const available: { type: JobCategory; x: number; z: number; score: number; explanation: string }[] = [];
+      const blocked: { type: string; reason: string }[] = [];
 
       // Helper to add job if allowed
-      const addCandidate = (type: JobCategory, goalX: number, goalZ: number, basePriority: number, scoreModifier = 0) => {
-        if (basePriority <= 0) return; // 0 means disabled
+      const addCandidate = (type: JobCategory, goalX: number, goalZ: number, basePriority: number, scoreModifier = 0, explanation = '') => {
+        if (basePriority <= 0) {
+          blocked.push({ type, reason: 'Priority is set to zero (Disabled)' });
+          return; // 0 means disabled
+        }
         
         // Prevent normal (non-scouts/non-Stormriders) from targeting jobs outside the Eye
         if (!isScoutOrStormrider) {
           const dx = goalX - eyeX;
           const dz = goalZ - eyeZ;
           const distSq = dx * dx + dz * dz;
-          if (distSq > eyeRadiusSq) {
+          if (distSq > (eyeRadius + 1.5) * (eyeRadius + 1.5)) {
+            blocked.push({ type, reason: 'Target node is outside the safe Eye zone' });
             return; // Ignore any candidate outside the safe zone!
           }
         }
 
+        const finalScore = basePriority + scoreModifier;
         available.push({
           type,
           x: goalX,
           z: goalZ,
-          score: basePriority + scoreModifier,
+          score: finalScore,
+          explanation: explanation || `Base priority ${basePriority} + modifier ${scoreModifier >= 0 ? '+' : ''}${scoreModifier.toFixed(2)}`
         });
       };
 
@@ -1912,31 +1903,26 @@ export function tickTribeSimulation(
           addCandidate('Sleep', home.x, home.z, agent.priorities.Sleep, (isShelter ? -0.25 : 0) + nighttimePriorityBonus);
         }
 
+      const spatial = getSpatialIndex(mapData);
+
       // 2. Drink
       if (agent.priorities.Drink > 0 && stats.thirst < 85) {
-        // Find water cell or WaterWell structure
         let bestX = -1, bestZ = -1, bestDist = 9999;
         let isWell = false;
-        for (let r = 0; r < size; r++) {
-          for (let c = 0; c < size; c++) {
-            const cell = mapData.grid[r]?.[c];
-            if (cell) {
-              if (cell.structure?.type === 'WaterWell') {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                  isWell = true;
-                }
-              } else if (cell.biome === 'water' && !isWell) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                }
-              }
+        for (let i = 0; i < spatial.waterWells.length; i++) {
+          const w = spatial.waterWells[i];
+          const d = Math.abs(w.x - x) + Math.abs(w.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = w.x; bestZ = w.z; isWell = true;
+          }
+        }
+        if (!isWell && spatial.waterCells.length > 0) {
+          const limit = Math.min(spatial.waterCells.length, 30);
+          for (let i = 0; i < limit; i++) {
+            const w = spatial.waterCells[i];
+            const d = Math.abs(w.x - x) + Math.abs(w.z - z);
+            if (d < bestDist) {
+              bestDist = d; bestX = w.x; bestZ = w.z;
             }
           }
         }
@@ -1950,21 +1936,12 @@ export function tickTribeSimulation(
         if (mapData.stockpile.food > 0) {
           addCandidate('Eat', depotX, depotZ, agent.priorities.Eat, -0.1);
         } else {
-          // direct berry chewing
           let bestX = -1, bestZ = -1, bestDist = 9999;
-          for (let r = 0; r < size; r++) {
-            const row = mapData.grid[r];
-            if (!row) continue;
-            for (let c = 0; c < size; c++) {
-              const cell = row[c];
-              if (cell && cell.hasShrub && cell.scouted) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                }
-              }
+          for (let i = 0; i < spatial.shrubs.length; i++) {
+            const s = spatial.shrubs[i];
+            const d = Math.abs(s.x - x) + Math.abs(s.z - z);
+            if (d < bestDist) {
+              bestDist = d; bestX = s.x; bestZ = s.z;
             }
           }
           if (bestX !== -1) {
@@ -1976,172 +1953,90 @@ export function tickTribeSimulation(
       // 4. Haul
       if (agent.priorities.Haul > 0) {
         if (carriage && carriage.amount > 0) {
-          // must dump at depot
-          addCandidate('Haul', depotX, depotZ, 0.4); // extremely urgent
+          addCandidate('Haul', depotX, depotZ, 0.4);
         } else {
-          // look for itemsOnGround
           let bestX = -1, bestZ = -1, bestDist = 9999;
-          for (let r = 0; r < size; r++) {
-            const row = mapData.grid[r];
-            if (!row) continue;
-            for (let c = 0; c < size; c++) {
-              const cell = row[c];
-              if (cell && cell.itemsOnGround && cell.scouted) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                }
-              }
+          for (let i = 0; i < spatial.itemsOnGround.length; i++) {
+            const item = spatial.itemsOnGround[i];
+            const d = Math.abs(item.x - x) + Math.abs(item.z - z);
+            if (d < bestDist) {
+              bestDist = d; bestX = item.x; bestZ = item.z;
             }
           }
           if (bestX !== -1) {
             addCandidate('Haul', bestX, bestZ, agent.priorities.Haul, 0);
             (agent as any).haulSubJob = 'physical';
           } else {
-            // Default to depot cleaning/sweeping to organize stockpiles and keep warehouses clean!
-            addCandidate('Haul', depotX, depotZ, agent.priorities.Haul, 0.5); // lower priority than actual hauling
+            addCandidate('Haul', depotX, depotZ, agent.priorities.Haul, 0.5);
             (agent as any).haulSubJob = 'organizeStockpile';
           }
         }
       }
 
-      // 5. Gather (Wood logs, rocks, shrubs, and custom Don't Starve resource nodes)
+      // 5. Gather
       if (agent.priorities.Gather > 0 && (!carriage || carriage.amount < 30)) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         let isDesignatedTarget = false;
 
-        // Step 5a: First, look specifically for scouted, manually designated resource cells
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (cell && cell.gatherDesignated && cell.scouted && cell.loaded !== false) {
-              const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
-              if (cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) {
-                // Check if they need a tool
-                const isWood = cell.hasTree || (cell.resourceNode && cell.resourceNode.type === 'Wood');
-                const isMine = cell.hasRock || (cell.resourceNode && ['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(cell.resourceNode.type));
-                const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
-                const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
-                                   (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
-                                   (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
-                                   (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
-                
-                if (isWood && !hasAxe) {
-                  // Trigger warning!
-                  (mapData as any).lastToolWarning = 'needs axe';
-                  cell.gatherDesignated = false;
-                  continue;
-                }
-                if (isMine && !hasPickaxe) {
-                  // Trigger warning!
-                  (mapData as any).lastToolWarning = 'needs pickaxe';
-                  cell.gatherDesignated = false;
-                  continue;
-                }
+        // Step 5a: Designated
+        for (let i = 0; i < spatial.designatedGather.length; i++) {
+          const pt = spatial.designatedGather[i];
+          const cell = mapData.grid[pt.x]?.[pt.z];
+          if (!cell) continue;
+          const isWood = cell.hasTree || (cell.resourceNode && cell.resourceNode.type === 'Wood');
+          const isMine = cell.hasRock || (cell.resourceNode && ['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(cell.resourceNode.type));
+          const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
+          const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
+                             (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
+                             (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
+                             (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
 
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                  isDesignatedTarget = true;
-                }
-              }
-            }
+          if (isWood && !hasAxe) {
+            (mapData as any).lastToolWarning = 'needs axe';
+            cell.gatherDesignated = false;
+            continue;
+          }
+          if (isMine && !hasPickaxe) {
+            (mapData as any).lastToolWarning = 'needs pickaxe';
+            cell.gatherDesignated = false;
+            continue;
+          }
+
+          const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = pt.x; bestZ = pt.z; isDesignatedTarget = true;
           }
         }
 
-        // Step 5b: If no designated target, search for automated threshold-based resource nodes
+        // Step 5b: Auto gather threshold check
         if (bestX === -1) {
           const thresholdMap = mapData.autoGatherThresholds || {};
-          for (let r = 0; r < size; r++) {
-            const row = mapData.grid[r];
-            if (!row) continue;
-            for (let c = 0; c < size; c++) {
-              const cell = row[c];
-              if (!cell) continue;
-              const hasNodeToGather = cell.resourceNode && cell.resourceNode.amount > 0;
-              
-              let satisfiesAutoGather = false;
-              if (cell.hasTree) {
-                const limit = thresholdMap['wood'] || 0;
-                const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
-                if (limit > 0 && mapData.stockpile.wood < limit && hasAxe) {
-                  satisfiesAutoGather = true;
-                }
-              }
-              if (cell.hasRock) {
-                const limit = thresholdMap['stone'] || 0;
-                const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
-                                   (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
-                                   (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
-                                   (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
-                if (limit > 0 && mapData.stockpile.stone < limit && hasPickaxe) {
-                  satisfiesAutoGather = true;
-                }
-              }
-              if (cell.hasShrub) {
-                const limitBerries = thresholdMap['berries'] || 0;
-                const limitFood = thresholdMap['food'] || 0;
-                if ((limitBerries > 0 && (mapData.stockpile as any).berries < limitBerries) ||
-                    (limitFood > 0 && mapData.stockpile.food < limitFood)) {
-                  satisfiesAutoGather = true;
-                }
-              }
-              if (hasNodeToGather && cell.resourceNode) {
-                const nodeType = cell.resourceNode.type;
-                const typeMap: Record<string, string> = {
-                  Berries: 'berries',
-                  Roots: 'roots',
-                  Mushrooms: 'mushrooms',
-                  Meat: 'meat',
-                  Wood: 'wood',
-                  Stone: 'stone',
-                  Fiber: 'fiber',
-                  Bone: 'bone',
-                  Dew: 'dew',
-                  ReservoirWater: 'reservoirWater',
-                  Rainwater: 'rainwater',
-                  Relics: 'relics',
-                  AncientMaterials: 'ancientMaterials',
-                  Copper: 'copper',
-                  Silver: 'silver',
-                  Gold: 'gold',
-                  Iron: 'iron',
-                };
-                const rKey = typeMap[nodeType] || 'wood';
-                const limit = thresholdMap[rKey] || 0;
-                
-                const isFood = ['Berries', 'Roots', 'Mushrooms', 'Meat'].includes(nodeType);
-                const limitFood = thresholdMap['food'] || 0;
-                
-                let toolAvailable = true;
-                if (nodeType === 'Wood') {
-                  toolAvailable = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
-                } else if (['Stone', 'Copper', 'Silver', 'Gold', 'Iron'].includes(nodeType)) {
-                  toolAvailable = (mapData.stockpile.flintPickaxe ?? 0) > 0 || 
-                                  (mapData.stockpile.steelPickaxe ?? 0) > 0 ||
-                                  (mapData.caravanInventory?.items?.flintPickaxe ?? 0) > 0 ||
-                                  (mapData.caravanInventory?.items?.steelPickaxe ?? 0) > 0;
-                }
+          const candidates = [...spatial.trees, ...spatial.rocks, ...spatial.shrubs];
+          for (let i = 0; i < candidates.length; i++) {
+            const pt = candidates[i];
+            const cell = mapData.grid[pt.x]?.[pt.z];
+            if (!cell || !cell.scouted || cell.loaded === false) continue;
 
-                if (toolAvailable && ((limit > 0 && ((mapData.stockpile as any)[rKey] ?? 0) < limit) ||
-                    (isFood && limitFood > 0 && mapData.stockpile.food < limitFood))) {
-                  satisfiesAutoGather = true;
-                }
-              }
+            let satisfiesAutoGather = false;
+            if (cell.hasTree) {
+              const limit = thresholdMap['wood'] || 0;
+              const hasAxe = (mapData.stockpile.stoneAxe ?? 0) > 0 || (mapData.caravanInventory?.items?.stoneAxe ?? 0) > 0;
+              if (limit > 0 && mapData.stockpile.wood < limit && hasAxe) satisfiesAutoGather = true;
+            }
+            if (cell.hasRock) {
+              const limit = thresholdMap['stone'] || 0;
+              const hasPickaxe = (mapData.stockpile.flintPickaxe ?? 0) > 0 || (mapData.stockpile.steelPickaxe ?? 0) > 0;
+              if (limit > 0 && mapData.stockpile.stone < limit && hasPickaxe) satisfiesAutoGather = true;
+            }
+            if (cell.hasShrub) {
+              const limitBerries = thresholdMap['berries'] || 0;
+              if (limitBerries > 0 && ((mapData.stockpile as any).berries ?? 0) < limitBerries) satisfiesAutoGather = true;
+            }
 
-              if ((cell.hasTree || cell.hasRock || cell.hasShrub || hasNodeToGather) && cell.scouted && cell.loaded !== false && satisfiesAutoGather) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                }
+            if (satisfiesAutoGather) {
+              const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+              if (d < bestDist) {
+                bestDist = d; bestX = pt.x; bestZ = pt.z;
               }
             }
           }
@@ -2150,132 +2045,60 @@ export function tickTribeSimulation(
         if (bestX !== -1) {
           const isGatherer = agent.role === 'Gatherer';
           const hasPrimaryRoleWork = (() => {
-            if (agent.role === 'Builder') {
-              for (let r = 0; r < size; r++) {
-                const row = mapData.grid[r];
-                if (!row) continue;
-                for (let c = 0; c < size; c++) {
-                  const cell = row[c];
-                  if (cell && (cell.construction || (cell.structure && (cell.structure.dismantling || cell.structure.condition < 95)))) {
-                    return true;
-                  }
-                }
-              }
-            }
-            if (agent.role === 'Farmer') {
-              for (let r = 0; r < size; r++) {
-                const row = mapData.grid[r];
-                if (!row) continue;
-                for (let c = 0; c < size; c++) {
-                  const cell = row[c];
-                  if (cell && cell.farmCrop) return true;
-                }
-              }
-            }
-            if (agent.role === 'Hunter') {
-              if (mapData.animals && mapData.animals.some(a => !a.isDead)) return true;
-            }
-            if (agent.role === 'Scout') {
-              for (let r = 0; r < size; r++) {
-                const row = mapData.grid[r];
-                if (!row) continue;
-                for (let c = 0; c < size; c++) {
-                  const cell = row[c];
-                  if (cell && !cell.scouted) return true;
-                }
-              }
-            }
+            if (agent.role === 'Builder') return spatial.designatedConstructions.length > 0 || spatial.designatedRepairs.length > 0;
+            if (agent.role === 'Farmer') return spatial.designatedFarms.length > 0;
+            if (agent.role === 'Hunter') return mapData.animals && mapData.animals.some(a => !a.isDead);
             return false;
           })();
 
-          // 1. Gatherer role always gathers with high priority boost
-          // 2. Other roles can help if there is no primary role work for them, but with less priority
-          // 3. Builders with pending construction/dismantling/repair work NEVER abandon it to gather
           if (isGatherer) {
-            const scoreModifier = isDesignatedTarget ? -3.0 : -0.5;
+            const scoreModifier = isDesignatedTarget ? -4.0 : -1.5;
             addCandidate('Gather', bestX, bestZ, agent.priorities.Gather, scoreModifier);
           } else if (!hasPrimaryRoleWork) {
-            // Can help as complementary/hauler task if they have nothing else to do of their primary role
-            const scoreModifier = isDesignatedTarget ? 0.5 : 1.5; // less prioritized
+            const scoreModifier = isDesignatedTarget ? -2.5 : 1.0;
             addCandidate('Gather', bestX, bestZ, agent.priorities.Gather, scoreModifier);
           }
         }
       }
 
-      // 6. Hunt / Fisherman / Water collection (Wild animals & Lake/Well interaction)
+      // 6. Hunt
       if (agent.priorities.Hunt > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
         let jobMode: 'hunt' | 'fish' | 'water' | 'tame' = 'hunt';
         let isDesignatedTarget = false;
 
-        // 6a. Search first for manually designated wild animal hunt/capture/tame targets
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (cell && cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
-              const ani = cell.wildAnimal;
-              if ((ani as any).isHuntDesignated || (ani as any).isCaptureDesignated || (ani as any).isTameDesignated) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                  const hasEnoughBerries = (mapData.stockpile.berries ?? 0) >= 3;
-                  jobMode = ((ani as any).isTameDesignated && hasEnoughBerries) ? 'tame' : 'hunt';
-                  isDesignatedTarget = true;
-                }
+        for (let i = 0; i < spatial.designatedHunt.length; i++) {
+          const pt = spatial.designatedHunt[i];
+          const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = pt.x; bestZ = pt.z;
+            const hasEnoughBerries = (mapData.stockpile.berries ?? 0) >= 3;
+            const cell = mapData.grid[pt.x]?.[pt.z];
+            jobMode = (cell?.wildAnimal as any)?.isTameDesignated && hasEnoughBerries ? 'tame' : 'hunt';
+            isDesignatedTarget = true;
+          }
+        }
+
+        if (bestX === -1 && mapData.animals) {
+          for (let i = 0; i < mapData.animals.length; i++) {
+            const ani = mapData.animals[i];
+            if (!ani.isDead) {
+              const d = Math.abs(ani.x - x) + Math.abs(ani.z - z);
+              if (d < bestDist) {
+                bestDist = d; bestX = Math.round(ani.x); bestZ = Math.round(ani.z);
+                jobMode = 'hunt';
               }
             }
           }
         }
 
-        // 6b. Search for standard (automatic) wild animals to hunt if no designated ones
         if (bestX === -1) {
-          for (let r = 0; r < size; r++) {
-            const row = mapData.grid[r];
-            if (!row) continue;
-            for (let c = 0; c < size; c++) {
-              const cell = row[c];
-              if (cell && cell.wildAnimal && !cell.wildAnimal.isDead && cell.scouted) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                  jobMode = 'hunt';
-                }
-              }
-            }
-          }
-        }
-
-        // 6c. If no wild game, search for lakes or wells to fish/fetch water
-        if (bestX === -1) {
-          for (let r = 0; r < size; r++) {
-            for (let c = 0; c < size; c++) {
-              const cell = mapData.grid[r]?.[c];
-              if (cell && cell.scouted) {
-                if (cell.biome === 'water') {
-                  const d = Math.abs(r - x) + Math.abs(c - z);
-                  if (d < bestDist) {
-                    bestDist = d;
-                    bestX = r;
-                    bestZ = c;
-                    jobMode = 'fish';
-                  }
-                } else if (cell.structure && cell.structure.type === 'WaterWell') {
-                  const d = Math.abs(r - x) + Math.abs(c - z);
-                  if (d < bestDist) {
-                    bestDist = d;
-                    bestX = r;
-                    bestZ = c;
-                    jobMode = 'water';
-                  }
-                }
-              }
-            }
+          if (spatial.waterCells.length > 0) {
+            const pt = spatial.waterCells[0];
+            bestX = pt.x; bestZ = pt.z; jobMode = 'fish';
+          } else if (spatial.waterWells.length > 0) {
+            const pt = spatial.waterWells[0];
+            bestX = pt.x; bestZ = pt.z; jobMode = 'water';
           }
         }
 
@@ -2287,130 +2110,80 @@ export function tickTribeSimulation(
               { r: bestX - 1, c: bestZ },
               { r: bestX + 1, c: bestZ },
               { r: bestX, c: bestZ - 1 },
-              { r: bestX, c: bestZ + 1 },
-              { r: bestX - 1, c: bestZ - 1 },
-              { r: bestX - 1, c: bestZ + 1 },
-              { r: bestX + 1, c: bestZ - 1 },
-              { r: bestX + 1, c: bestZ + 1 },
+              { r: bestX, c: bestZ + 1 }
             ];
             for (const n of neighbors) {
-              if (n.r >= 0 && n.r < size && n.c >= 0 && n.c < size) {
-                const cell = mapData.grid[n.r]?.[n.c];
-                if (cell && cell.biome !== 'water') {
-                  walkX = n.r;
-                  walkZ = n.c;
-                  break;
-                }
+              const cell = mapData.grid[n.r]?.[n.c];
+              if (cell && cell.biome !== 'water') {
+                walkX = n.r; walkZ = n.c; break;
               }
             }
           }
-          const scoreModifier = isDesignatedTarget ? -1.8 : -0.05;
+          const isHunter = agent.role === 'Hunter';
+          const scoreModifier = isDesignatedTarget ? (isHunter ? -4.5 : -3.5) : -0.5;
           addCandidate('Hunt', walkX, walkZ, agent.priorities.Hunt, scoreModifier);
           (agent as any).huntSubJob = jobMode;
         }
       }
 
-      // 7. Build (Blueprints & Dismantling)
-      if (agent.priorities.Build > 0) {
+      // 7. Build
+      if (agent.priorities.Build > 0 && spatial.designatedConstructions.length > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (!cell) continue;
-            // Skip child tiles of multi-tile structures to ensure builders target the 2x2 parent tile directly!
-            if ((cell as any).isMultiTileChildOf) continue;
-
-            const hasBuildOrDismantle = cell.construction || (cell.structure && cell.structure.dismantling);
-            if (hasBuildOrDismantle && cell.scouted && cell.loaded !== false) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
-              }
-            }
+        for (let i = 0; i < spatial.designatedConstructions.length; i++) {
+          const pt = spatial.designatedConstructions[i];
+          const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = pt.x; bestZ = pt.z;
           }
         }
         if (bestX !== -1) {
-          addCandidate('Build', bestX, bestZ, agent.priorities.Build, -0.1);
+          const isBuilder = agent.role === 'Builder';
+          const scoreModifier = isBuilder ? -4.5 : -3.5;
+          addCandidate('Build', bestX, bestZ, agent.priorities.Build, scoreModifier);
         }
       }
 
-      // 8. Farm (Sow, Tend, Harvest crops)
-      if (agent.priorities.Farm > 0) {
+      // 8. Farm
+      if (agent.priorities.Farm > 0 && spatial.designatedFarms.length > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (cell && cell.farmCrop && cell.scouted && cell.loaded !== false) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
-              }
-            }
+        for (let i = 0; i < spatial.designatedFarms.length; i++) {
+          const pt = spatial.designatedFarms[i];
+          const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = pt.x; bestZ = pt.z;
           }
         }
         if (bestX !== -1) {
-          addCandidate('Farm', bestX, bestZ, agent.priorities.Farm, 0);
+          const isFarmer = agent.role === 'Farmer';
+          const scoreModifier = isFarmer ? -4.5 : -3.5;
+          addCandidate('Farm', bestX, bestZ, agent.priorities.Farm, scoreModifier);
         }
       }
 
-      // 9. Scout (Fog of War blocks)
+      // 9. Scout
       if (agent.priorities.Scout > 0) {
-        let bestX = -1, bestZ = -1, bestDist = 9999;
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (cell && !cell.scouted && cell.loaded !== false) {
-              const d = Math.abs(r - x) + Math.abs(c - z);
-              if (d < bestDist) {
-                bestDist = d;
-                bestX = r;
-                bestZ = c;
-              }
-            }
-          }
-        }
-        if (bestX !== -1) {
-          addCandidate('Scout', bestX, bestZ, agent.priorities.Scout, 0.05);
-        }
+        // Quick target scout sampling
+        const campCenter = getCampCenter(mapData, size);
+        addCandidate('Scout', campCenter.x + 10, campCenter.z + 10, agent.priorities.Scout, 0.05);
       }
 
-      // 10. Repair (Damaged structures)
+      // 10. Repair
       if (agent.priorities.Repair > 0) {
         let bestX = -1, bestZ = -1, bestDist = 9999;
-        for (let r = 0; r < size; r++) {
-          const row = mapData.grid[r];
-          if (!row) continue;
-          for (let c = 0; c < size; c++) {
-            const cell = row[c];
-            if (cell) {
-              const structure = cell.structure;
-              if (structure && structure.condition < 95 && cell.scouted && cell.loaded !== false) {
-                const d = Math.abs(r - x) + Math.abs(c - z);
-                if (d < bestDist) {
-                  bestDist = d;
-                  bestX = r;
-                  bestZ = c;
-                }
-              }
-            }
+        for (let i = 0; i < spatial.designatedRepairs.length; i++) {
+          const pt = spatial.designatedRepairs[i];
+          const d = Math.abs(pt.x - x) + Math.abs(pt.z - z);
+          if (d < bestDist) {
+            bestDist = d; bestX = pt.x; bestZ = pt.z;
           }
         }
         if (bestX !== -1) {
-          addCandidate('Repair', bestX, bestZ, agent.priorities.Repair, 0.1);
+          const isBuilder = agent.role === 'Builder';
+          const scoreModifier = isBuilder ? -4.0 : -3.0;
+          addCandidate('Repair', bestX, bestZ, agent.priorities.Repair, scoreModifier);
           (agent as any).repairSubJob = 'physical';
         } else {
-          // Keep depot warehouse in check if nothing is broken!
-          addCandidate('Repair', depotX, depotZ, agent.priorities.Repair, 0.6); // lower priority than actual repairs
+          addCandidate('Repair', depotX, depotZ, agent.priorities.Repair, 0.6);
           (agent as any).repairSubJob = 'organizeStockpile';
         }
       }
@@ -2423,6 +2196,22 @@ export function tickTribeSimulation(
         const distB = Math.abs(b.x - x) + Math.abs(b.z - z);
         return distA - distB;
       });
+
+      agent.needsPriorities = [
+        { name: 'Hunger', value: Math.round(stats.hunger) },
+        { name: 'Thirst', value: Math.round(stats.thirst) },
+        { name: 'Fatigue', value: Math.round(stats.fatigue) },
+        { name: 'Morale', value: Math.round(stats.morale) },
+        { name: 'Health', value: Math.round(stats.health) },
+      ];
+      agent.blockedActions = blocked;
+      agent.topActions = available.slice(0, 3).map(cand => ({
+        type: cand.type,
+        score: cand.score,
+        x: cand.x,
+        z: cand.z,
+        explanation: cand.explanation
+      }));
 
       let chosen = available[0];
       if (isSweepingFallback && available.length > 0) {
@@ -2573,10 +2362,40 @@ export function tickTribeSimulation(
           }
         }
 
+        // Check for nearby helpers working on same or nearby task and apply relationship speed modifiers
+        let friendCount = 0;
+        let rivalCount = 0;
+        let neutralCount = 0;
+
+        if (activeJobType && activeJobType !== 'Sleep' && activeJobType !== 'Eat' && activeJobType !== 'Drink') {
+          for (let oi = 0; oi < tribe.length; oi++) {
+            const other = tribe[oi];
+            if (other.id === agent.id || !other.isAlive) continue;
+            const distOther = Math.hypot(other.x - destX, other.z - destZ);
+            if (distOther < 3.5) {
+              const rel = agent.relationships?.find(r => r.targetId === other.id);
+              if (rel) {
+                if (rel.type === 'Friend' || rel.type === 'Family' || rel.type === 'Mentor' || rel.value > 15) {
+                  friendCount++;
+                } else if (rel.type === 'Rival' || rel.value < -10) {
+                  rivalCount++;
+                } else {
+                  neutralCount++;
+                }
+              } else {
+                neutralCount++;
+              }
+            }
+          }
+        }
+
+        const socialSpeedMod = Math.max(0.5, Math.min(2.5, 1.0 + (friendCount * 0.25) + (neutralCount * 0.10) - (rivalCount * 0.15)));
+        speedMultiplier *= socialSpeedMod;
         speedMultiplier *= speedModifier;
         workProgress += deltaTime * speedMultiplier * 8.0;
 
         if (activeJobType === 'Sleep') {
+          finalIsResting = true;
           const isSheltered = cell?.structure?.type === 'Shelter';
           statusText = isSheltered ? '💤 Resting inside cozy Shelter...' : '💤 Resting under open sky...';
           const rate = isSheltered ? 3.0 : 1.35;
@@ -2878,6 +2697,13 @@ export function tickTribeSimulation(
                   amount: qtyToHarvest
                 };
 
+                // Passive fiber gathering for plants and wood nodes
+                if (['Wood', 'Berries', 'Roots', 'Mushrooms'].includes(node.type)) {
+                  const passiveFiber = Math.max(1, Math.floor(qtyToHarvest * 0.3));
+                  mapData.stockpile.fiber = (mapData.stockpile.fiber || 0) + passiveFiber;
+                  addLog(`🌾 Passively gathered +${passiveFiber} fiber from ${node.type} harvesting!`, 'success');
+                }
+
                 // Clear visual cues if depleted
                 if (node.amount <= 0) {
                   if (node.type === 'Berries') cell.hasShrub = false;
@@ -2903,6 +2729,11 @@ export function tickTribeSimulation(
                 cell.inspectableName = 'Fertile Soil Grassland';
                 cell.itemsOnGround = { type: 'wood', amount: 30 };
                 carriage = { type: 'wood', amount: 30 };
+                
+                // Passive fiber gathering from tree felling
+                const passiveFiber = 8;
+                mapData.stockpile.fiber = (mapData.stockpile.fiber || 0) + passiveFiber;
+                addLog(`🌾 Passively gathered +${passiveFiber} fiber from tree felling!`, 'success');
                 
                 // Immediately return resource!
                 activeJobType = 'Haul';
@@ -2936,6 +2767,11 @@ export function tickTribeSimulation(
                 cell.inspectableName = 'Fertile Soil Grassland';
                 cell.itemsOnGround = { type: 'food', amount: 20 };
                 carriage = { type: 'food', amount: 20 };
+                
+                // Passive fiber gathering from berry gathering
+                const passiveFiber = 5;
+                mapData.stockpile.fiber = (mapData.stockpile.fiber || 0) + passiveFiber;
+                addLog(`🌾 Passively gathered +${passiveFiber} fiber from berry gathering!`, 'success');
                 
                 activeJobType = 'Haul';
                 jobTargetCoords = { x: depotX, z: depotZ };
@@ -3070,6 +2906,25 @@ export function tickTribeSimulation(
           }
         } 
         
+        else if (activeJobType === 'StudyRelic') {
+          const relicName = mapData.activeRelicStudy?.relicName ?? "Ancient Artifact";
+          const progressPercent = mapData.activeRelicStudy 
+            ? Math.round((mapData.activeRelicStudy.daysProgress / mapData.activeRelicStudy.totalDaysRequired) * 100) 
+            : 0;
+
+          const studyBehaviors = [
+            `🔮 Translating ancient runic circuits on "${relicName}" (${progressPercent}%)...`,
+            `🔮 Tuning spatial frequencies of "${relicName}" (${progressPercent}%)...`,
+            `🔮 Transcribing stellar blueprints from "${relicName}" (${progressPercent}%)...`,
+            `🔮 Deciphering celestial energy patterns in "${relicName}" (${progressPercent}%)...`
+          ];
+          
+          statusText = studyBehaviors[Math.floor(x + z + (mapData.activeRelicStudy?.daysProgress ?? 0) * 10) % studyBehaviors.length];
+          
+          // Train Healer/Oracle skill XP slowly over time while studying
+          awardSkillXP(agent, 'Healer', 15 * deltaTime, mapData, addLog, hasMentorNearby);
+        }
+
         else if (activeJobType === 'Study') {
           if (cell?.landmark && !cell.landmark.explored) {
             const lm = cell.landmark;
@@ -3193,6 +3048,11 @@ export function tickTribeSimulation(
                 cell.farmCrop = null;
                 cell.itemsOnGround = { type: 'food', amount: finalYield };
                 carriage = { type: 'food', amount: finalYield };
+                
+                // Passive fiber gathering from crop harvesting
+                const passiveFiber = Math.max(2, Math.floor(finalYield * 0.25));
+                mapData.stockpile.fiber = (mapData.stockpile.fiber || 0) + passiveFiber;
+                addLog(`🌾 Passively gathered +${passiveFiber} fiber from crop harvesting!`, 'success');
                 
                 activeJobType = 'Haul';
                 jobTargetCoords = { x: depotX, z: depotZ };
@@ -3803,21 +3663,50 @@ export function tickTribeSimulation(
             watchTowerSpeedBonus += watchTowers * 0.15;
           }
 
-          // Upgraded speed factors for satisfyingly fast, responsive walking (Increased by 50% as requested)
-          const movementFactor = (36.0 + agent.attributes.agility * 3.6) * sp * loadPenalty * watchTowerSpeedBonus * 1.5;
+          // Checks if the agent is actively resting
+          const isCurrentlyResting = (activeJobType === 'Sleep' && distance < 0.6);
+          if (isCurrentlyResting) {
+            finalIsResting = true;
+          }
 
-          const dirX = (destX - x) / distance;
-          const dirZ = (destZ - z) / distance;
+          if (wasResting && !finalIsResting && !isGettingUp) {
+            isGettingUp = true;
+            gettingUpProgress = 0;
+          }
 
-          x += dirX * movementFactor * deltaTime;
-          z += dirZ * movementFactor * deltaTime;
+          if (isGettingUp) {
+            gettingUpProgress += deltaTime * 150.0;
+            if (gettingUpProgress >= 1.0) {
+              isGettingUp = false;
+              gettingUpProgress = 0;
+              wasResting = false;
+            }
+            statusText = "🚶 Standing up and getting ready...";
+          }
 
-          // Visual targets for smooth interpolations in GameCanvas
-          agent.targetX = destX;
-          agent.targetZ = destZ;
+          if (finalIsResting) {
+            agent.targetX = x;
+            agent.targetZ = z;
+          } else if (isGettingUp) {
+            agent.targetX = x;
+            agent.targetZ = z;
+          } else {
+            // Upgraded speed factors for satisfyingly fast, responsive walking (Increased by 50% as requested)
+            const movementFactor = (36.0 + agent.attributes.agility * 3.6) * sp * loadPenalty * watchTowerSpeedBonus * 1.5;
 
-          let encumberedMsg = loadPenalty < 0.9 ? ` (🐌 Encumbered)` : '';
-          statusText = `🚶 Traveling to [${destX}, ${destZ}] to ${activeJobType}${encumberedMsg}...`;
+            const dirX = (destX - x) / distance;
+            const dirZ = (destZ - z) / distance;
+
+            x += dirX * movementFactor * deltaTime;
+            z += dirZ * movementFactor * deltaTime;
+
+            // Visual targets for smooth interpolations in GameCanvas
+            agent.targetX = destX;
+            agent.targetZ = destZ;
+
+            let encumberedMsg = loadPenalty < 0.9 ? ` (🐌 Encumbered)` : '';
+            statusText = `🚶 Traveling to [${destX}, ${destZ}] to ${activeJobType}${encumberedMsg}...`;
+          }
         }
       }
     } else {
@@ -3980,18 +3869,51 @@ export function tickTribeSimulation(
         }
       }
 
-      // Move toward active idle coordinates
-      const dist = Math.sqrt((agent.targetX - x) ** 2 + (agent.targetZ - z) ** 2);
-      if (dist > 0.4) {
-        const idleWanderSpeed = 20.0; // standard strolling pace
-        const dx = (agent.targetX - x) / dist;
-        const dz = (agent.targetZ - z) / dist;
-        x += dx * idleWanderSpeed * deltaTime;
-        z += dz * idleWanderSpeed * deltaTime;
-      } else {
-        // Arrived at idle destination: idle face orientation
+      // Checks if the agent is actively resting in idle
+      const isCurrentlyResting = (
+        statusText.includes('Napping') || 
+        statusText.includes('Sunbathing') || 
+        statusText.includes('Cloud-watching') || 
+        statusText.includes('Dosing off')
+      );
+      if (isCurrentlyResting) {
+        finalIsResting = true;
+      }
+
+      if (wasResting && !finalIsResting && !isGettingUp) {
+        isGettingUp = true;
+        gettingUpProgress = 0;
+      }
+
+      if (isGettingUp) {
+        gettingUpProgress += deltaTime * 150.0;
+        if (gettingUpProgress >= 1.0) {
+          isGettingUp = false;
+          gettingUpProgress = 0;
+          wasResting = false;
+        }
+        statusText = "🚶 Standing up and getting ready...";
+      }
+
+      if (finalIsResting) {
         agent.targetX = x;
         agent.targetZ = z;
+      } else if (isGettingUp) {
+        agent.targetX = x;
+        agent.targetZ = z;
+      } else {
+        const dist = Math.sqrt((agent.targetX - x) ** 2 + (agent.targetZ - z) ** 2);
+        if (dist > 0.4) {
+          const idleWanderSpeed = 20.0; // standard strolling pace
+          const dx = (agent.targetX - x) / dist;
+          const dz = (agent.targetZ - z) / dist;
+          x += dx * idleWanderSpeed * deltaTime;
+          z += dz * idleWanderSpeed * deltaTime;
+        } else {
+          // Arrived at idle destination: idle face orientation
+          agent.targetX = x;
+          agent.targetZ = z;
+        }
       }
     }
   }
@@ -4016,6 +3938,55 @@ export function tickTribeSimulation(
       items: carriage && carriage.amount > 0 ? { [carriage.type]: carriage.amount } : {}
     };
 
+    // Compute brain reason dynamically
+    let brainReason = "Resting or socializing near center camp.";
+    if (nearHostilePredator) {
+      brainReason = `Fleeing from dangerous predator (${nearHostilePredator.type || 'beast'}) near camp!`;
+    } else if (!isInsideEye && !isScoutOrStormrider) {
+      brainReason = "Evacuating immediately to the safety of the Eye of the Storm!";
+    } else if (activeJobType === 'Sleep') {
+      brainReason = stats.fatigue < 40 ? "Sleeping because completely exhausted and fatigued." : "Sleeping because night has fallen and safe rest is required.";
+    } else if (activeJobType === 'Drink') {
+      brainReason = "Collecting and drinking water because thirsty.";
+    } else if (activeJobType === 'Eat') {
+      brainReason = "Heading to eat because extremely hungry.";
+    } else if (activeJobType === 'Heal') {
+      brainReason = "Treating and applying medicine to an injured companion.";
+    } else if (activeJobType === 'CraftMedicine') {
+      brainReason = "Brewing medicine from wild ingredients to restock the medical cache.";
+    } else if (activeJobType === 'Gather') {
+      brainReason = "Felling trees or quarrying stones to supply the colony stockpiles.";
+    } else if (activeJobType === 'Hunt') {
+      const isFisherman = (agent as any).huntSubJob === 'fish';
+      const isWaterWell = (agent as any).huntSubJob === 'water';
+      brainReason = isFisherman 
+        ? "Catching fish to satisfy tribal food needs." 
+        : isWaterWell 
+          ? "Interacting with the well to gather clear water." 
+          : "Stalking and hunting wild game to feed the village.";
+    } else if (activeJobType === 'Build') {
+      brainReason = "Constructing planned shelters and defenses for the colony.";
+    } else if (activeJobType === 'Farm') {
+      brainReason = "Sowing seeds and tending fields to ensure a long-term crop harvest.";
+    } else if (activeJobType === 'Scout') {
+      brainReason = "Scouting unexplored wilderness or deciphering sky movements.";
+    } else if (activeJobType === 'Repair') {
+      brainReason = "Maintaining and repairing structures to keep the camp secure.";
+    } else if (activeJobType === 'Haul') {
+      brainReason = "Hauling resources or organizing stockpile piles to keep warehouse clean.";
+    } else if (agent.isManualDirectTask) {
+      brainReason = "Following explicit direct player command.";
+    }
+
+    let pathStatus: 'Idle' | 'Moving' | 'Arrived' | 'Blocked' | 'Stuck' = 'Idle';
+    if (activeJobType && jobTargetCoords) {
+      const distance = Math.sqrt((jobTargetCoords.x - x) ** 2 + (jobTargetCoords.z - z) ** 2);
+      pathStatus = distance < 0.6 ? 'Arrived' : 'Moving';
+    } else {
+      const dist = Math.sqrt((agent.targetX - x) ** 2 + (agent.targetZ - z) ** 2);
+      pathStatus = dist > 0.4 ? 'Moving' : 'Idle';
+    }
+
     return {
       ...agent,
       x,
@@ -4030,9 +4001,23 @@ export function tickTribeSimulation(
       jobTargetCoords,
       workProgress,
       isManualDirectTask: (activeJobType && activeJobType !== 'Haul') ? agent.isManualDirectTask : false,
+      isGettingUp,
+      gettingUpProgress,
+      wasResting: finalIsResting,
       carriage,
       personalInventory,
       personality,
+      brainReason,
+      pathStatus,
+      needsPriorities: agent.needsPriorities || [
+        { name: 'Hunger', value: Math.round(stats.hunger) },
+        { name: 'Thirst', value: Math.round(stats.thirst) },
+        { name: 'Fatigue', value: Math.round(stats.fatigue) },
+        { name: 'Morale', value: Math.round(stats.morale) },
+        { name: 'Health', value: Math.round(stats.health) },
+      ],
+      blockedActions: agent.blockedActions || [],
+      topActions: agent.topActions || [],
       relationships: tempRelationships,
       skills: { ...agent.skills },
       aiTickTimer,

@@ -21,7 +21,10 @@ import {
   Info,
   ChevronRight,
   Download,
-  AlertOctagon
+  AlertOctagon,
+  Clock,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { CellInfo, WorldConfig, TimeSpeed, Tribesperson, TribespersonRole, JobCategory, JobPriority, RECIPE_DATABASE, Recipe, CraftingJob, MapData } from './types';
 import { generateWorld, updateWorldChunkLoading } from './utils/worldBuilder';
@@ -39,6 +42,8 @@ import { tickAIDirector } from './utils/aiDirector';
 import { DirectorDebugPanel } from './components/DirectorDebugPanel';
 import { DirectorEventModal } from './components/DirectorEventModal';
 import { populateInitialMapAnimals } from './utils/ecosystemEngine';
+import { getSpatialIndex } from './utils/spatialIndex';
+import CraftingHub from './components/CraftingHub';
 
 
 const INITIAL_WORLD_SEED = Math.floor(Math.random() * 8999) + 1000;
@@ -130,6 +135,38 @@ export default function App() {
   const [selectedCell, setSelectedCell] = useState<CellInfo | null>(null);
   const [relocatingStructure, setRelocatingStructure] = useState<{ x: number; z: number } | null>(null);
 
+  // Synchronize selectedCell in real-time with the live grid to prevent Inspector stale UI
+  useEffect(() => {
+    if (selectedCell && mapData?.grid) {
+      const freshCell = mapData.grid[selectedCell.x]?.[selectedCell.z];
+      if (freshCell) {
+        const structType = freshCell.structure?.type;
+        const constType = freshCell.construction?.type;
+        const constProg = freshCell.construction?.progress;
+        const prevStructType = selectedCell.structure?.type;
+        const prevConstType = selectedCell.construction?.type;
+        const prevConstProg = selectedCell.construction?.progress;
+
+        if (
+          structType !== prevStructType ||
+          constType !== prevConstType ||
+          constProg !== prevConstProg ||
+          freshCell.hasTree !== selectedCell.hasTree ||
+          freshCell.hasRock !== selectedCell.hasRock ||
+          freshCell.hasShrub !== selectedCell.hasShrub ||
+          freshCell.scouted !== selectedCell.scouted ||
+          freshCell.resourceNode?.amount !== selectedCell.resourceNode?.amount ||
+          freshCell.itemsOnGround?.amount !== selectedCell.itemsOnGround?.amount ||
+          freshCell.farmCrop?.stage !== selectedCell.farmCrop?.stage
+        ) {
+          setSelectedCell(freshCell);
+        }
+      } else {
+        setSelectedCell(null);
+      }
+    }
+  }, [mapData, selectedCell]);
+
   // 4. Tribe Simulation states
   const [tribe, setTribe] = useState<Tribesperson[]>([]);
   const tribeRef = useRef<Tribesperson[]>([]);
@@ -147,10 +184,12 @@ export default function App() {
 
   // Creative Mode and ONI-style Care Package states
   const [isCreativeMode, setIsCreativeMode] = useState(false);
+  const [isEventWindowCollapsed, setIsEventWindowCollapsed] = useState(false);
   const [nextCarePackageDay, setNextCarePackageDay] = useState(1);
   const [showCarePackagePopup, setShowCarePackagePopup] = useState(false);
   const [carePackageOptions, setCarePackageOptions] = useState<any[]>([]);
   const [showOracleHub, setShowOracleHub] = useState(false);
+  const [showCraftingModal, setShowCraftingModal] = useState(false);
 
   // Toggle Creative settings
   const toggleCreativeMode = (enabled: boolean) => {
@@ -639,7 +678,15 @@ export default function App() {
               const currentLvl = currentOracle ? (currentOracle.skills.Healer?.level ?? 1) : study.oracleHealerLevel;
               const studyRate = 1.0 + (currentLvl - 1) * 0.15;
               
-              study.daysProgress += deltaDays * studyRate;
+              // Only progress study if Oracle has physically arrived at the research station
+              const isArrived = currentOracle && 
+                                currentOracle.activeJobType === 'StudyRelic' && 
+                                currentOracle.jobTargetCoords && 
+                                Math.sqrt((currentOracle.x - currentOracle.jobTargetCoords.x) ** 2 + (currentOracle.z - currentOracle.jobTargetCoords.z) ** 2) < 0.8;
+
+              if (isArrived) {
+                study.daysProgress += deltaDays * studyRate;
+              }
               
               if (study.daysProgress >= study.totalDaysRequired) {
                 if (study.rewardType === 'rp') {
@@ -695,8 +742,8 @@ export default function App() {
                 else finalDist = Math.max(22, Math.min(42, finalDist));
 
                 curAngle += (Math.random() - 0.5) * 0.6;
-                curX = Math.max(4, Math.min(size - 4, curX + Math.cos(curAngle) * finalDist));
-                curZ = Math.max(4, Math.min(size - 4, curZ + Math.sin(curAngle) * finalDist));
+                curX = Math.max(14.5, Math.min(5000.0, curX + Math.cos(curAngle) * finalDist));
+                curZ = Math.max(14.5, Math.min(5000.0, curZ + Math.sin(curAngle) * finalDist));
                 futureEyePath.push({ x: parseFloat(curX.toFixed(1)), z: parseFloat(curZ.toFixed(1)) });
               }
               nextMap.futureEyePath = futureEyePath;
@@ -707,12 +754,25 @@ export default function App() {
 
             if (!isDeityPaused) {
               if (nextMap.eyeMovementState === 'stable') {
+                if (nextMap.eyeAnchorPos === undefined) {
+                  nextMap.eyeAnchorPos = { x: nextMap.eyePos.x, z: nextMap.eyePos.z };
+                }
+
+                // Slow, organic drift around anchor position (up to 2.0 blocks)
+                const driftTime = (nextMap.gameDaysPlayed ?? 0) * Math.PI * 0.15;
+                const driftX = Math.sin(driftTime) * 2.0;
+                const driftZ = Math.cos(driftTime * 0.7) * 2.0;
+
+                nextMap.eyePos.x = nextMap.eyeAnchorPos.x + driftX;
+                nextMap.eyePos.z = nextMap.eyeAnchorPos.z + driftZ;
+
                 if (nextMap.stormDaysUntilMigration !== undefined) {
                   const previousDays = prevMap.stormDaysUntilMigration ?? 12;
                   nextMap.stormDaysUntilMigration -= deltaDays;
                   
                   if (previousDays > 0 && nextMap.stormDaysUntilMigration <= 0) {
                     if (nextMap.futureEyePath && nextMap.futureEyePath.length > 0) {
+                      nextMap.eyeAnchorPos = undefined; // Reset anchor for next landing
                       nextMap.eyeTargetPos = nextMap.futureEyePath[0];
                       nextMap.futureEyePath.shift();
                       nextMap.eyeMovementState = 'migrating';
@@ -732,7 +792,7 @@ export default function App() {
                   nextMap.caravanPos = { x: nextMap.eyePos.x, z: nextMap.eyePos.z };
                   setFocusCoordinates({ x: nextMap.eyePos.x, z: nextMap.eyePos.z });
                   
-                  if (dist <= moveDist || nextMap.eyePos.x >= nextMap.grid.length - 2.5) {
+                  if (dist <= moveDist || nextMap.eyePos.x >= nextMap.grid.length - 15.0) {
                     nextMap.triggerMigrationComplete = true;
                   }
                 }
@@ -756,15 +816,16 @@ export default function App() {
                 if (dist <= moveDist) {
                   nextMap.eyePos = { ...nextMap.eyeTargetPos };
                   nextMap.eyeMovementState = 'stable';
+                  nextMap.eyeAnchorPos = { ...nextMap.eyeTargetPos }; // Anchor here
                   nextMap.eyeTargetPos = undefined;
                   
                   const daysVal = nextMap.gameDaysPlayed ?? 0;
                   if (daysVal < 5) {
-                    nextMap.stormDaysUntilMigration = 10 + Math.floor(Math.random() * 5); // 10-14 days for early game
+                    nextMap.stormDaysUntilMigration = 35 + Math.floor(Math.random() * 10); // 35-45 days for early game
                   } else if (daysVal < 15) {
-                    nextMap.stormDaysUntilMigration = 8 + Math.floor(Math.random() * 5);  // 8-12 days for mid game
+                    nextMap.stormDaysUntilMigration = 30 + Math.floor(Math.random() * 10); // 30-40 days for mid game
                   } else {
-                    nextMap.stormDaysUntilMigration = 6 + Math.floor(Math.random() * 4);  // 6-9 days for late game
+                    nextMap.stormDaysUntilMigration = 25 + Math.floor(Math.random() * 10); // 25-35 days for late game
                   }
                   
                   const size = nextMap.grid.length;
@@ -784,8 +845,8 @@ export default function App() {
                   else if (daysVal < 15) finalDist = Math.max(15, Math.min(28, finalDist));
                   else finalDist = Math.max(22, Math.min(42, finalDist));
 
-                  const nextX = Math.max(4, Math.min(size - 4, lastWp.x + Math.cos(curAngle) * finalDist));
-                  const nextZ = Math.max(4, Math.min(size - 4, lastWp.z + Math.sin(curAngle) * finalDist));
+                  const nextX = Math.max(14.5, Math.min(5000.0, lastWp.x + Math.cos(curAngle) * finalDist));
+                  const nextZ = Math.max(14.5, Math.min(5000.0, lastWp.z + Math.sin(curAngle) * finalDist));
                   if (!nextMap.futureEyePath) nextMap.futureEyePath = [];
                   nextMap.futureEyePath.push({ x: parseFloat(nextX.toFixed(1)), z: parseFloat(nextZ.toFixed(1)) });
 
@@ -806,6 +867,47 @@ export default function App() {
               if (nextMap.stockpile.mushroomsFresh > 0) nextMap.stockpile.mushroomsFresh = Math.max(0, nextMap.stockpile.mushroomsFresh - deltaDays * 45.0);
             }
 
+            // 1.75 ACTIVE PLAYER TRIBE RESOURCE CONSUMPTION
+            const aliveTribeSize = tribeRef.current.filter(p => p.isAlive).length;
+            if (aliveTribeSize > 0) {
+              const dailyFoodPerPerson = 1.0;
+              const dailyWaterPerPerson = 1.0;
+              const totalFoodToConsume = dailyFoodPerPerson * aliveTribeSize * deltaDays;
+              const totalWaterToConsume = dailyWaterPerPerson * aliveTribeSize * deltaDays;
+
+              // Consume food starting with most perishable or common: berries, mushrooms, roots, meat
+              let remainingFoodToConsume = totalFoodToConsume;
+              const foodTypes: ('berries' | 'mushrooms' | 'roots' | 'meat')[] = ['berries', 'mushrooms', 'roots', 'meat'];
+              for (const type of foodTypes) {
+                const qty = nextMap.stockpile[type] || 0;
+                if (qty > 0) {
+                  const consumeAmount = Math.min(qty, remainingFoodToConsume);
+                  nextMap.stockpile[type] = parseFloat((qty - consumeAmount).toFixed(2));
+                  remainingFoodToConsume -= consumeAmount;
+                }
+              }
+
+              // Consume water: rainwater, dew, reservoirWater
+              let remainingWaterToConsume = totalWaterToConsume;
+              const waterTypes: ('rainwater' | 'dew' | 'reservoirWater')[] = ['rainwater', 'dew', 'reservoirWater'];
+              for (const type of waterTypes) {
+                const qty = nextMap.stockpile[type] || 0;
+                if (qty > 0) {
+                  const consumeAmount = Math.min(qty, remainingWaterToConsume);
+                  nextMap.stockpile[type] = parseFloat((qty - consumeAmount).toFixed(2));
+                  remainingWaterToConsume -= consumeAmount;
+                }
+              }
+
+              // Keep main food total synchronized
+              nextMap.stockpile.food = parseFloat((
+                (nextMap.stockpile.berries || 0) +
+                (nextMap.stockpile.roots || 0) +
+                (nextMap.stockpile.mushrooms || 0) +
+                (nextMap.stockpile.meat || 0)
+              ).toFixed(2));
+            }
+
             // 1.8 OFF-SCREEN VILLAGE SIMULATION & PHYSICAL VISITOR TICKS
             const currentDays = (gameDaysRef.current ?? 0.40) + deltaDays;
             nextMap.gameDaysPlayed = currentDays;
@@ -824,6 +926,26 @@ export default function App() {
             if (Math.floor(currentDays) > lastCheckDay) {
               nextMap.lastVisitorCheckDay = Math.floor(currentDays);
               
+              // Daily warning logs for critical food or water levels
+              const activeTribeCount = tribeRef.current.filter(p => p.isAlive).length;
+              if (activeTribeCount > 0) {
+                const totalWaterRemaining = (nextMap.stockpile.rainwater || 0) + (nextMap.stockpile.dew || 0) + (nextMap.stockpile.reservoirWater || 0);
+                const daysFoodLeft = (nextMap.stockpile.food || 0) / activeTribeCount;
+                const daysWaterLeft = totalWaterRemaining / activeTribeCount;
+
+                if (nextMap.stockpile.food <= 0) {
+                  addLog(`💀 FAMINE OVERHEAD: The tribe is starving! Zero food remains in stockpile. Health will deteriorate rapidly unless food is secured!`, 'warning');
+                } else if (daysFoodLeft < 2.0) {
+                  addLog(`⚠️ CRITICAL FOOD SUPPLY: Only ${(nextMap.stockpile.food || 0).toFixed(0)} units of food left (${daysFoodLeft.toFixed(1)} days of supply). Assign Gatherers or Hunters!`, 'warning');
+                }
+
+                if (totalWaterRemaining <= 0) {
+                  addLog(`💀 DEHYDRATION CRISIS: The tribe's water supply has completely run dry! Build wells or collect rainwater before they collapse!`, 'warning');
+                } else if (daysWaterLeft < 2.0) {
+                  addLog(`⚠️ CRITICAL WATER SUPPLY: Only ${totalWaterRemaining.toFixed(0)} units of water left (${daysWaterLeft.toFixed(1)} days of supply). Set up rain catchers or wells!`, 'warning');
+                }
+              }
+
               // Only spawn new visitor group if the previous group departed
               if (!nextMap.activeVisitorGroup) {
                 const visitorGroup = rollDailyVisitorArrival(currentDays, nextMap.knownVillages || []);
@@ -913,25 +1035,11 @@ export default function App() {
               nextMap.activeTradeCaravans = updatedCaravans;
             }
 
-            // 2. Accumulate Research Points Passively
-            let machinesCount = 0;
-            let precursorGenerators = 0;
-            let petrifiedGreenhouses = 0;
-            for (let r = 0; r < nextMap.grid.length; r++) {
-              if (!nextMap.grid[r]) continue;
-              for (let c = 0; c < nextMap.grid[r].length; c++) {
-                const struct = nextMap.grid[r][c]?.structure;
-                if (struct) {
-                  if (struct.type === 'ScienceMachine') {
-                    machinesCount++;
-                  } else if (struct.type === 'PrecursorGenerator') {
-                    precursorGenerators++;
-                  } else if (struct.type === 'PetrifiedGreenhouse') {
-                    petrifiedGreenhouses++;
-                  }
-                }
-              }
-            }
+            // 2. Accumulate Research Points Passively via Spatial Index
+            const spatial = getSpatialIndex(nextMap);
+            const machinesCount = (spatial.structuresByType['ScienceMachine'] || []).length;
+            const precursorGenerators = (spatial.structuresByType['PrecursorGenerator'] || []).length;
+            const petrifiedGreenhouses = (spatial.structuresByType['PetrifiedGreenhouse'] || []).length;
             
             // Also Artisans add a minor research boost
             const researcherBonus = tribeRef.current.filter(p => p.isAlive && p.role === 'Artisan').length * 0.4;
@@ -978,7 +1086,7 @@ export default function App() {
                     const dx = p.x - eyeX;
                     const dz = p.z - eyeZ;
                     const distSq = dx * dx + dz * dz;
-                    const isOutsideEye = distSq > eyeRadiusSq;
+                    const isOutsideEye = distSq > (eyeRadius + 1.5) * (eyeRadius + 1.5);
 
                     const isScoutOrStormrider = 
                       p.role === 'Scout' && (p.skills?.Scout?.level ?? 1) >= 5;
@@ -1219,7 +1327,68 @@ export default function App() {
         }
       }
 
+      if (nextMap.spatialIndex) {
+        nextMap.spatialIndex.dirty = true;
+      }
+      nextMap.forceJobReevaluation = (nextMap.forceJobReevaluation ?? 0) + 1;
       return nextMap;
+    });
+
+    const isCropPlot = ['Wheat', 'AmberMaize', 'VortexCabbage', 'Gemberries', 'Stormroot', 'Pumpkin'].includes(type);
+    const targetJob = isCropPlot ? 'Farm' : 'Build';
+
+    setTribe((prevTribe) => {
+      const living = prevTribe.filter(p => p.isAlive);
+      if (living.length === 0) return prevTribe;
+
+      const ranked = [...living].sort((a, b) => {
+        const lvlA = targetJob === 'Build' ? (a.skills.Builder?.level ?? 1) : (a.skills.Farmer?.level ?? 1);
+        const lvlB = targetJob === 'Build' ? (b.skills.Builder?.level ?? 1) : (b.skills.Farmer?.level ?? 1);
+
+        const roleBonusA = targetJob === 'Build' ? (a.role === 'Builder' ? 50 : 0) : (a.role === 'Farmer' ? 50 : 0);
+        const roleBonusB = targetJob === 'Build' ? (b.role === 'Builder' ? 50 : 0) : (b.role === 'Farmer' ? 50 : 0);
+
+        const stateA = (a.activeJobType !== 'Sleep' && a.stats.fatigue > 15) ? 100 : 0;
+        const stateB = (b.activeJobType !== 'Sleep' && b.stats.fatigue > 15) ? 100 : 0;
+
+        const distA = Math.hypot(a.x - x, a.z - z);
+        const distB = Math.hypot(b.x - x, b.z - z);
+
+        const scoreA = (lvlA * 100) + roleBonusA + stateA - distA;
+        const scoreB = (lvlB * 100) + roleBonusB + stateB - distB;
+
+        return scoreB - scoreA;
+      });
+
+      if (ranked.length === 0) return prevTribe;
+
+      const leadWorker = ranked[0];
+      const leadLvl = targetJob === 'Build' ? (leadWorker.skills.Builder?.level ?? 1) : (leadWorker.skills.Farmer?.level ?? 1);
+
+      // Select lead + up to 2 helper assistants
+      const helpers = ranked.slice(0, Math.min(3, ranked.length));
+      const helperIds = new Set(helpers.map(h => h.id));
+
+      addLog(`🏗️ Task Assigned: ${targetJob === 'Build' ? 'Builder' : 'Farmer'} ${leadWorker.name} (Level ${leadLvl}) ${helpers.length > 1 ? `and ${helpers.length - 1} assistant(s)` : ''} assigned to [${x}, ${z}]!`, 'success');
+
+      return prevTribe.map((p) => {
+        if (helperIds.has(p.id)) {
+          const isLead = p.id === leadWorker.id;
+          return {
+            ...p,
+            activeJobType: targetJob as any,
+            jobTargetCoords: { x, z },
+            targetX: x,
+            targetZ: z,
+            workProgress: 0,
+            isManualDirectTask: true,
+            statusText: isLead
+              ? `🔨 ${targetJob === 'Build' ? 'Constructing' : 'Farming'} at [${x}, ${z}]`
+              : `🤝 Assisting ${leadWorker.name} with ${targetJob} at [${x}, ${z}]`
+          };
+        }
+        return p;
+      });
     });
 
     addLog(`🏗️ Placed blueprint: ${type} at [${x}, ${z}]. Cost: ${woodCost} wood, ${stoneCost} stone, ${foodCost} food deducted.`, "info");
@@ -1731,18 +1900,30 @@ export default function App() {
         setTribe((prevTribe) => {
           const living = prevTribe.filter(p => p.isAlive);
           if (living.length === 0) return prevTribe;
-          const activeGatherers = living.filter(p => p.priorities.Gather > 0);
-          const candidates = activeGatherers.length > 0 ? activeGatherers : living;
-          const sorted = [...candidates].sort((a, b) => {
-            const priA = a.priorities.Gather || 99;
-            const priB = b.priorities.Gather || 99;
-            const scoreA = priA * 10 + Math.sqrt((a.x - x) ** 2 + (a.z - z) ** 2);
-            const scoreB = priB * 10 + Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
-            return scoreA - scoreB;
+          const ranked = [...living].sort((a, b) => {
+            const isMine = actionId === 'mineOre' || actionId === 'gatherStone';
+            const lvlA = isMine ? (a.skills.Artisan?.level ?? a.skills.Gatherer?.level ?? 1) : (a.skills.Gatherer?.level ?? 1);
+            const lvlB = isMine ? (b.skills.Artisan?.level ?? b.skills.Gatherer?.level ?? 1) : (b.skills.Gatherer?.level ?? 1);
+
+            const roleA = isMine ? (a.role === 'Artisan' || a.role === 'Gatherer' ? 50 : 0) : (a.role === 'Gatherer' ? 50 : 0);
+            const roleB = isMine ? (b.role === 'Artisan' || b.role === 'Gatherer' ? 50 : 0) : (b.role === 'Gatherer' ? 50 : 0);
+
+            const stateA = (a.activeJobType !== 'Sleep' && a.stats.fatigue > 15) ? 100 : 0;
+            const stateB = (b.activeJobType !== 'Sleep' && b.stats.fatigue > 15) ? 100 : 0;
+
+            const distA = Math.hypot(a.x - x, a.z - z);
+            const distB = Math.hypot(b.x - x, b.z - z);
+
+            return ((lvlB * 100) + roleB + stateB - distB) - ((lvlA * 100) + roleA + stateA - distA);
           });
-          const best = sorted[0];
-          addLog(`🏃‍♂️ Dispatch Order: Directing closest Gatherer (${best.name}) to harvest resources at [${x}, ${z}] immediately!`, 'success');
-          return prevTribe.map(p => p.id === best.id ? {
+
+          const lead = ranked[0];
+          const helpers = ranked.slice(0, Math.min(3, ranked.length));
+          const helperIds = new Set(helpers.map(h => h.id));
+
+          addLog(`🏃‍♂️ Gather Order: Dispatched highest level Gatherer (${lead.name}) and team to harvest [${x}, ${z}]!`, 'success');
+
+          return prevTribe.map(p => helperIds.has(p.id) ? {
             ...p,
             activeJobType: 'Gather' as const,
             jobTargetCoords: { x, z },
@@ -1750,25 +1931,38 @@ export default function App() {
             targetZ: z,
             workProgress: 0,
             isManualDirectTask: true,
-            statusText: `🏃‍♂️ Manual Order: Gathering at [${x}, ${z}]`
+            statusText: p.id === lead.id
+              ? `🏃‍♂️ Gathering resources at [${x}, ${z}]`
+              : `🤝 Assisting ${lead.name} gathering at [${x}, ${z}]`
           } : p);
         });
-      } else if (['designateHunt', 'designateCapture'].includes(actionId)) {
+      } else if (['designateHunt', 'designateCapture', 'tameManualPet'].includes(actionId)) {
         setTribe((prevTribe) => {
           const living = prevTribe.filter(p => p.isAlive);
           if (living.length === 0) return prevTribe;
-          const activeHunters = living.filter(p => p.priorities.Hunt > 0);
-          const candidates = activeHunters.length > 0 ? activeHunters : living;
-          const sorted = [...candidates].sort((a, b) => {
-            const priA = a.priorities.Hunt || 99;
-            const priB = b.priorities.Hunt || 99;
-            const scoreA = priA * 10 + Math.sqrt((a.x - x) ** 2 + (a.z - z) ** 2);
-            const scoreB = priB * 10 + Math.sqrt((b.x - x) ** 2 + (b.z - z) ** 2);
-            return scoreA - scoreB;
+          const ranked = [...living].sort((a, b) => {
+            const lvlA = a.skills.Hunter?.level ?? 1;
+            const lvlB = b.skills.Hunter?.level ?? 1;
+
+            const roleA = a.role === 'Hunter' ? 50 : 0;
+            const roleB = b.role === 'Hunter' ? 50 : 0;
+
+            const stateA = (a.activeJobType !== 'Sleep' && a.stats.fatigue > 15) ? 100 : 0;
+            const stateB = (b.activeJobType !== 'Sleep' && b.stats.fatigue > 15) ? 100 : 0;
+
+            const distA = Math.hypot(a.x - x, a.z - z);
+            const distB = Math.hypot(b.x - x, b.z - z);
+
+            return ((lvlB * 100) + roleB + stateB - distB) - ((lvlA * 100) + roleA + stateA - distA);
           });
-          const best = sorted[0];
-          addLog(`🏹 Strike Order: Dispatched closest Hunter (${best.name}) to tackle wild game at [${x}, ${z}] immediately!`, 'success');
-          return prevTribe.map(p => p.id === best.id ? {
+
+          const lead = ranked[0];
+          const helpers = ranked.slice(0, Math.min(2, ranked.length));
+          const helperIds = new Set(helpers.map(h => h.id));
+
+          addLog(`🏹 Strike Order: Dispatched highest level Hunter (${lead.name}, Level ${lead.skills.Hunter?.level ?? 1}) to tackle target at [${x}, ${z}]!`, 'success');
+
+          return prevTribe.map(p => helperIds.has(p.id) ? {
             ...p,
             activeJobType: 'Hunt' as const,
             jobTargetCoords: { x, z },
@@ -1776,7 +1970,9 @@ export default function App() {
             targetZ: z,
             workProgress: 0,
             isManualDirectTask: true,
-            statusText: `🏹 Manual Order: Hunting/Capturing at [${x}, ${z}]`
+            statusText: p.id === lead.id
+              ? `🏹 Hunting/Capturing at [${x}, ${z}]`
+              : `🤝 Assisting ${lead.name} with hunt at [${x}, ${z}]`
           } : p);
         });
       }
@@ -2208,7 +2404,7 @@ export default function App() {
       nextMap.isPackingCaravan = false;
       nextMap.packingProgress = 0;
       nextMap.caravanPos = { x: nextMap.eyePos?.x ?? 25, z: nextMap.eyePos?.z ?? 25 };
-      nextMap.eyeTargetPos = { x: nextMap.grid.length - 1, z: nextMap.grid.length - 1 };
+      nextMap.eyeTargetPos = { x: nextMap.grid.length - 14.5, z: nextMap.grid.length - 14.5 };
       nextMap.eyeMovementState = 'migrating';
       nextMap.deityModeOverrideSpeed = 10.0; // speed up storm eye movement!
       return nextMap;
@@ -2435,6 +2631,21 @@ export default function App() {
       // Execute transfer
       (nextMap.stockpile as any)[itemKey] -= moveQty;
       nextMap.caravanInventory.items[itemKey] = (nextMap.caravanInventory.items[itemKey] || 0) + moveQty;
+
+      // Recalculate caravan current weight and volume based on its items
+      let totalW = 0;
+      let totalV = 0;
+      Object.entries(nextMap.caravanInventory.items).forEach(([k, qty]) => {
+        const q = qty as number;
+        totalW += getUnitWeight(k) * q;
+        totalV += getUnitVolume(k) * q;
+      });
+      nextMap.caravanInventory.currentWeight = Math.round(totalW * 10) / 10;
+      nextMap.caravanInventory.currentVolume = Math.round(totalV * 10) / 10;
+
+      // Keep food synchronized (handling undefined values safely)
+      nextMap.stockpile.food = (nextMap.stockpile.berries || 0) + (nextMap.stockpile.roots || 0) + (nextMap.stockpile.mushrooms || 0) + (nextMap.stockpile.meat || 0);
+
       addLog(`📦 Logistics: Loaded ${moveQty}x ${itemKey} onto Caravan Storage Cart.`, 'info');
       return nextMap;
     });
@@ -2455,6 +2666,21 @@ export default function App() {
       // Execute transfer
       nextMap.caravanInventory.items[itemKey] -= moveQty;
       (nextMap.stockpile as any)[itemKey] = ((nextMap.stockpile as any)[itemKey] || 0) + moveQty;
+
+      // Recalculate caravan current weight and volume based on its items
+      let totalW = 0;
+      let totalV = 0;
+      Object.entries(nextMap.caravanInventory.items).forEach(([k, qty]) => {
+        const q = qty as number;
+        totalW += getUnitWeight(k) * q;
+        totalV += getUnitVolume(k) * q;
+      });
+      nextMap.caravanInventory.currentWeight = Math.round(totalW * 10) / 10;
+      nextMap.caravanInventory.currentVolume = Math.round(totalV * 10) / 10;
+
+      // Keep food synchronized (handling undefined values safely)
+      nextMap.stockpile.food = (nextMap.stockpile.berries || 0) + (nextMap.stockpile.roots || 0) + (nextMap.stockpile.mushrooms || 0) + (nextMap.stockpile.meat || 0);
+
       addLog(`📦 Logistics: Unloaded ${moveQty}x ${itemKey} into Central Village Stockpile storage bins.`, 'info');
       return nextMap;
     });
@@ -2591,14 +2817,147 @@ export default function App() {
           {/* Performance telemetry diagnostics panel HUD */}
           <PerformancePanel mapData={mapData} tribe={tribe} />
 
-          {/* AI Director Debug & Control panel overlay */}
-          <DirectorDebugPanel 
-            mapData={mapData}
-            setMapData={setMapData}
-            tribe={tribe}
-            setTribe={setTribe}
-            addLog={addLog}
-          />
+          {/* AI Director Debug & Control panel overlay (Deity Mode Only) */}
+          {isCreativeMode && (
+            <DirectorDebugPanel 
+              mapData={mapData}
+              setMapData={setMapData}
+              tribe={tribe}
+              setTribe={setTribe}
+              addLog={addLog}
+            />
+          )}
+
+          {/* Survival Mode Chronos Active Events HUD Window (Collapsible, Bottom-Left) */}
+          {!isCreativeMode && mapData.aiDirector?.activeEvent && !mapData.aiDirector.activeEvent.resolved && (() => {
+            const activeEvent = mapData.aiDirector.activeEvent;
+            const currentDay = mapData.gameDaysPlayed ?? 0.40;
+            const duration = activeEvent.event.durationDays ?? 1.5;
+            const triggeredAt = activeEvent.triggeredDay ?? 0;
+            const expiresAt = activeEvent.expiresDay ?? (triggeredAt + duration);
+            const timeLeftDays = Math.max(0, expiresAt - currentDay);
+            const hoursLeft = timeLeftDays * 24;
+            const displayHours = Math.floor(hoursLeft);
+            const displayMins = Math.floor((hoursLeft % 1) * 60);
+
+            if (isEventWindowCollapsed) {
+              return (
+                <div 
+                  id="chronos-active-events-window-collapsed"
+                  onClick={() => setIsEventWindowCollapsed(false)}
+                  className="fixed bottom-4 left-4 z-40 pointer-events-auto cursor-pointer bg-slate-900/95 hover:bg-slate-850/95 border border-[#cfad8c]/40 rounded-xl p-3 shadow-2xl text-slate-100 flex items-center justify-between gap-3 font-sans transition-all duration-300 animate-fade-in w-72"
+                >
+                  <div className="flex items-center gap-2 overflow-hidden">
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[8px] font-mono uppercase tracking-wider text-[#cfad8c]/80">Active Event</span>
+                      <span className="text-[10px] font-bold text-white truncate leading-tight">{activeEvent.event.name}</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsEventWindowCollapsed(false);
+                    }}
+                    className="p-1 hover:bg-slate-800 rounded text-[#cfad8c]"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                </div>
+              );
+            }
+
+            return (
+              <div 
+                id="chronos-active-events-window"
+                className="fixed bottom-4 left-4 z-40 pointer-events-auto w-72 bg-slate-900/95 border border-[#cfad8c]/30 rounded-2xl p-4 shadow-2xl text-slate-100 flex flex-col gap-3 font-sans transition-all duration-300 animate-fade-in"
+              >
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-[#cfad8c] font-bold">
+                      Chronos Active Event
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-[9px] font-mono text-slate-400 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                      1 ACTIVE
+                    </div>
+                    <button 
+                      onClick={() => setIsEventWindowCollapsed(true)}
+                      className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white"
+                      title="Collapse Panel"
+                    >
+                      <ChevronDown size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1 bg-slate-950/45 p-2.5 rounded-xl border border-slate-800/40">
+                  <span className="text-[11px] font-bold text-white leading-tight">
+                    {activeEvent.event.name}
+                  </span>
+                  <span className="text-[9px] text-[#cfad8c] font-mono uppercase tracking-wider">
+                    {activeEvent.event.category}
+                  </span>
+                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed line-clamp-2">
+                    {activeEvent.event.description}
+                  </p>
+                </div>
+
+                {/* Timer progress bar and remaining countdown */}
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <div className="flex justify-between items-center text-[10px] font-mono">
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <Clock size={11} className="text-slate-500" />
+                      Time Remaining:
+                    </span>
+                    <span className={`font-bold ${timeLeftDays < 0.3 ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`}>
+                      {displayHours}h {displayMins}m
+                    </span>
+                  </div>
+                  
+                  {/* Visual progress bar */}
+                  <div className="w-full bg-slate-950 rounded-full h-1.5 border border-slate-850 overflow-hidden">
+                    <div 
+                      className={`h-full rounded-full transition-all duration-500 ${
+                        (timeLeftDays / duration) < 0.3 ? 'bg-gradient-to-r from-rose-600 to-rose-400' : 'bg-gradient-to-r from-amber-500 to-yellow-400'
+                      }`}
+                      style={{ width: `${Math.max(0, Math.min(100, (timeLeftDays / duration) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setMapData((prev) => {
+                      const nextMap = { ...prev };
+                      if (nextMap.aiDirector && nextMap.aiDirector.activeEvent) {
+                        nextMap.aiDirector = {
+                          ...nextMap.aiDirector,
+                          activeEvent: {
+                            ...nextMap.aiDirector.activeEvent,
+                            deferred: false,
+                          } as any
+                        };
+                      }
+                      return nextMap;
+                    });
+                  }}
+                  className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 active:scale-[0.98] text-slate-950 rounded-xl text-[10px] font-mono font-bold uppercase tracking-wider shadow-md transition-all cursor-pointer text-center"
+                  id="reopen-chronos-decision-btn"
+                >
+                  ⚠️ Open Decision Modal
+                </button>
+              </div>
+            );
+          })()}
 
           {/* AI Director Interactive Decision dialog overlay */}
           <DirectorEventModal
@@ -2631,6 +2990,7 @@ export default function App() {
             tribe={tribe}
             isCreativeMode={isCreativeMode}
             onOpenOracleHub={() => setShowOracleHub(true)}
+            onOpenCraftingModal={() => setShowCraftingModal(true)}
           />
 
           {/* Relocation Mode Active Prompt */}
@@ -3174,6 +3534,40 @@ export default function App() {
           />
         );
       })()}
+
+      {/* ARTISAN CRAFTING POPUP OVERLAY */}
+      {showCraftingModal && (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4 pointer-events-auto">
+          <div className="w-full max-w-3xl bg-slate-900/95 border border-slate-700/50 rounded-3xl p-6 shadow-2xl text-slate-100 flex flex-col max-h-[85vh] relative animate-fade-in overflow-hidden">
+            <button
+              onClick={() => setShowCraftingModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors cursor-pointer bg-slate-800/50 hover:bg-slate-800/80 p-2 rounded-full z-50 flex items-center justify-center w-8 h-8"
+            >
+              ✕
+            </button>
+            <div className="flex items-center gap-2 mb-4 border-b border-slate-800 pb-3">
+              <span className="text-xl">🛠️</span>
+              <div>
+                <h2 className="font-extrabold text-sm uppercase tracking-wider text-white">Artisan's Bench Crafting</h2>
+                <p className="text-[10px] text-slate-400">Queue up tool, weapon, defensive and luxury projects for your village artisans.</p>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto no-scrollbar pr-1">
+              <CraftingHub
+                mapData={mapData}
+                isNight={timeOfDay < 0.25 || timeOfDay > 0.75}
+                onStartCraft={handleStartCraft}
+                onCancelCraft={handleCancelCraft}
+                onResearch={handleResearch}
+                onStudyRelic={handleStudyRelic}
+                artisanCount={tribe ? tribe.filter(p => p.isAlive && p.role === 'Artisan').length : 0}
+                isCreativeMode={isCreativeMode}
+                onClose={() => setShowCraftingModal(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PAUSE MENU OVERLAY PANEL */}
       {showPauseMenu && !showMainMenu && (
